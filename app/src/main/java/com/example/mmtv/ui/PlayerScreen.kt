@@ -199,16 +199,15 @@ fun PlayerScreen(
     LaunchedEffect(overlayState) {
         when (overlayState) {
             OverlayState.CATEGORIES -> {
-                val currentCatTitle = categories.find { it.items.any { item -> item.id == media?.id } }?.title
-                val catIndex = categories.indexOfFirst { it.title == currentCatTitle }.coerceAtLeast(0)
-                categoryListState.scrollToItem(catIndex)
-                delay(50)
-                categoryFocusRequesters[catIndex]?.requestFocus()
+                val currentCategoryIndex = viewModel.lastLiveCategoryIndex.coerceAtLeast(0)
+                categoryListState.scrollToItem(currentCategoryIndex)
+                delay(100)
+                categoryFocusRequesters[currentCategoryIndex]?.requestFocus()
             }
             OverlayState.CHANNELS -> {
                 val index = playlist.indexOfFirst { it.id == media?.id }.coerceAtLeast(0)
                 channelListState.scrollToItem(index)
-                delay(50)
+                delay(100)
                 channelFocusRequesters[playlist.getOrNull(index)?.id ?: -1]?.requestFocus()
             }
             OverlayState.QUICK_INFO -> {

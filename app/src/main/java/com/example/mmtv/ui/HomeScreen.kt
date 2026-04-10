@@ -67,7 +67,7 @@ fun HomeScreen(
         ) {
             // Header Section
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 40.dp, bottom = 24.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 20.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -156,6 +156,8 @@ fun HomeScreen(
                     item { HomeCard("INSTÄLLNINGAR", Icons.Default.Settings) { onNavigate("settings") } }
                 }
             }
+            // Push everything up by adding a spacer at the bottom
+            Spacer(modifier = Modifier.weight(1f))
         }
 
         if (uiState.isLoading) {

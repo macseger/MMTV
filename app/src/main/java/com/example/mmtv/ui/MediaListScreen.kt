@@ -117,8 +117,8 @@ fun MediaListScreen(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(groupedList.size) { index ->
-                    val title = groupedList[index].title ?: "Kategori"
+                items(groupedList.size, key = { index -> groupedList[index].title ?: index }) { index ->
+                    val title = groupedList.getOrNull(index)?.title ?: "Kategori"
                     val requester = categoryFocusRequesters.getOrPut(index) { FocusRequester() }
                     CategoryItem(
                         title = title,
@@ -135,7 +135,6 @@ fun MediaListScreen(
                                 if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                                     val firstChannelId = groupedList.getOrNull(index)?.items?.firstOrNull()?.id
                                     if (firstChannelId != null) {
-                                        // Ge listan en minimal chans att rendera om (blixtsnabbt)
                                         channelFocusRequesters[firstChannelId]?.requestFocus()
                                         true
                                     } else false
@@ -168,7 +167,7 @@ fun MediaListScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
-                        items(selectedCategory.items) { media ->
+                        items(selectedCategory.items, key = { it.id }) { media ->
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
                             TvChannelItem(
                                 media = media,
@@ -195,18 +194,12 @@ fun MediaListScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(selectedCategory.items) { media ->
+                        items(selectedCategory.items, key = { it.id }) { media ->
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
                             MediaCard(
                                 media = media,
                                 modifier = Modifier
-                                    .focusRequester(requester)
-                                    .onKeyEvent {
-                                        if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                            categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
-                                            true
-                                        } else false
-                                    },
+                                    .focusRequester(requester),
                                 onClick = { onMediaSelected(media) }
                             )
                         }

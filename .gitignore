@@ -1,0 +1,43 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+# APKs and other build artifacts
+*.apk
+*.ap_
+*.dex
+# Java and Kotlin
+*.class
+# Log files
+*.log
+# Backup files
+*.bak
+# Android Studio
+.navigation/
+# Google Play Services
+/google-services.json
+# Android Studio 3.1.2+
+.idea/codeStyles/
+.idea/render.xml
+# Gradle
+.gradle/
+build/
+# Built APKs
+/app/build/
+# Keystore files
+*.jks
+*.keystore
+# External dependencies
+/node_modules
+/libs

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Mörk grund -->
+    <path
+        android:fillColor="#1A1A1A"
+        android:pathData="M15,25 h78 c6,0 12,6 12,12 v40 c0,6 -6,12 -12,12 h-78 c-6,0 -12,-6 -12,-12 v-40 c0,-6 6,-12 12,-12 z" />
+
+    <!-- Accent för topp-ram (Primary Blue) -->
+    <path
+        android:fillColor="#4A90E2"
+        android:pathData="M25,30 h58 v2 h-58 z" />
+
+    <!-- M M T V (Text som vektorgrafik för tydlighet) -->
+    <!-- M 1 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M22,42 v24 h4 v-16 l4,8 l4,-8 v16 h4 v-24 h-5 l-3,7 l-3,-7 z" />
+    <!-- M 2 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,42 v24 h4 v-16 l4,8 l4,-8 v16 h4 v-24 h-5 l-3,7 l-3,-7 z" />
+    <!-- T -->
+    <path
+        android:fillColor="#4A90E2"
+        android:pathData="M66,42 h14 v4 h-5 v20 h-4 v-20 h-5 z" />
+    <!-- V -->
+    <path
+        android:fillColor="#4A90E2"
+        android:pathData="M84,42 l4,24 h4 l4,-24 h-4 l-2,14 l-2,-14 z" />
+
+    <!-- Glansöverdrag -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:alpha="0.03"
+        android:pathData="M0,0 l108,108 v-108 z" />
+</vector>

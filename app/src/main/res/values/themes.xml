@@ -2,7 +2,7 @@
 <resources>
     <!-- Ändrat till ett mörkt tema för att slippa vit startskärm -->
     <style name="Theme.MMTV" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#0A1221</item>
+        <item name="android:windowBackground">#000000</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowFullscreen">true</item>
     </style>

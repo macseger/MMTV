@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Square background for Splash Screen -->
+    <path
+        android:fillColor="#000000"
+        android:pathData="M0,0 h108 v108 h-108 z" />
+
+    <!-- Scaled down version of the banner elements -->
+    <!-- "M M" -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M27,45 v20 h3 v-13 l3,7 l3,-7 v13 h3 v-20 h-4 l-2,6 l-2,-6 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M45,45 v20 h3 v-13 l3,7 l3,-7 v13 h3 v-20 h-4 l-2,6 l-2,-6 z" />
+
+    <!-- "T V" -->
+    <path
+        android:fillColor="#1E88E5"
+        android:pathData="M63,45 h12 v3 h-4 v14 h-4 v-14 h-4 z" />
+    <path
+        android:fillColor="#1E88E5"
+        android:pathData="M78,45 l4,20 h4 l4,-20 h-4 l-2,12 l-2,-12 z" />
+
+    <!-- Accent line -->
+    <path
+        android:fillColor="#1E88E5"
+        android:pathData="M10,75 h88 v1 h-88 z" />
+
+</vector>

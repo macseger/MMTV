@@ -4,13 +4,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -25,17 +28,15 @@ import com.example.mmtv.ui.*
 import com.example.mmtv.ui.theme.MMTVTheme
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 
 class MainActivity : ComponentActivity() {
 
-    override fun onStop() {
-        super.onStop()
-        finishAndRemoveTask()
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
         setContent {
             MMTVTheme {
                 Surface(
@@ -50,181 +51,180 @@ class MainActivity : ComponentActivity() {
                     val loginInfo = sessionManager.getLogin()
                     val startDest = if (loginInfo != null) "home" else "login"
 
-                    var sharedViewModel: MediaViewModel? by remember { mutableStateOf(null) }
-                    var isInitialLoading by remember { mutableStateOf(loginInfo != null) }
+                    val sharedViewModel: MediaViewModel = viewModel(
+                        factory = MediaViewModelFactory(
+                            repository = MediaRepository(
+                                ApiClient.getClient(loginInfo?.first ?: "http://localhost"), 
+                                context, 
+                                database
+                            ),
+                            sessionManager = sessionManager,
+                            database = database
+                        )
+                    )
+
+                    // Keep splash screen on until data is loaded
+                    splashScreen.setKeepOnScreenCondition {
+                        loginInfo != null && sharedViewModel.uiState.liveStreamsGrouped.isEmpty()
+                    }
 
                     LaunchedEffect(loginInfo) {
                         if (loginInfo != null) {
-                            val (host, user, pass) = loginInfo
-                            val api = ApiClient.getClient(host)
-                            val repository = MediaRepository(api, context, database)
-                            sharedViewModel = MediaViewModel(repository, sessionManager, database).apply {
-                                loadData(user, pass, host)
+                            val (h, u, p) = loginInfo
+                            sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), context, database))
+                            if (sharedViewModel.uiState.liveStreamsGrouped.isEmpty()) {
+                                sharedViewModel.loadData(u, p, h)
                             }
-                            isInitialLoading = false
                         }
                     }
 
-                    if (isInitialLoading) {
-                        LoadingBox()
+                    if (loginInfo != null && sharedViewModel.uiState.liveStreamsGrouped.isEmpty()) {
+                        // Empty black screen while splash is showing
+                        Box(modifier = Modifier.fillMaxSize().background(Color.Black))
                     } else {
                         NavHost(navController = navController, startDestination = startDest) {
                             composable("login") {
-                                LoginScreen { host, user, pass ->
-                                    sessionManager.saveLogin(host, user, pass)
-                                    val api = ApiClient.getClient(host)
-                                    val repository = MediaRepository(api, context, database)
-                                    sharedViewModel = MediaViewModel(repository, sessionManager, database).apply {
-                                        loadData(user, pass, host)
-                                    }
-                                    navController.navigate("home") {
-                                        popUpTo("login") { inclusive = true }
+                                LoginScreen(sharedViewModel) { h, u, p ->
+                                    sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), context, database))
+                                    sharedViewModel.loadData(u, p, h, forceRefresh = true) { success ->
+                                        if (success) {
+                                            sessionManager.saveLogin(h, u, p)
+                                            navController.navigate("home") {
+                                                popUpTo("login") { inclusive = true }
+                                            }
+                                        }
                                     }
                                 }
                             }
                             
                             composable("home") {
-                                sharedViewModel?.let { vm ->
-                                    HomeScreen(
-                                        viewModel = vm,
-                                        onNavigate = { dest -> navController.navigate(dest) },
-                                        onMediaSelected = { media ->
-                                            if (media.type == MediaType.LIVE) {
-                                                playMedia(navController, media, sessionManager, vm, emptyList<MediaSource>())
-                                            } else {
-                                                vm.selectedMedia = media
-                                                navController.navigate("details")
-                                            }
+                                HomeScreen(
+                                    viewModel = sharedViewModel,
+                                    onNavigate = { dest -> navController.navigate(dest) },
+                                    onMediaSelected = { media ->
+                                        sharedViewModel.addToHistory(media)
+                                        if (media.type == MediaType.LIVE) {
+                                            val currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(sharedViewModel.lastLiveCategoryIndex)?.items ?: emptyList()
+                                            playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
+                                        } else {
+                                            sharedViewModel.selectedMedia = media
+                                            navController.navigate("details")
                                         }
-                                    )
-                                }
+                                    }
+                                )
                             }
 
                             composable("live") {
-                                sharedViewModel?.let { vm ->
-                                    MediaListScreen(
-                                        groupedList = vm.uiState.liveStreamsGrouped,
-                                        initialCategoryIndex = vm.lastLiveCategoryIndex,
-                                        onCategoryChanged = { 
-                                            vm.lastLiveCategoryIndex = it
-                                            vm.prefetchEpgForCategory(it)
-                                        },
-                                        onHideCategory = { title -> vm.hideCategory("live", title) },
-                                        onMediaSelected = { media -> 
-                                            val currentPlaylist = vm.uiState.liveStreamsGrouped.getOrNull(vm.lastLiveCategoryIndex)?.items ?: emptyList()
-                                            playMedia(navController, media, sessionManager, vm, currentPlaylist)
-                                        },
-                                        epgProvider = { id -> vm.getEpgForId(id) },
-                                        nextEpgProvider = { id -> vm.getNextEpgForId(id) }
-                                    )
-                                }
+                                MediaListScreen(
+                                    groupedList = sharedViewModel.uiState.liveStreamsGrouped,
+                                    initialCategoryIndex = sharedViewModel.lastLiveCategoryIndex,
+                                    onCategoryChanged = { 
+                                        sharedViewModel.lastLiveCategoryIndex = it
+                                        sharedViewModel.prefetchEpgForCategory(it)
+                                    },
+                                    onHideCategory = { title -> sharedViewModel.hideCategory("live", title) },
+                                    onMediaSelected = { media -> 
+                                        sharedViewModel.addToHistory(media)
+                                        val currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(sharedViewModel.lastLiveCategoryIndex)?.items ?: emptyList()
+                                        playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
+                                    },
+                                    epgProvider = { id -> sharedViewModel.getEpgForId(id) },
+                                    nextEpgProvider = { id -> sharedViewModel.getNextEpgForId(id) },
+                                    onBackPressed = { navController.popBackStack() }
+                                )
                             }
 
                             composable("movies") {
-                                sharedViewModel?.let { vm ->
-                                    MediaListScreen(
-                                        groupedList = vm.uiState.movies,
-                                        initialCategoryIndex = vm.lastMovieCategoryIndex,
-                                        onCategoryChanged = { vm.lastMovieCategoryIndex = it },
-                                        onHideCategory = { title -> vm.hideCategory("movies", title) },
-                                        onMediaSelected = { media ->
-                                            vm.selectedMedia = media
-                                            navController.navigate("details")
-                                        }
-                                    )
-                                }
+                                MediaListScreen(
+                                    groupedList = sharedViewModel.uiState.movies,
+                                    initialCategoryIndex = sharedViewModel.lastMovieCategoryIndex,
+                                    onCategoryChanged = { sharedViewModel.lastMovieCategoryIndex = it },
+                                    onHideCategory = { title -> sharedViewModel.hideCategory("movies", title) },
+                                    onMediaSelected = { media ->
+                                        sharedViewModel.selectedMedia = media
+                                        navController.navigate("details")
+                                    },
+                                    onBackPressed = { navController.popBackStack() }
+                                )
                             }
 
                             composable("series") {
-                                sharedViewModel?.let { vm ->
-                                    MediaListScreen(
-                                        groupedList = vm.uiState.series,
-                                        initialCategoryIndex = vm.lastSeriesCategoryIndex,
-                                        onCategoryChanged = { vm.lastSeriesCategoryIndex = it },
-                                        onHideCategory = { title -> vm.hideCategory("series", title) },
-                                        onMediaSelected = { media ->
-                                            vm.selectedMedia = media
-                                            navController.navigate("details")
-                                        }
-                                    )
-                                }
+                                MediaListScreen(
+                                    groupedList = sharedViewModel.uiState.series,
+                                    initialCategoryIndex = sharedViewModel.lastSeriesCategoryIndex,
+                                    onCategoryChanged = { sharedViewModel.lastSeriesCategoryIndex = it },
+                                    onHideCategory = { title -> sharedViewModel.hideCategory("series", title) },
+                                    onMediaSelected = { media ->
+                                        sharedViewModel.selectedMedia = media
+                                        navController.navigate("details")
+                                    },
+                                    onBackPressed = { navController.popBackStack() }
+                                )
                             }
 
                             composable("details") {
-                                sharedViewModel?.let { vm ->
-                                    vm.selectedMedia?.let { media ->
-                                        DetailsScreen(
-                                            media = media,
-                                            onPlayMovie = { m, resume ->
-                                                vm.addToHistory(m)
-                                                playMedia(navController, m, sessionManager, vm, emptyList<MediaSource>(), resume)
-                                            },
-                                            onPlayEpisode = { ep, resume ->
-                                                vm.addToHistory(media)
-                                                sessionManager.getLogin()?.let { login ->
-                                                    val (host, user, pass) = login
-                                                    val streamUrl = "${host}/series/${user}/${pass}/${ep.id}.${ep.containerExtension ?: "mp4"}"
-                                                    val encodedUrl = URLEncoder.encode(streamUrl, StandardCharsets.UTF_8.toString())
-                                                    
-                                                    vm.selectedMedia = MediaSource(
-                                                        id = ep.id?.toIntOrNull() ?: 0,
-                                                        title = ep.title ?: "Avsnitt",
-                                                        icon = media.icon,
-                                                        type = MediaType.SERIES
-                                                    )
-                                                    
-                                                    if (!resume) {
-                                                        sessionManager.clearPlaybackPosition(ep.id ?: "0")
-                                                    }
-                                                    
-                                                    navController.navigate("player/$encodedUrl")
+                                sharedViewModel.selectedMedia?.let { media ->
+                                    DetailsScreen(
+                                        media = media,
+                                        onPlayMovie = { m, resume ->
+                                            sharedViewModel.addToHistory(m)
+                                            playMedia(navController, m, sessionManager, sharedViewModel, emptyList<MediaSource>(), resume)
+                                        },
+                                        onPlayEpisode = { ep, resume ->
+                                            sharedViewModel.addToHistory(media)
+                                            sessionManager.getLogin()?.let { login ->
+                                                val (h, u, p) = login
+                                                val streamUrl = "${h}/series/${u}/${p}/${ep.id}.${ep.containerExtension ?: "mp4"}"
+                                                val encodedUrl = URLEncoder.encode(streamUrl, StandardCharsets.UTF_8.toString())
+                                                
+                                                sharedViewModel.selectedMedia = MediaSource(
+                                                    id = ep.id?.toIntOrNull() ?: 0,
+                                                    title = ep.title ?: "Avsnitt",
+                                                    icon = media.icon,
+                                                    type = MediaType.SERIES
+                                                )
+                                                
+                                                if (!resume) {
+                                                    sessionManager.clearPlaybackPosition(ep.id ?: "0")
                                                 }
-                                            },
-                                            viewModel = vm
-                                        )
-                                    }
+                                                
+                                                navController.navigate("player/$encodedUrl")
+                                            }
+                                        },
+                                        viewModel = sharedViewModel
+                                    )
                                 }
                             }
 
                             composable("settings") {
-                                sharedViewModel?.let { vm ->
-                                    SettingsScreen(sessionManager, vm) {
-                                        sharedViewModel = null
-                                        navController.navigate("login") {
-                                            popUpTo("login") { inclusive = true }
-                                        }
+                                SettingsScreen(sessionManager, sharedViewModel) {
+                                    navController.navigate("login") {
+                                        popUpTo("login") { inclusive = true }
                                     }
                                 }
                             }
 
                             composable("player/{url}") { backStackEntry ->
                                 val url = backStackEntry.arguments?.getString("url") ?: ""
-                                sharedViewModel?.let { vm ->
-                                    PlayerScreen(
-                                        url = url,
-                                        media = vm.selectedMedia,
-                                        playlist = vm.currentPlaylist,
-                                        categories = vm.uiState.liveStreamsGrouped,
-                                        onMediaSelected = { newMedia ->
-                                            playMedia(navController, newMedia, sessionManager, vm, vm.currentPlaylist)
-                                        },
-                                        onCategorySelected = { index ->
-                                            vm.lastLiveCategoryIndex = index
-                                            vm.currentPlaylist = vm.uiState.liveStreamsGrouped.getOrNull(index)?.items ?: emptyList()
-                                            vm.prefetchEpgForCategory(index)
-                                        },
-                                        onBackPressed = {
-                                            if (vm.selectedMedia?.type == MediaType.LIVE) {
-                                                navController.navigate("live") {
-                                                    popUpTo("live") { inclusive = true }
-                                                }
-                                            } else {
-                                                navController.popBackStack()
-                                            }
-                                        },
-                                        viewModel = vm
-                                    )
-                                }
+                                PlayerScreen(
+                                    url = url,
+                                    media = sharedViewModel.selectedMedia,
+                                    playlist = sharedViewModel.currentPlaylist,
+                                    categories = sharedViewModel.uiState.liveStreamsGrouped,
+                                    onMediaSelected = { newMedia ->
+                                        sharedViewModel.addToHistory(newMedia)
+                                        playMedia(navController, newMedia, sessionManager, sharedViewModel, sharedViewModel.currentPlaylist)
+                                    },
+                                    onCategorySelected = { index ->
+                                        sharedViewModel.lastLiveCategoryIndex = index
+                                        sharedViewModel.currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(index)?.items ?: emptyList()
+                                        sharedViewModel.prefetchEpgForCategory(index)
+                                    },
+                                    onBackPressed = {
+                                        navController.popBackStack()
+                                    },
+                                    viewModel = sharedViewModel
+                                )
                             }
                         }
                     }
@@ -267,6 +267,10 @@ class MainActivity : ComponentActivity() {
         }
 
         navController.navigate("player/$encodedUrl") {
+            // Om vi redan är i spelaren, rensa bort den förra så vi inte staplar kanaler på varandra
+            if (navController.currentDestination?.route?.startsWith("player/") == true) {
+                popUpTo(navController.currentDestination?.route!!) { inclusive = true }
+            }
             launchSingleTop = true
         }
     }

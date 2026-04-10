@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+
+    <!-- Bakgrund (Mörk gradientkänsla) -->
+    <path
+        android:fillColor="#121212"
+        android:pathData="M0,0 h320 v180 h-320 z" />
+
+    <!-- Dekorativa element (linjer) -->
+    <path
+        android:fillColor="#1E88E5"
+        android:pathData="M20,160 h280 v2 h-280 z" />
+
+    <!-- "M M" (Vit text) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M80,60 v60 h10 v-40 l10,20 l10,-20 v40 h10 v-60 h-12 l-8,17 l-8,-17 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M135,60 v60 h10 v-40 l10,20 l10,-20 v40 h10 v-60 h-12 l-8,17 l-8,-17 z" />
+
+    <!-- "T V" (Blå accent) -->
+    <path
+        android:fillColor="#1E88E5"
+        android:pathData="M190,60 h35 v10 h-12 v50 h-11 v-50 h-12 z" />
+    <path
+        android:fillColor="#1E88E5"
+        android:pathData="M235,60 l12,60 h11 l12,-60 h-11 l-6,35 l-6,-35 z" />
+
+    <!-- Ljusstänk/Skugga -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:alpha="0.05"
+        android:pathData="M0,0 l320,180 v-180 z" />
+
+</vector>

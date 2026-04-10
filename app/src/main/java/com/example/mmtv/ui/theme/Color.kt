@@ -2,13 +2,13 @@ package com.example.mmtv.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// En skön, djup blå färg för bakgrunden
-val DarkBackground = Color(0xFF0A1221) 
-val SurfaceColor = Color(0xFF16253D)
-val PrimaryBlue = Color(0xFF4A90E2)
+// Svart bakgrund för en ren TV-upplevelse
+val DarkBackground = Color(0xFF000000) 
+val SurfaceColor = Color(0xFF121212)
+val PrimaryBlue = Color(0xFF00D4FF) // Vi behåller accenten men byter primärfärg till den "isblå"
 val AccentColor = Color(0xFF00D4FF)
 val TextPrimary = Color(0xFFFFFFFF)
-val TextSecondary = Color(0xFFB0C4DE)
+val TextSecondary = Color(0xFFB0B0B0)
 
 val Purple80 = Color(0xFFD0BCFF)
 val PurpleGrey80 = Color(0xFFCCC2DC)

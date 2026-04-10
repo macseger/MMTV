@@ -15,6 +15,7 @@ navigationCompose = "2.8.5"
 room = "2.7.0-alpha12"
 tvFoundation = "1.0.0-alpha11"
 tvMaterial = "1.0.0"
+coreSplashScreen = "1.0.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -47,6 +48,7 @@ room-compiler = { group = "androidx.room", name = "room-compiler", version.ref =
 # TV Libraries
 androidx-tv-foundation = { group = "androidx.tv", name = "tv-foundation", version.ref = "tvFoundation" }
 androidx-tv-material = { group = "androidx.tv", name = "tv-material", version.ref = "tvMaterial" }
+androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashScreen" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

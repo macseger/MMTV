@@ -6,7 +6,7 @@ import com.example.mmtv.model.MediaType
 
 @Entity(tableName = "media_items")
 data class MediaEntity(
-    @PrimaryKey val id: Int, // Använd streamId som primärnyckel direkt
+    @PrimaryKey val id: Int, 
     val title: String,
     val icon: String?,
     val type: MediaType,
@@ -18,5 +18,7 @@ data class MediaEntity(
     val director: String? = null,
     val genre: String? = null,
     val cast: String? = null,
-    val epgId: String? = null
+    val epgId: String? = null,
+    val categoryOrder: Int = 0,
+    val itemOrder: Int = 0
 )

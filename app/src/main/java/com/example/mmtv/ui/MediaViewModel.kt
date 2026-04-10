@@ -19,9 +19,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 
-class MediaViewModel(private val repository: MediaRepository, private val sessionManager: SessionManager, private val database: MediaDatabase) : ViewModel() {
+class MediaViewModel(private var repository: MediaRepository, private val sessionManager: SessionManager, private val database: MediaDatabase) : ViewModel() {
 
     var uiState by mutableStateOf(MediaUiState())
+        private set
+
+    var loginError by mutableStateOf<String?>(null)
         private set
 
     private var isFetching = false
@@ -99,96 +102,125 @@ class MediaViewModel(private val repository: MediaRepository, private val sessio
         epgId = epgId
     )
 
-    fun loadData(user: String, pass: String, host: String, forceRefresh: Boolean = false) {
-        if (isFetching) return
+    fun updateRepository(newRepository: MediaRepository) {
+        this.repository = newRepository
+    }
+
+    fun loadData(user: String, pass: String, host: String, forceRefresh: Boolean = false, onResult: ((Boolean) -> Unit)? = null) {
+        if (isFetching && !forceRefresh) return
+        
+        loginError = null
+        // Om vi redan har data i minnet och inte tvingar refresh, gör ingenting.
+        if (!forceRefresh && uiState.liveStreamsGrouped.isNotEmpty()) {
+            onResult?.invoke(true)
+            return
+        }
+
         isFetching = true
         viewModelScope.launch {
-            if (forceRefresh || uiState.liveStreamsGrouped.isEmpty()) {
-                uiState = uiState.copy(isLoading = true, username = user, password = pass, baseUrl = host)
-            }
+            uiState = uiState.copy(username = user, password = pass, baseUrl = host)
             
-            // Starta EPG-laddning direkt i bakgrunden
-            loadEpgInBackground(user, pass, forceRefresh)
-
             try {
-                // Rensa databasen först om det är en refresh
-                if (forceRefresh) {
-                    withContext(Dispatchers.IO) {
-                        mediaDao.clearAll()
+                // 1. Försök ladda från DB OMEDELBART för att få bort Splash Screen snabbt
+                if (!forceRefresh) {
+                    val cachedLive = withContext(Dispatchers.IO) {
+                        repository.getGroupedLive(user, pass, forceRefresh = false)
                     }
-                }
-
-                // Ladda kategorier parallellt men uppdatera UI så fort de är klara
-                val liveJob = launch(Dispatchers.IO) {
-                    val live = repository.getGroupedLive(user, pass, forceRefresh)
-                    withContext(Dispatchers.Main) {
-                        uiState = uiState.copy(liveStreamsGrouped = applyFiltersAndOrder("live", live))
-                        
-                        // Kartlägg EPG-ID:n för Live-kanaler
-                        live.flatMap { it.items }.forEach { 
-                            if (it.epgId != null) channelToEpgMap[it.id] = it.epgId
+                    val history = sessionManager.getHistory()
+                    if (cachedLive.isNotEmpty()) {
+                        val filteredLive = withContext(Dispatchers.Default) {
+                            addHistoryCategory(applyFiltersAndOrder("live", cachedLive), history, MediaType.LIVE)
                         }
-
-                        // Prefetch EPG för den första kategorin
+                        uiState = uiState.copy(liveStreamsGrouped = filteredLive, history = history, isLoading = false)
+                        
+                        // Kartlägg EPG-ID:n
+                        cachedLive.flatMap { it.items }.forEach { 
+                            if (it.epgId != null) channelToEpgMap[it.id] = it.epgId 
+                        }
+                        
+                        // Ladda EPG för den första synliga kategorin direkt
                         prefetchEpgForCategory(0)
-
-                        // Spara till DB för sökning
-                        launch(Dispatchers.IO) {
-                            val entities = live.flatMap { group -> 
-                                group.items.map { it.toEntity(null, group.title) } 
-                            }
-                            if (entities.isNotEmpty()) {
-                                mediaDao.insertAll(entities)
-                            }
-                        }
+                        onResult?.invoke(true)
                     }
                 }
 
-                val moviesJob = launch(Dispatchers.IO) {
-                    val movies = repository.getGroupedMovies(user, pass, forceRefresh)
-                    val history = sessionManager.getHistory()
-                    withContext(Dispatchers.Main) {
-                        uiState = uiState.copy(movies = addHistoryCategory(applyFiltersAndOrder("movies", movies), history, MediaType.MOVIE))
+                // 2. Starta nätverksuppdatering i bakgrunden (eller prioriterad om DB var tom)
+                val liveJob = async(Dispatchers.IO) {
+                    val dbCount = withContext(Dispatchers.IO) { database.mediaDao().getCountByType(MediaType.LIVE) }
+                    if (forceRefresh || dbCount == 0) {
+                        repository.getGroupedLive(user, pass, forceRefresh)
+                    } else {
+                        null
+                    }
+                }
+
+                launch(Dispatchers.IO) {
+                    loadEpgInBackground(user, pass, forceRefresh)
+                }
+
+                val newLive = liveJob.await()
+                if (newLive != null) {
+                    if (newLive.isEmpty()) {
+                         loginError = "Kunde inte hämta data. Kontrollera uppgifter och server."
+                         onResult?.invoke(false)
+                    } else {
+                        val history = sessionManager.getHistory()
+                        val filteredLive = withContext(Dispatchers.Default) {
+                            addHistoryCategory(applyFiltersAndOrder("live", newLive), history, MediaType.LIVE)
+                        }
+                        uiState = uiState.copy(
+                            liveStreamsGrouped = filteredLive,
+                            history = history,
+                            isLoading = false
+                        )
                         
-                        // Spara till DB för sökning
-                        launch(Dispatchers.IO) {
-                            val entities = movies.flatMap { group -> 
-                                group.items.map { it.toEntity(null, group.title) } 
-                            }
-                            if (entities.isNotEmpty()) {
-                                mediaDao.insertAll(entities)
-                            }
+                        newLive.flatMap { it.items }.forEach { 
+                            if (it.epgId != null) channelToEpgMap[it.id] = it.epgId 
                         }
+                        onResult?.invoke(true)
                     }
+                } else if (uiState.liveStreamsGrouped.isNotEmpty()) {
+                    onResult?.invoke(true)
                 }
 
-                val seriesJob = launch(Dispatchers.IO) {
-                    val series = repository.getGroupedSeries(user, pass, forceRefresh)
-                    val history = sessionManager.getHistory()
-                    withContext(Dispatchers.Main) {
-                        uiState = uiState.copy(series = addHistoryCategory(applyFiltersAndOrder("series", series), history, MediaType.SERIES))
-                        
-                        // Spara till DB för sökning
-                        launch(Dispatchers.IO) {
-                            val entities = series.flatMap { group -> 
-                                group.items.map { it.toEntity(null, group.title) } 
+                // Ladda Film och Serier asynkront
+                launch(Dispatchers.IO) {
+                    try {
+                        val movies = repository.getGroupedMovies(user, pass, forceRefresh)
+                        val history = sessionManager.getHistory()
+                        val filteredMovies = withContext(Dispatchers.Default) {
+                            val sortedMovies = movies.filter { it.items.isNotEmpty() }.map { group ->
+                                group.copy(items = group.items.sortedByDescending { it.id })
                             }
-                            if (entities.isNotEmpty()) {
-                                mediaDao.insertAll(entities)
-                            }
+                            addHistoryCategory(applyFiltersAndOrder("movies", sortedMovies), history, MediaType.MOVIE)
                         }
-                    }
+                        withContext(Dispatchers.Main) {
+                            uiState = uiState.copy(movies = filteredMovies)
+                        }
+                    } catch (e: Exception) {}
                 }
 
-                // Vänta på att allt ska bli klart för att stänga av loading-spinnern
-                liveJob.join()
-                moviesJob.join()
-                seriesJob.join()
+                launch(Dispatchers.IO) {
+                    try {
+                        val series = repository.getGroupedSeries(user, pass, forceRefresh)
+                        val history = sessionManager.getHistory()
+                        val filteredSeries = withContext(Dispatchers.Default) {
+                            val sortedSeries = series.filter { it.items.isNotEmpty() }.map { group ->
+                                group.copy(items = group.items.sortedByDescending { it.id })
+                            }
+                            addHistoryCategory(applyFiltersAndOrder("series", sortedSeries), history, MediaType.SERIES)
+                        }
+                        withContext(Dispatchers.Main) {
+                            uiState = uiState.copy(series = filteredSeries)
+                        }
+                    } catch (e: Exception) {}
+                }
 
             } catch (e: Exception) {
-                uiState = uiState.copy(error = e.message)
+                loginError = "Anslutningsfel: ${e.message}"
+                uiState = uiState.copy(error = e.message, isLoading = false)
+                onResult?.invoke(false)
             } finally {
-                uiState = uiState.copy(isLoading = false)
                 isFetching = false
             }
         }
@@ -238,10 +270,15 @@ class MediaViewModel(private val repository: MediaRepository, private val sessio
             val movies = repository.getGroupedMovies(uiState.username, uiState.password)
             val series = repository.getGroupedSeries(uiState.username, uiState.password)
             val history = sessionManager.getHistory()
+            
+            val sortedMovies = movies.map { it.copy(items = it.items.sortedByDescending { m -> m.id }) }
+            val sortedSeries = series.map { it.copy(items = it.items.sortedByDescending { s -> s.id }) }
+
             uiState = uiState.copy(
-                liveStreamsGrouped = applyFiltersAndOrder("live", live),
-                movies = addHistoryCategory(applyFiltersAndOrder("movies", movies), history, MediaType.MOVIE),
-                series = addHistoryCategory(applyFiltersAndOrder("series", series), history, MediaType.SERIES)
+                liveStreamsGrouped = addHistoryCategory(applyFiltersAndOrder("live", live), history, MediaType.LIVE),
+                movies = addHistoryCategory(applyFiltersAndOrder("movies", sortedMovies), history, MediaType.MOVIE),
+                series = addHistoryCategory(applyFiltersAndOrder("series", sortedSeries), history, MediaType.SERIES),
+                history = history
             )
             // Trigger prefetch after refresh
             prefetchEpgForCategory(0)
@@ -327,6 +364,7 @@ data class MediaUiState(
     val liveStreamsGrouped: List<GroupedMedia> = emptyList(),
     val movies: List<GroupedMedia> = emptyList(),
     val series: List<GroupedMedia> = emptyList(),
+    val history: List<MediaSource> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
     val baseUrl: String = "",

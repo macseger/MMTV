@@ -1,5 +1,7 @@
 package com.example.mmtv.ui
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -8,29 +10,47 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.example.mmtv.R
 
 @Composable
-fun LoginScreen(onLogin: (String, String, String) -> Unit) {
+fun LoginScreen(viewModel: MediaViewModel, onLogin: (String, String, String) -> Unit) {
     var host by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     
+    val loginError = viewModel.loginError
     val focusManager = LocalFocusManager.current
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(Color.Black)
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("MMTV Login", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.onBackground)
+        Image(
+            painter = painterResource(id = R.drawable.ic_splash_icon),
+            contentDescription = "MMTV Logo",
+            modifier = Modifier.size(120.dp)
+        )
         Spacer(modifier = Modifier.height(32.dp))
+
+        if (loginError != null) {
+            Text(
+                text = loginError,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+        }
         
         OutlinedTextField(
             value = host,
@@ -38,6 +58,13 @@ fun LoginScreen(onLogin: (String, String, String) -> Unit) {
             label = { Text("Server URL (host:port)") },
             modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth(0.8f),
             singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = Color.Gray,
+                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                unfocusedLabelColor = Color.Gray,
+                cursorColor = MaterialTheme.colorScheme.primary
+            ),
             placeholder = { Text("t.ex. mmtv.com:8080") },
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Uri,
@@ -55,6 +82,13 @@ fun LoginScreen(onLogin: (String, String, String) -> Unit) {
             label = { Text("Username") },
             modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth(0.8f),
             singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = Color.Gray,
+                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                unfocusedLabelColor = Color.Gray,
+                cursorColor = MaterialTheme.colorScheme.primary
+            ),
             keyboardOptions = KeyboardOptions(
                 imeAction = ImeAction.Next
             ),
@@ -70,8 +104,16 @@ fun LoginScreen(onLogin: (String, String, String) -> Unit) {
             label = { Text("Password") },
             modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth(0.8f),
             singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                unfocusedBorderColor = Color.Gray,
+                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                unfocusedLabelColor = Color.Gray,
+                cursorColor = MaterialTheme.colorScheme.primary
+            ),
             keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Text,
+                keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Done
             ),
             keyboardActions = KeyboardActions(

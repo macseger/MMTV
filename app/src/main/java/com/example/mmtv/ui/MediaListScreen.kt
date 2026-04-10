@@ -7,14 +7,18 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -84,11 +88,19 @@ fun MediaListScreen(
         }
     }
 
+    // Scrolla till toppen när kategori ändras för att säkerställa att första item är redo för fokus
+    LaunchedEffect(selectedCategoryIndex) {
+        if (isLive) listState.scrollToItem(0)
+        else gridState.scrollToItem(0)
+    }
+
     Row(modifier = Modifier
         .fillMaxSize()
         .background(backgroundColor)
         .onKeyEvent { 
-            if (it.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK && onBackPressed != null) {
+            if (it.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK && 
+                it.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
+                onBackPressed != null) {
                 onBackPressed()
                 true
             } else false
@@ -113,10 +125,17 @@ fun MediaListScreen(
                         isSelected = selectedCategoryIndex == index,
                         modifier = Modifier
                             .focusRequester(requester)
+                            .onFocusChanged { 
+                                if (it.isFocused && selectedCategoryIndex != index) {
+                                    selectedCategoryIndex = index
+                                    onCategoryChanged(index)
+                                }
+                            }
                             .onKeyEvent {
                                 if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                    val firstChannelId = selectedCategory?.items?.firstOrNull()?.id
+                                    val firstChannelId = groupedList.getOrNull(index)?.items?.firstOrNull()?.id
                                     if (firstChannelId != null) {
+                                        // Ge listan en minimal chans att rendera om (blixtsnabbt)
                                         channelFocusRequesters[firstChannelId]?.requestFocus()
                                         true
                                     } else false
@@ -198,33 +217,94 @@ fun MediaListScreen(
     }
 
     if (categoryToShowMenu != null) {
+        val isHistory = categoryToShowMenu?.lowercase()?.let { 
+            it.contains("historik") || it.contains("senast sedda") || it.contains("history") 
+        } ?: false
+        
         AlertDialog(
             onDismissRequest = { categoryToShowMenu = null },
-            title = { Text("Inställningar för kategori") },
-            text = { Text("Vill du dölja kategorin \"$categoryToShowMenu\"?") },
+            title = { 
+                Text(
+                    if (isHistory) "Systemkategori" else "Kategorinställningar",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.primary
+                ) 
+            },
+            text = { 
+                Text(
+                    if (isHistory) 
+                        "Kategorin \"$categoryToShowMenu\" är viktig för appens funktion och kan inte döljas."
+                    else 
+                        "Vill du dölja kategorin \"$categoryToShowMenu\"? Du kan visa den igen under Inställningar.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White
+                )
+            },
+            containerColor = Color(0xFF121212),
+            shape = RoundedCornerShape(16.dp),
             confirmButton = {
-                Button(onClick = {
-                    onHideCategory(categoryToShowMenu!!)
-                    categoryToShowMenu = null
-                }) { Text("Dölj kategori") }
+                val focusRequester = remember { FocusRequester() }
+                var isFocused by remember { mutableStateOf(false) }
+                
+                Button(
+                    onClick = {
+                        if (!isHistory) onHideCategory(categoryToShowMenu!!)
+                        categoryToShowMenu = null
+                    },
+                    modifier = Modifier
+                        .focusRequester(focusRequester)
+                        .onFocusChanged { isFocused = it.isFocused }
+                        .padding(horizontal = 4.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
+                        contentColor = if (isFocused) Color.Black else Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    if (!isHistory) {
+                        Icon(Icons.Default.VisibilityOff, null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Dölj kategori", fontWeight = FontWeight.Bold)
+                    } else {
+                        Text("Okej", fontWeight = FontWeight.Bold)
+                    }
+                }
+                
+                LaunchedEffect(Unit) {
+                    focusRequester.requestFocus()
+                }
             },
             dismissButton = {
-                TextButton(onClick = { categoryToShowMenu = null }) { Text("Avbryt") }
+                if (!isHistory) {
+                    var isFocused by remember { mutableStateOf(false) }
+                    Button(
+                        onClick = { categoryToShowMenu = null },
+                        modifier = Modifier
+                            .onFocusChanged { isFocused = it.isFocused }
+                            .padding(horizontal = 4.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
+                            contentColor = if (isFocused) Color.Black else Color.White
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Avbryt", fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         )
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit, onLongClick: () -> Unit) {
     var hasFocus by remember { mutableStateOf(false) }
-    var isLongPressHandled by remember { mutableStateOf(false) }
+    var lastClickTime by remember { mutableLongStateOf(0L) }
 
     val backgroundColor by animateColorAsState(
         targetValue = when {
             isSelected -> MaterialTheme.colorScheme.primary
-            hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+            hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
             else -> Color.Transparent
         },
         label = "bgColor"
@@ -239,37 +319,40 @@ fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifi
                 val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 
                                  keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
                 
-                if (isCenterKey) {
-                    if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                        if (keyEvent.nativeKeyEvent.isLongPress) {
-                            isLongPressHandled = true
-                            onLongClick()
-                            return@onKeyEvent true
-                        }
-                    } else if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
-                        if (isLongPressHandled) {
-                            isLongPressHandled = false
-                            return@onKeyEvent true
-                        }
+                if (isCenterKey && keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
+                    val currentTime = System.currentTimeMillis()
+                    if (currentTime - lastClickTime < 500) { // 500ms fönster för dubbelklick
+                        onLongClick()
+                        lastClickTime = 0L // Återställ efter dubbelklick
+                    } else {
+                        onClick()
+                        lastClickTime = currentTime
                     }
+                    return@onKeyEvent true
                 }
                 false
             }
-            .combinedClickable(
-                onClick = { if (!isLongPressHandled) onClick() },
-                onLongClick = { onLongClick() }
-            ),
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastClickTime < 500) {
+                    onLongClick()
+                    lastClickTime = 0L
+                } else {
+                    onClick()
+                    lastClickTime = currentTime
+                }
+            },
         color = backgroundColor,
         shape = MaterialTheme.shapes.small
     ) {
         Text(
             text = title,
-            modifier = Modifier.padding(12.dp, 8.dp),
+            modifier = Modifier.padding(12.dp, 10.dp),
             style = MaterialTheme.typography.bodyLarge.copy(
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                fontWeight = if (isSelected || hasFocus) FontWeight.Bold else FontWeight.Normal,
                 fontSize = 15.sp
             ),
-            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            color = if (isSelected) Color.Black else if (hasFocus) Color.White else Color.LightGray,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -286,7 +369,7 @@ fun TvChannelItem(media: MediaSource, epg: EpgListing?, nextEpg: EpgListing?, mo
     }
 
     val backgroundColor by animateColorAsState(
-        targetValue = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surface,
+        targetValue = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
         label = "bgColor"
     )
 
@@ -294,11 +377,11 @@ fun TvChannelItem(media: MediaSource, epg: EpgListing?, nextEpg: EpgListing?, mo
         modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { hasFocus = it.isFocused }
-            .scale(if (hasFocus) 1.01f else 1.0f)
+            .scale(if (hasFocus) 1.02f else 1.0f)
             .clickable { onClick() }
             .border(
-                width = if (hasFocus) 2.dp else 0.dp,
-                color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.Transparent,
+                width = if (hasFocus) 2.dp else 1.dp,
+                color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.05f),
                 shape = MaterialTheme.shapes.medium
             ),
         colors = CardDefaults.cardColors(containerColor = backgroundColor)

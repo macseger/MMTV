@@ -9,6 +9,7 @@ import java.util.*
 
 class EpgParser {
     private val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
+    private val simpleFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.US)
 
     fun parse(inputStream: InputStream): Map<String, List<EpgListing>> {
         val result = mutableMapOf<String, MutableList<EpgListing>>()
@@ -34,8 +35,16 @@ class EpgParser {
                                 startTime = parseDate(parser.getAttributeValue(null, "start"))
                                 stopTime = parseDate(parser.getAttributeValue(null, "stop"))
                             }
-                            "title" -> currentTitle = parser.nextText()
-                            "desc" -> currentDesc = parser.nextText()
+                            "title" -> {
+                                if (parser.next() == XmlPullParser.TEXT) {
+                                    currentTitle = parser.text
+                                }
+                            }
+                            "desc" -> {
+                                if (parser.next() == XmlPullParser.TEXT) {
+                                    currentDesc = parser.text
+                                }
+                            }
                         }
                     }
                     XmlPullParser.END_TAG -> {
@@ -87,8 +96,16 @@ class EpgParser {
                                 startTime = parseDate(parser.getAttributeValue(null, "start"))
                                 stopTime = parseDate(parser.getAttributeValue(null, "stop"))
                             }
-                            "title" -> currentTitle = parser.nextText()
-                            "desc" -> currentDesc = parser.nextText()
+                            "title" -> {
+                                if (parser.next() == XmlPullParser.TEXT) {
+                                    currentTitle = parser.text
+                                }
+                            }
+                            "desc" -> {
+                                if (parser.next() == XmlPullParser.TEXT) {
+                                    currentDesc = parser.text
+                                }
+                            }
                         }
                     }
                     XmlPullParser.END_TAG -> {
@@ -119,13 +136,10 @@ class EpgParser {
     private fun parseDate(dateStr: String?): Long {
         if (dateStr == null) return 0
         return try {
-            // XC formats vary: "20231027120000 +0200" or just "20231027120000"
             val cleanStr = dateStr.trim()
             if (cleanStr.contains(" ")) {
                 dateFormat.parse(cleanStr)?.time?.div(1000) ?: 0
             } else {
-                // Try without timezone if parsing fails
-                val simpleFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.US)
                 simpleFormat.parse(cleanStr)?.time?.div(1000) ?: 0
             }
         } catch (e: Exception) {

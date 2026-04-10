@@ -18,7 +18,8 @@ class MmtvPlayer(private val context: Context) {
     private var exoPlayer: ExoPlayer? = null
     private val sessionManager = SessionManager(context)
 
-    fun createPlayer(bufferMs: Int = 5000): ExoPlayer {
+    fun createPlayer(): ExoPlayer {
+        val bufferMs = sessionManager.getBufferSize()
         // Begränsa retries till 2 för att inte hamra servern
         val loadErrorHandlingPolicy = DefaultLoadErrorHandlingPolicy(2)
         

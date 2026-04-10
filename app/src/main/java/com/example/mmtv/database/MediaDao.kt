@@ -13,8 +13,14 @@ interface MediaDao {
     @Query("DELETE FROM media_items")
     suspend fun clearAll()
 
-    @Query("SELECT COUNT(*) FROM media_items")
-    suspend fun getCount(): Int
+    @Query("SELECT COUNT(*) FROM media_items WHERE type = :type")
+    suspend fun getCountByType(type: com.example.mmtv.model.MediaType): Int
+
+    @Query("SELECT * FROM media_items WHERE type = :type ORDER BY categoryOrder ASC, itemOrder ASC")
+    suspend fun getMediaByType(type: com.example.mmtv.model.MediaType): List<MediaEntity>
+
+    @Query("DELETE FROM media_items WHERE type = :type")
+    suspend fun deleteByType(type: com.example.mmtv.model.MediaType)
 
     // EPG Operations
     @Insert(onConflict = OnConflictStrategy.REPLACE)

@@ -107,6 +107,14 @@ class SessionManager(context: Context) {
         return prefs.getBoolean("tunneling_enabled", false)
     }
 
+    fun setBufferSize(ms: Int) {
+        prefs.edit { putInt("buffer_size", ms) }
+    }
+
+    fun getBufferSize(): Int {
+        return prefs.getInt("buffer_size", 5000)
+    }
+
     // Historikhantering
     fun addToHistory(media: MediaSource) {
         val history = getHistory().toMutableList()

@@ -95,6 +95,7 @@ fun PlayerScreen(
     var isPlaying by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(false) }
     var overlayState by remember { mutableStateOf(OverlayState.NONE) }
+    var focusedChannel by remember { mutableStateOf<MediaSource?>(media) }
     var showSeekFeedback by remember { mutableStateOf(false) }
     var seekMessage by remember { mutableStateOf("") }
     
@@ -756,97 +757,135 @@ fun PlayerScreen(
             }
         }
 
-        // --- SIDE OVERLAY (CHANNELS & CATEGORIES) ---
+        // --- MODERN TIVIMATE-STYLE INTEGRATED OVERLAY ---
         if (overlayState == OverlayState.CHANNELS || overlayState == OverlayState.CATEGORIES) {
             Box(modifier = Modifier.fillMaxSize()) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f)).clickable { overlayState = OverlayState.NONE })
+                // Dimmed background
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .clickable { overlayState = OverlayState.NONE }
+                )
 
-                Row(modifier = Modifier.fillMaxHeight().wrapContentWidth()) {
-                    // Categories
+                Row(modifier = Modifier.fillMaxSize()) {
+                    // 1. Categories Sidebar (Slide out)
                     AnimatedVisibility(
-                        visible = overlayState == OverlayState.CATEGORIES || overlayState == OverlayState.CHANNELS,
+                        visible = overlayState == OverlayState.CATEGORIES,
                         enter = slideInHorizontally(initialOffsetX = { -it }),
                         exit = slideOutHorizontally(targetOffsetX = { -it })
                     ) {
-                        Row {
-                            if (overlayState == OverlayState.CATEGORIES) {
-                                LazyColumn(
-                                    state = categoryListState,
-                                    modifier = Modifier.fillMaxHeight().width(300.dp).background(Color.Black.copy(alpha = 0.95f)).padding(vertical = 16.dp)
-                                ) {
-                                    itemsIndexed(categories) { index, category ->
-                                        val isSelected = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title == category.title
-                                        CategoryListItem(
-                                            title = category.title ?: "",
-                                            isSelected = isSelected,
-                                            modifier = Modifier
-                                                .focusRequester(categoryFocusRequesters.getOrPut(index) { FocusRequester() })
-                                                .onFocusChanged {
-                                                    if (it.isFocused) {
-                                                        onCategorySelected(index)
-                                                        scope.launch {
-                                                            channelListState.scrollToItem(0)
-                                                        }
-                                                    }
-                                                }
-                                                .onKeyEvent {
-                                                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                                        overlayState = OverlayState.CHANNELS
-                                                        true
-                                                    } else false
-                                                },
-                                            onClick = { overlayState = OverlayState.CHANNELS }
-                                        )
-                                    }
-                                }
-                                Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(Color.White.copy(alpha = 0.1f)))
+                        LazyColumn(
+                            state = categoryListState,
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(280.dp)
+                                .background(Color.Black.copy(alpha = 0.95f))
+                                .padding(vertical = 16.dp)
+                        ) {
+                            itemsIndexed(categories) { index, category ->
+                                val isSelected = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title == category.title
+                                CategoryListItem(
+                                    title = category.title ?: "",
+                                    isSelected = isSelected,
+                                    modifier = Modifier
+                                        .focusRequester(categoryFocusRequesters.getOrPut(index) { FocusRequester() })
+                                        .onFocusChanged {
+                                            if (it.isFocused) {
+                                                onCategorySelected(index)
+                                                scope.launch { channelListState.scrollToItem(0) }
+                                            }
+                                        }
+                                        .onKeyEvent {
+                                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                                overlayState = OverlayState.CHANNELS
+                                                true
+                                            } else false
+                                        },
+                                    onClick = { overlayState = OverlayState.CHANNELS }
+                                )
+                            }
+                        }
+                    }
+
+                    // 2. Channel List (Left Side)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(420.dp)
+                            .background(Color.Black.copy(alpha = 0.85f))
+                    ) {
+                        val currentCategoryTitle = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title ?: ""
+                        Text(
+                            text = currentCategoryTitle.uppercase(),
+                            modifier = Modifier.padding(24.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 2.sp
+                        )
+
+                        LazyColumn(
+                            state = channelListState,
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            itemsIndexed(playlist) { index, item ->
+                                ChannelListItem(
+                                    item = item,
+                                    isSelected = item.id == media?.id,
+                                    epg = viewModel.getEpgForId(item.id),
+                                    nextEpg = viewModel.getNextEpgForId(item.id),
+                                    modifier = Modifier
+                                        .focusRequester(channelFocusRequesters.getOrPut(item.id) { FocusRequester() })
+                                        .onFocusChanged { if (it.isFocused) focusedChannel = item }
+                                        .onKeyEvent {
+                                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                                overlayState = OverlayState.CATEGORIES
+                                                true
+                                            } else false
+                                        },
+                                    onClick = { overlayState = OverlayState.NONE; onMediaSelected(item) }
+                                )
+                            }
+                        }
+                    }
+
+                    // 3. EPG & Program Details (Right Side) - The TiviMate Look
+                    if (overlayState == OverlayState.CHANNELS || overlayState == OverlayState.CATEGORIES) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .weight(1f)
+                                .padding(32.dp)
+                        ) {
+                            // Detailed Info Box
+                            val currentEpg = viewModel.getEpgForId(focusedChannel?.id ?: 0)
+                            
+                            ModernProgramDetailBox(epg = currentEpg, channel = focusedChannel)
+
+                            Spacer(modifier = Modifier.height(32.dp))
+
+                            // Upcoming Programs for Focused Channel
+                            val fullEpg = viewModel.getFullEpgForId(focusedChannel?.id ?: 0)
+                            val now = System.currentTimeMillis() / 1000
+                            val upcomingEpg = remember(fullEpg, focusedChannel) { 
+                                fullEpg.filter { (it.stopTimestamp ?: 0) > now } 
                             }
 
-                            // Channels
-                            if (overlayState == OverlayState.CHANNELS || overlayState == OverlayState.CATEGORIES) {
-                                val currentCategoryTitle = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title ?: ""
-                                Column(
-                                    modifier = Modifier.fillMaxHeight().width(450.dp).background(Color.Black.copy(alpha = 0.9f))
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = currentCategoryTitle,
-                                            modifier = Modifier.weight(1f),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontWeight = FontWeight.Bold
+                            if (upcomingEpg.isNotEmpty()) {
+                                Text(
+                                    text = "PROGRAMGUIDE",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = Color.Gray,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
+                                LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                                    itemsIndexed(upcomingEpg) { idx, epg ->
+                                        MiniProgramGuideItem(
+                                            epg = epg,
+                                            isCurrent = idx == 0 && (epg.startTimestamp ?: 0) <= now
                                         )
-                                        Icon(
-                                            imageVector = Icons.Default.Search,
-                                            contentDescription = "Sök",
-                                            tint = Color.Gray,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                    LazyColumn(
-                                        state = channelListState,
-                                        modifier = Modifier.fillMaxSize().padding(bottom = 16.dp)
-                                    ) {
-                                        itemsIndexed(playlist) { index, item ->
-                                            ChannelListItem(
-                                                item = item,
-                                                isSelected = item.id == media?.id,
-                                                epg = viewModel.getEpgForId(item.id),
-                                                nextEpg = viewModel.getNextEpgForId(item.id),
-                                                modifier = Modifier
-                                                    .focusRequester(channelFocusRequesters.getOrPut(item.id) { FocusRequester() })
-                                                    .onKeyEvent {
-                                                        if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                                            overlayState = OverlayState.CATEGORIES
-                                                            true
-                                                        } else false
-                                                    },
-                                                onClick = { overlayState = OverlayState.NONE; onMediaSelected(item) }
-                                            )
-                                        }
                                     }
                                 }
                             }
@@ -1078,78 +1117,128 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, epg: EpgListing?, on
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .height(72.dp)
             .onFocusChanged { hasFocus = it.isFocused }
             .clickable { onClick() },
         color = backgroundColor
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp),
+            modifier = Modifier.padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(MaterialTheme.shapes.extraSmall)
-                    .background(Color.White.copy(alpha = 0.05f)),
-                contentAlignment = Alignment.Center
-            ) {
-                AsyncImage(
-                    model = item.icon,
-                    contentDescription = null,
-                    modifier = Modifier.padding(4.dp).fillMaxSize(),
-                    contentScale = ContentScale.Fit
+            AsyncImage(
+                model = item.icon,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
+                contentScale = ContentScale.Fit
+            )
+            
+            Spacer(modifier = Modifier.width(16.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.title ?: "", 
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), 
+                    color = Color.White, 
+                    maxLines = 1, 
+                    overflow = TextOverflow.Ellipsis
                 )
-            }
-            
-            Spacer(modifier = Modifier.width(12.dp))
-            
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.Center) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = item.title ?: "", 
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), 
-                        color = Color.White, 
-                        maxLines = 1, 
-                        modifier = Modifier.weight(1f), 
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (epg != null) {
-                        val start = formatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
-                        val stop = formatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
-                        Text(
-                            text = "$start - $stop", 
-                            style = MaterialTheme.typography.labelSmall, 
-                            color = if (hasFocus) Color.White else MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
                 
-                Box(modifier = Modifier.height(20.dp), contentAlignment = Alignment.CenterStart) {
-                    Text(
-                        text = epg?.title ?: "Ingen programinfo", 
-                        style = MaterialTheme.typography.bodySmall, 
-                        color = if (epg != null) (if (hasFocus) Color.White else Color.LightGray) else Color.Gray.copy(alpha = 0.4f), 
-                        maxLines = 1, 
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                
-                Box(modifier = Modifier.fillMaxWidth().height(4.dp)) {
+                Text(
+                    text = epg?.title ?: "Ingen programinfo", 
+                    style = MaterialTheme.typography.bodySmall, 
+                    color = if (hasFocus) Color.White else Color.LightGray, 
+                    maxLines = 1, 
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (epg != null) {
                     val now = System.currentTimeMillis() / 1000
-                    val start = epg?.startTimestamp ?: 0L
-                    val stop = epg?.stopTimestamp ?: 0L
-                    if (start > 0 && stop > start && now in start..stop) {
+                    val start = epg.startTimestamp ?: 0L
+                    val stop = epg.stopTimestamp ?: 0L
+                    if (now in start..stop) {
                         val progress = (now - start).toFloat() / (stop - start).toFloat()
                         LinearProgressIndicator(
                             progress = { progress }, 
-                            modifier = Modifier.fillMaxSize().clip(MaterialTheme.shapes.extraSmall), 
-                            color = if (hasFocus) Color.White else MaterialTheme.colorScheme.primary, 
+                            modifier = Modifier.padding(top = 4.dp).fillMaxWidth().height(3.dp).clip(CircleShape),
+                            color = MaterialTheme.colorScheme.primary,
                             trackColor = Color.White.copy(alpha = 0.1f)
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?) {
+    val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
+    
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color.White.copy(alpha = 0.05f),
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+    ) {
+        Column(modifier = Modifier.padding(24.dp)) {
+            if (epg != null) {
+                val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
+                val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
+                val duration = ((epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0)) / 60
+
+                Text(
+                    text = epg.title ?: "",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Black
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
+                    Text(text = "$start - $stop", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(text = "$duration min", color = Color.Gray)
+                    if (channel != null) {
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(text = channel.title ?: "", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                Text(
+                    text = epg.description ?: "Ingen beskrivning tillgänglig.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.LightGray,
+                    maxLines = 5,
+                    overflow = TextOverflow.Ellipsis
+                )
+            } else {
+                Text("Välj en kanal för att se programinfo", color = Color.Gray)
+            }
+        }
+    }
+}
+
+@Composable
+fun MiniProgramGuideItem(epg: EpgListing, isCurrent: Boolean) {
+    val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
+    val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
+
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = start,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Gray,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.width(64.dp)
+        )
+        Text(
+            text = epg.title ?: "",
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (isCurrent) Color.White else Color.LightGray,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
+        )
     }
 }

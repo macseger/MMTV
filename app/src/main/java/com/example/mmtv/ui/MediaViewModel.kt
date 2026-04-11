@@ -269,7 +269,7 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
 
     fun setLiveCategoryByMediaId(mediaId: Int) {
         val groupedList = uiState.liveStreamsGrouped
-        val specialTitles = listOf("★ FAVORITER", "Historik", "Senast visade")
+        val specialTitles = listOf("★ FAVORITER", "Senast visade")
         
         // 1. Letar först i RIKTIGA kategorier (inte specialkategorier)
         var index = groupedList.indexOfFirst { group ->
@@ -411,10 +411,12 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
             result.add(GroupedMedia(title = "★ FAVORITER", items = relevantFavs))
         }
 
-        // 2. Historik
-        val relevantHistory = history.filter { it.type == type }
-        if (relevantHistory.isNotEmpty()) {
-            result.add(GroupedMedia(title = "Historik", items = relevantHistory))
+        // 2. Historik - Endast för Film och Serier, inte för LIVE TV (enligt önskemål)
+        if (type != MediaType.LIVE) {
+            val relevantHistory = history.filter { it.type == type }
+            if (relevantHistory.isNotEmpty()) {
+                result.add(GroupedMedia(title = "Historik", items = relevantHistory))
+            }
         }
 
         result.addAll(list)

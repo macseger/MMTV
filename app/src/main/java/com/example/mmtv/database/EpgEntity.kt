@@ -14,5 +14,6 @@ data class EpgEntity(
     val title: String?,
     val description: String?,
     val startTimestamp: Long,
-    val stopTimestamp: Long
+    val stopTimestamp: Long,
+    val icon: String? = null
 )

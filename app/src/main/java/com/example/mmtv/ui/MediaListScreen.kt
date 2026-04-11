@@ -62,8 +62,9 @@ fun MediaListScreen(
     onMediaSelected: (MediaSource) -> Unit,
     onToggleFavorite: (MediaSource) -> Unit = {},
     onHideCategory: (String) -> Unit = {},
-    epgProvider: (Int, String?) -> EpgListing? = { _, _ -> null },
-    nextEpgProvider: (Int, String?) -> EpgListing? = { _, _ -> null },
+    epgProvider: suspend (Int, String?) -> EpgListing? = { _, _ -> null },
+    nextEpgProvider: suspend (Int, String?) -> EpgListing? = { _, _ -> null },
+    onGetIcon: suspend (String?, String?) -> String? = { _, _ -> null },
     onItemFocused: (Int) -> Unit = {},
     backgroundColor: Color = MaterialTheme.colorScheme.background,
     onBackPressed: (() -> Unit)? = null
@@ -182,8 +183,13 @@ fun MediaListScreen(
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
                             TvChannelItem(
                                 media = media,
-                                epg = epgProvider(media.id, media.title),
-                                nextEpg = nextEpgProvider(media.id, media.title),
+                                epg = produceState<EpgListing?>(initialValue = null, key1 = media.id) {
+                                    value = epgProvider(media.id, media.title)
+                                }.value,
+                                nextEpg = produceState<EpgListing?>(initialValue = null, key1 = media.id) {
+                                    value = nextEpgProvider(media.id, media.title)
+                                }.value,
+                                onGetIcon = onGetIcon,
                                 modifier = Modifier
                                     .focusRequester(requester)
                                     .onKeyEvent { 
@@ -210,6 +216,7 @@ fun MediaListScreen(
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
                             MediaCard(
                                 media = media,
+                                onGetIcon = onGetIcon,
                                 modifier = Modifier
                                     .focusRequester(requester),
                                 onClick = { onMediaSelected(media) },
@@ -477,13 +484,21 @@ fun TvChannelItem(
     modifier: Modifier = Modifier, 
     onFocused: () -> Unit, 
     onClick: () -> Unit,
-    onToggleFavorite: () -> Unit
+    onToggleFavorite: () -> Unit,
+    onGetIcon: (suspend (String?, String?) -> String?)? = null
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var pressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val formatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
+    // Slå upp ikon asynkront istället för att blockera UI-tråden
+    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon, key2 = media.epgId) {
+        if (value.isNullOrEmpty() && onGetIcon != null) {
+            value = onGetIcon(media.epgId, media.title)
+        }
+    }
+
     LaunchedEffect(hasFocus) {
         if (hasFocus) onFocused()
     }
@@ -492,6 +507,8 @@ fun TvChannelItem(
         targetValue = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
         label = "bgColor"
     )
+
+    // Ta bort den felaktiga epgIcon-variabeln helt då den inte behövs längre
 
     Card(
         modifier = modifier
@@ -544,9 +561,9 @@ fun TvChannelItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(contentAlignment = Alignment.TopStart) {
-                if (!media.icon.isNullOrEmpty()) {
+                if (!displayIcon.isNullOrEmpty()) {
                     SubcomposeAsyncImage(
-                        model = media.icon,
+                        model = displayIcon,
                         contentDescription = null,
                         modifier = Modifier.size(60.dp).clip(MaterialTheme.shapes.small),
                         contentScale = ContentScale.Fit,
@@ -673,11 +690,19 @@ fun MediaCard(
     media: MediaSource, 
     modifier: Modifier = Modifier, 
     onClick: () -> Unit,
-    onToggleFavorite: () -> Unit
+    onToggleFavorite: () -> Unit,
+    onGetIcon: (suspend (String?, String?) -> String?)? = null
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var pressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
+    // Slå upp ikon asynkront istället för att blockera UI-tråden
+    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon, key2 = media.epgId) {
+        if (value.isNullOrEmpty() && onGetIcon != null) {
+            value = onGetIcon(media.epgId, media.title)
+        }
+    }
 
     Column(
         modifier = modifier
@@ -736,9 +761,9 @@ fun MediaCard(
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                if (!media.icon.isNullOrEmpty()) {
+                if (!displayIcon.isNullOrEmpty()) {
                     SubcomposeAsyncImage(
-                        model = media.icon,
+                        model = displayIcon,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,

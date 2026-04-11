@@ -403,7 +403,7 @@ fun PlayerScreen(
                                     val currentTime = System.currentTimeMillis()
                                     if (currentTime - lastCenterClickTime < doubleClickTimeout) {
                                         if (media != null) {
-                                            viewModel.getFullEpgForId(media.id)
+                                            scope.launch { viewModel.getFullEpgForId(media.id) }
                                         }
                                         overlayState = OverlayState.EPG_INFO
                                     } else {
@@ -430,7 +430,7 @@ fun PlayerScreen(
                                 true
                             } else if (overlayState == OverlayState.QUICK_INFO) {
                                 if (media != null) {
-                                    viewModel.getFullEpgForId(media.id)
+                                    scope.launch { viewModel.getFullEpgForId(media.id) }
                                 }
                                 overlayState = OverlayState.EPG_INFO
                                 true
@@ -681,8 +681,12 @@ fun PlayerScreen(
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            val epg = viewModel.getEpgForId(media?.id ?: 0)
-            val nextEpg = viewModel.getNextEpgForId(media?.id ?: 0)
+            val epg = produceState<EpgListing?>(initialValue = null, key1 = media?.id) {
+                value = viewModel.getEpgForId(media?.id ?: 0)
+            }.value
+            val nextEpg = produceState<EpgListing?>(initialValue = null, key1 = media?.id) {
+                value = viewModel.getNextEpgForId(media?.id ?: 0)
+            }.value
             val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
             
             Surface(
@@ -887,8 +891,12 @@ fun PlayerScreen(
                                 ChannelListItem(
                                     item = item,
                                     isSelected = item.id == media?.id,
-                                    epg = viewModel.getEpgForId(item.id),
-                                    nextEpg = viewModel.getNextEpgForId(item.id),
+                                    epg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
+                                        value = viewModel.getEpgForId(item.id)
+                                    }.value,
+                                    nextEpg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
+                                        value = viewModel.getNextEpgForId(item.id)
+                                    }.value,
                                     modifier = Modifier
                                         .focusRequester(channelFocusRequesters.getOrPut(item.id) { FocusRequester() })
                                         .onFocusChanged { if (it.isFocused) focusedChannel = item }
@@ -913,14 +921,18 @@ fun PlayerScreen(
                                 .padding(32.dp)
                         ) {
                             // Detailed Info Box
-                            val currentEpg = viewModel.getEpgForId(focusedChannel?.id ?: 0)
+                            val currentEpg = produceState<EpgListing?>(initialValue = null, key1 = focusedChannel?.id) {
+                                value = viewModel.getEpgForId(focusedChannel?.id ?: 0)
+                            }.value
                             
                             ModernProgramDetailBox(epg = currentEpg, channel = focusedChannel)
 
                             Spacer(modifier = Modifier.height(32.dp))
 
                             // Upcoming Programs for Focused Channel
-                            val fullEpg = viewModel.getFullEpgForId(focusedChannel?.id ?: 0)
+                            val fullEpg = produceState<List<EpgListing>>(initialValue = emptyList(), key1 = focusedChannel?.id) {
+                                value = viewModel.getFullEpgForId(focusedChannel?.id ?: 0)
+                            }.value
                             val now = System.currentTimeMillis() / 1000
                             val upcomingEpg = remember(fullEpg, focusedChannel) { 
                                 fullEpg.filter { (it.stopTimestamp ?: 0) > now } 
@@ -951,7 +963,9 @@ fun PlayerScreen(
 
         // --- FULL EPG INFO (MODAL) ---
         if (overlayState == OverlayState.EPG_INFO && media != null) {
-            val fullEpg = viewModel.getFullEpgForId(media.id)
+            val fullEpg = produceState<List<EpgListing>>(initialValue = emptyList(), key1 = media.id) {
+                value = viewModel.getFullEpgForId(media.id)
+            }.value
             val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
             
             Box(

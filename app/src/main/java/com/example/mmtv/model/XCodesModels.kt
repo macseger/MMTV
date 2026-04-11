@@ -120,7 +120,8 @@ data class MediaSource(
     val director: String? = null,
     val genre: String? = null,
     val cast: String? = null,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val addedDate: Long = 0L
 )
 
 enum class MediaType {

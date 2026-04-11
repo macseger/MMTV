@@ -3,13 +3,48 @@ package com.example.mmtv.api
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
 import com.example.mmtv.model.MediaSource
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
 class SessionManager(context: Context) {
-    private val prefs: SharedPreferences = context.getSharedPreferences("mmtv_prefs", Context.MODE_PRIVATE)
+    private val masterKey = MasterKey.Builder(context)
+        .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+        .build()
+
+    private val prefs: SharedPreferences = EncryptedSharedPreferences.create(
+        context,
+        "mmtv_secure_prefs",
+        masterKey,
+        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+    )
+    private val legacyPrefs: SharedPreferences = context.getSharedPreferences("mmtv_prefs", Context.MODE_PRIVATE)
     private val gson = Gson()
+
+    init {
+        migrateLegacyPrefs()
+    }
+
+    private fun migrateLegacyPrefs() {
+        if (legacyPrefs.all.isNotEmpty() && !prefs.contains("is_logged_in")) {
+            prefs.edit {
+                legacyPrefs.all.forEach { (key, value) ->
+                    when (value) {
+                        is String -> putString(key, value)
+                        is Boolean -> putBoolean(key, value)
+                        is Int -> putInt(key, value)
+                        is Long -> putLong(key, value)
+                        is Float -> putFloat(key, value)
+                        is Set<*> -> putStringSet(key, value as Set<String>)
+                    }
+                }
+            }
+            legacyPrefs.edit { clear() }
+        }
+    }
 
     fun saveLogin(host: String, user: String, pass: String) {
         prefs.edit {

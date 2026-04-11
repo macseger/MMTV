@@ -124,7 +124,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         genre = genre,
         cast = cast,
         epgId = epgId,
-        isFavorite = isFavorite
+        isFavorite = isFavorite,
+        addedDate = addedDate
     )
 
     private fun MediaSource.toEntity(catId: String?, catName: String?) = MediaEntity(
@@ -141,7 +142,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         genre = genre,
         cast = cast,
         epgId = epgId,
-        isFavorite = isFavorite
+        isFavorite = isFavorite,
+        addedDate = addedDate
     )
 
     suspend fun getGroupedMovies(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
@@ -189,32 +191,35 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         val allEntities = mutableListOf<MediaEntity>()
         val result = categories.mapIndexed { catIdx, category ->
             val categoryMovies = moviesByCategory[category.categoryId] ?: emptyList()
-            val mediaSources = categoryMovies.map { movie ->
-                MediaSource(
-                    id = movie.streamId,
-                    title = movie.name ?: "Okänd film",
-                    icon = movie.streamIcon,
-                    type = MediaType.MOVIE,
-                    extension = movie.containerExtension,
-                    rating = movie.rating,
-                    isFavorite = existingFavorites.contains(movie.streamId)
-                )
-            }
-            allEntities.addAll(categoryMovies.mapIndexed { itemIdx, movie ->
-                MediaSource(
-                    id = movie.streamId,
-                    title = movie.name ?: "Okänd film",
-                    icon = movie.streamIcon,
-                    type = MediaType.MOVIE,
-                    extension = movie.containerExtension,
-                    rating = movie.rating,
-                    isFavorite = existingFavorites.contains(movie.streamId)
-                ).toEntity(category.categoryId, category.categoryName).copy(
-                    categoryOrder = catIdx,
-                    itemOrder = itemIdx,
-                    addedDate = movie.added?.toLongOrNull() ?: 0L
-                )
-            })
+                val mediaSources = categoryMovies.map { movie ->
+                    val addedTs = movie.added?.toLongOrNull() ?: parseDateToUnix(movie.added)
+                    MediaSource(
+                        id = movie.streamId,
+                        title = movie.name ?: "Okänd film",
+                        icon = movie.streamIcon,
+                        type = MediaType.MOVIE,
+                        extension = movie.containerExtension,
+                        rating = movie.rating,
+                        isFavorite = existingFavorites.contains(movie.streamId)
+                    ).copy(addedDate = addedTs)
+                }
+                allEntities.addAll(categoryMovies.mapIndexed { itemIdx, movie ->
+                    val addedTs = movie.added?.toLongOrNull() ?: parseDateToUnix(movie.added)
+                    val media = MediaSource(
+                        id = movie.streamId,
+                        title = movie.name ?: "Okänd film",
+                        icon = movie.streamIcon,
+                        type = MediaType.MOVIE,
+                        extension = movie.containerExtension,
+                        rating = movie.rating,
+                        isFavorite = existingFavorites.contains(movie.streamId)
+                    )
+                    media.toEntity(category.categoryId, category.categoryName).copy(
+                        categoryOrder = catIdx,
+                        itemOrder = itemIdx,
+                        addedDate = addedTs
+                    )
+                })
             GroupedMedia(title = category.categoryName ?: "Okänd kategori", items = mediaSources)
         }.filter { it.items.isNotEmpty() }
 
@@ -271,7 +276,24 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         val result = categories.mapIndexed { catIdx, category ->
             val categorySeries = seriesByCategory[category.categoryId] ?: emptyList()
             val mediaSources = categorySeries.map { s ->
+                val addedTs = s.lastModified?.toLongOrNull() ?: parseDateToUnix(s.lastModified)
                 MediaSource(
+                    id = s.seriesId,
+                    title = s.name ?: "Okänd serie",
+                    icon = s.cover,
+                    type = MediaType.SERIES,
+                    plot = s.plot,
+                    rating = s.rating,
+                    director = s.director,
+                    genre = s.genre,
+                    cast = s.cast,
+                    isFavorite = existingFavorites.contains(s.seriesId),
+                    addedDate = addedTs
+                )
+            }
+            allEntities.addAll(categorySeries.mapIndexed { itemIdx, s ->
+                val addedTs = s.lastModified?.toLongOrNull() ?: parseDateToUnix(s.lastModified)
+                val media = MediaSource(
                     id = s.seriesId,
                     title = s.name ?: "Okänd serie",
                     icon = s.cover,
@@ -283,23 +305,10 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
                     cast = s.cast,
                     isFavorite = existingFavorites.contains(s.seriesId)
                 )
-            }
-            allEntities.addAll(categorySeries.mapIndexed { itemIdx, s ->
-                MediaSource(
-                    id = s.seriesId,
-                    title = s.name ?: "Okänd serie",
-                    icon = s.cover,
-                    type = MediaType.SERIES,
-                    plot = s.plot,
-                    rating = s.rating,
-                    director = s.director,
-                    genre = s.genre,
-                    cast = s.cast,
-                    isFavorite = existingFavorites.contains(s.seriesId)
-                ).toEntity(category.categoryId, category.categoryName).copy(
+                media.toEntity(category.categoryId, category.categoryName).copy(
                     categoryOrder = catIdx,
                     itemOrder = itemIdx,
-                    addedDate = s.lastModified?.toLongOrNull() ?: 0L
+                    addedDate = addedTs
                 )
             })
             GroupedMedia(title = category.categoryName ?: "Okänd kategori", items = mediaSources)
@@ -364,27 +373,35 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
 
     private suspend fun parseAndStore(file: File, isClearFirst: Boolean) {
         val batch = mutableListOf<EpgEntity>()
+        val channelIcons = mutableMapOf<String, String>()
         var isFirstBatch = true
         
         file.inputStream().use { input ->
-            epgParser.parseStreaming(input) { epgId, it ->
-                batch.add(EpgEntity(
-                    epgId = epgId,
-                    title = it.title,
-                    description = it.description,
-                    startTimestamp = it.startTimestamp ?: 0L,
-                    stopTimestamp = it.stopTimestamp ?: 0L
-                ))
-                
-                if (batch.size >= 500) {
-                    if (isFirstBatch && isClearFirst) {
-                        mediaDao.clearEpg()
+            epgParser.parseStreaming(
+                input,
+                onChannelParsed = { id, icon ->
+                    if (icon != null) channelIcons[id] = icon
+                },
+                onProgrammeParsed = { epgId, it ->
+                    batch.add(EpgEntity(
+                        epgId = epgId,
+                        title = it.title,
+                        description = it.description,
+                        startTimestamp = it.startTimestamp ?: 0L,
+                        stopTimestamp = it.stopTimestamp ?: 0L,
+                        icon = channelIcons[epgId]
+                    ))
+                    
+                    if (batch.size >= 500) {
+                        if (isFirstBatch && isClearFirst) {
+                            mediaDao.clearEpg()
+                        }
+                        isFirstBatch = false
+                        mediaDao.insertEpg(ArrayList(batch))
+                        batch.clear()
                     }
-                    isFirstBatch = false
-                    mediaDao.insertEpg(ArrayList(batch))
-                    batch.clear()
                 }
-            }
+            )
         }
 
         if (batch.isNotEmpty()) {
@@ -422,6 +439,32 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         emptyList()
     }
 
+    suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis() / 1000
+        val endLimit = now + (48 * 60 * 60)
+        
+        // 1. Kolla exakt EPG ID
+        if (epgId != null) {
+            val entity = mediaDao.getEpgForChannelWithLimit(epgId, now - 86400, endLimit).firstOrNull { it.icon != null }
+            if (entity?.icon != null) return@withContext entity.icon
+        }
+        
+        // 2. Kolla fuzzy på namnet
+        if (channelName != null) {
+            val cleanName = channelName
+                .replace("HD", "", ignoreCase = true)
+                .replace("FHD", "", ignoreCase = true)
+                .replace("4K", "", ignoreCase = true)
+                .replace("SD", "", ignoreCase = true)
+                .replace("Sverige", "", ignoreCase = true)
+                .trim()
+            val entity = mediaDao.findEpgByFuzzyName(cleanName, now - 86400, endLimit).firstOrNull { it.icon != null }
+            if (entity?.icon != null) return@withContext entity.icon
+        }
+        
+        null
+    }
+
     private fun EpgEntity.toEpgListing() = EpgListing(
         id = id.toString(),
         epgId = epgId,
@@ -432,6 +475,23 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         startTimestamp = startTimestamp,
         stopTimestamp = stopTimestamp
     )
+
+    private fun parseDateToUnix(dateStr: String?): Long {
+        if (dateStr == null) return 0L
+        return try {
+            // Försök med formatet YYYY-MM-DD HH:MM:SS som är vanligt i IPTV-listor
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+            sdf.parse(dateStr)?.time?.div(1000) ?: 0L
+        } catch (e: Exception) {
+            try {
+                // Försök med bara datum YYYY-MM-DD
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                sdf.parse(dateStr)?.time?.div(1000) ?: 0L
+            } catch (e2: Exception) {
+                0L
+            }
+        }
+    }
 
     private suspend fun <T> getCachedOrFetch(
         cacheKey: String, 

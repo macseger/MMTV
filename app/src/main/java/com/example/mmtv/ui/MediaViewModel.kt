@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 
 import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.database.MediaEntity
@@ -473,24 +474,30 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         }
     }
 
-    fun getEpgForId(streamId: Int, channelName: String? = null): EpgListing? {
+    suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
+        try {
+            repository.getIconForChannel(epgId, channelName)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun getEpgForId(streamId: Int, channelName: String? = null): EpgListing? = withContext(Dispatchers.IO) {
         val epgId = channelToEpgMap[streamId] ?: ""
         val now = System.currentTimeMillis() / 1000
         
-        val epgList = fullEpgData[epgId]
+        var epgList = fullEpgData[epgId]
         if (epgList == null && epgId.isNotEmpty()) {
-            // Om den saknas i cachen, försök ladda den i bakgrunden för nästa gång
-            viewModelScope.launch(Dispatchers.IO) {
-                val dbEpg = repository.getEpgForChannel(epgId, channelName)
-                if (dbEpg.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        fullEpgData[epgId] = dbEpg
-                    }
+            val dbEpg = repository.getEpgForChannel(epgId, channelName)
+            if (dbEpg.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    fullEpgData[epgId] = dbEpg
                 }
+                epgList = dbEpg
             }
         }
         
-        return epgList?.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
+        epgList?.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
     }
 
     fun prefetchEpgForCategory(categoryIndex: Int) {
@@ -510,41 +517,38 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         }
     }
 
-    fun getNextEpgForId(streamId: Int, channelName: String? = null): EpgListing? {
-        val epgId = channelToEpgMap[streamId] ?: return null
+    suspend fun getNextEpgForId(streamId: Int, channelName: String? = null): EpgListing? = withContext(Dispatchers.IO) {
+        val epgId = channelToEpgMap[streamId] ?: return@withContext null
         val now = System.currentTimeMillis() / 1000
         var channelList = fullEpgData[epgId]
         
-        if (channelList == null && channelName != null) {
-             // Försök ladda om den saknas
-             viewModelScope.launch(Dispatchers.IO) {
-                 val dbEpg = repository.getEpgForChannel(epgId, channelName)
-                 if (dbEpg.isNotEmpty()) {
-                     withContext(Dispatchers.Main) {
-                         fullEpgData[epgId] = dbEpg
-                     }
+        if (channelList == null && epgId.isNotEmpty()) {
+             val dbEpg = repository.getEpgForChannel(epgId, channelName)
+             if (dbEpg.isNotEmpty()) {
+                 withContext(Dispatchers.Main) {
+                     fullEpgData[epgId] = dbEpg
                  }
+                 channelList = dbEpg
              }
         }
         
         val currentIndex = channelList?.indexOfFirst { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) } ?: -1
-        return if (currentIndex != -1) channelList?.getOrNull(currentIndex + 1) else null
+        if (currentIndex != -1) channelList?.getOrNull(currentIndex + 1) else null
     }
 
-    fun getFullEpgForId(streamId: Int, channelName: String? = null): List<EpgListing> {
-        val epgId = channelToEpgMap[streamId] ?: return emptyList()
-        val epgData = fullEpgData[epgId]
+    suspend fun getFullEpgForId(streamId: Int, channelName: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {
+        val epgId = channelToEpgMap[streamId] ?: return@withContext emptyList()
+        var epgData = fullEpgData[epgId]
         if (epgData == null) {
-            viewModelScope.launch(Dispatchers.IO) {
-                val dbEpg = repository.getEpgForChannel(epgId, channelName)
-                if (dbEpg.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        fullEpgData[epgId] = dbEpg
-                    }
+            val dbEpg = repository.getEpgForChannel(epgId, channelName)
+            if (dbEpg.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    fullEpgData[epgId] = dbEpg
                 }
+                epgData = dbEpg
             }
         }
-        return epgData ?: emptyList()
+        epgData ?: emptyList()
     }
 
     fun clearHistory() {

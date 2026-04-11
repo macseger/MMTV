@@ -11,7 +11,7 @@ class EpgParser {
     private val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
     private val simpleFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.US)
 
-    fun parse(inputStream: InputStream): Map<String, List<EpgListing>> {
+    fun parse(inputStream: InputStream, onChannelParsed: ((String, String?) -> Unit)? = null): Map<String, List<EpgListing>> {
         val result = mutableMapOf<String, MutableList<EpgListing>>()
         try {
             val parser = Xml.newPullParser()
@@ -30,6 +30,17 @@ class EpgParser {
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
                         when (name) {
+                            "channel" -> {
+                                val id = parser.getAttributeValue(null, "id")
+                                var icon: String? = null
+                                while (parser.next() != XmlPullParser.END_TAG || parser.name != "channel") {
+                                    if (parser.eventType == XmlPullParser.START_TAG && parser.name == "icon") {
+                                        icon = parser.getAttributeValue(null, "src")
+                                    }
+                                    if (parser.eventType == XmlPullParser.END_DOCUMENT) break
+                                }
+                                if (id != null) onChannelParsed?.invoke(id, icon)
+                            }
                             "programme" -> {
                                 currentChannel = parser.getAttributeValue(null, "channel")
                                 startTime = parseDate(parser.getAttributeValue(null, "start"))
@@ -73,7 +84,11 @@ class EpgParser {
         return result
     }
 
-    suspend fun parseStreaming(inputStream: InputStream, onProgrammeParsed: suspend (String, EpgListing) -> Unit) {
+    suspend fun parseStreaming(
+        inputStream: InputStream, 
+        onChannelParsed: (suspend (String, String?) -> Unit)? = null,
+        onProgrammeParsed: suspend (String, EpgListing) -> Unit
+    ) {
         try {
             val parser = Xml.newPullParser()
             parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
@@ -91,6 +106,26 @@ class EpgParser {
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
                         when (name) {
+                            "channel" -> {
+                                val id = parser.getAttributeValue(null, "id")
+                                var icon: String? = null
+                                // Vi behöver gå igenom barnen för att hitta icon
+                                var channelDepth = 1
+                                while (channelDepth > 0) {
+                                    val nextType = parser.next()
+                                    if (nextType == XmlPullParser.START_TAG) {
+                                        channelDepth++
+                                        if (parser.name == "icon") {
+                                            icon = parser.getAttributeValue(null, "src")
+                                        }
+                                    } else if (nextType == XmlPullParser.END_TAG) {
+                                        channelDepth--
+                                    } else if (nextType == XmlPullParser.END_DOCUMENT) {
+                                        break
+                                    }
+                                }
+                                if (id != null) onChannelParsed?.invoke(id, icon)
+                            }
                             "programme" -> {
                                 currentChannel = parser.getAttributeValue(null, "channel")
                                 startTime = parseDate(parser.getAttributeValue(null, "start"))

@@ -20,24 +20,30 @@ class MmtvPlayer(private val context: Context) {
 
     fun createPlayer(): ExoPlayer {
         val bufferMs = sessionManager.getBufferSize()
-        // Begränsa retries till 2 för att inte hamra servern
-        val loadErrorHandlingPolicy = DefaultLoadErrorHandlingPolicy(2)
+        val loadErrorHandlingPolicy = DefaultLoadErrorHandlingPolicy(3)
         
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                bufferMs, // Min buffer to start playback
-                bufferMs * 3, // Max buffer
-                1000, // Buffer to resume after re-buffer
-                1500  // Buffer to resume after user pause
+                bufferMs, 
+                bufferMs * 3, 
+                1000, 
+                1500  
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
         val renderersFactory = DefaultRenderersFactory(context).apply {
+            setEnableDecoderFallback(true)
+            setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
             if (sessionManager.isTunnelingEnabled()) {
-                setEnableDecoderFallback(true)
+                setEnableAudioTrackPlaybackParams(true)
             }
         }
+
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            .build()
 
         val mediaSourceFactory = DefaultMediaSourceFactory(context)
             .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
@@ -45,7 +51,8 @@ class MmtvPlayer(private val context: Context) {
         val player = ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
-            .setAudioAttributes(AudioAttributes.DEFAULT, true)
+            .setAudioAttributes(audioAttributes, true)
+            .setHandleAudioBecomingNoisy(true)
             .setSeekForwardIncrementMs(60000)
             .setSeekBackIncrementMs(60000)
             .build()

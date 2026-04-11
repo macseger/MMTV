@@ -9,14 +9,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.mmtv.R
 
 @Composable
@@ -28,112 +30,144 @@ fun LoginScreen(viewModel: MediaViewModel, onLogin: (String, String, String) -> 
     val loginError = viewModel.loginError
     val focusManager = LocalFocusManager.current
 
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .padding(48.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Image(
-            painter = painterResource(id = R.drawable.ic_splash_icon),
-            contentDescription = "MMTV Logo",
-            modifier = Modifier.size(120.dp)
-        )
-        Spacer(modifier = Modifier.height(32.dp))
-
-        if (loginError != null) {
+        // VÄNSTER SIDA: Login-fält (flyttas åt vänster för att ge plats åt tangentbordet)
+        Column(
+            modifier = Modifier
+                .weight(1.2f)
+                .fillMaxHeight(),
+            verticalArrangement = Arrangement.Center
+        ) {
             Text(
-                text = loginError,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(bottom = 16.dp)
+                text = "VÄLKOMMEN",
+                style = MaterialTheme.typography.headlineLarge.copy(
+                    fontWeight = FontWeight.ExtraLight,
+                    letterSpacing = 8.sp
+                ),
+                color = MaterialTheme.colorScheme.primary
             )
-        }
-        
-        OutlinedTextField(
-            value = host,
-            onValueChange = { host = it },
-            label = { Text("Server URL (host:port)") },
-            modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth(0.8f),
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = Color.Gray,
-                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                unfocusedLabelColor = Color.Gray,
-                cursorColor = MaterialTheme.colorScheme.primary
-            ),
-            placeholder = { Text("t.ex. mmtv.com:8080") },
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Uri,
-                imeAction = ImeAction.Next
-            ),
-            keyboardActions = KeyboardActions(
-                onNext = { focusManager.moveFocus(FocusDirection.Down) }
+            Text(
+                text = "Logga in på ditt MMTV-konto",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.Gray,
+                modifier = Modifier.padding(bottom = 32.dp)
             )
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        OutlinedTextField(
-            value = username,
-            onValueChange = { username = it },
-            label = { Text("Username") },
-            modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth(0.8f),
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = Color.Gray,
-                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                unfocusedLabelColor = Color.Gray,
-                cursorColor = MaterialTheme.colorScheme.primary
-            ),
-            keyboardOptions = KeyboardOptions(
-                imeAction = ImeAction.Next
-            ),
-            keyboardActions = KeyboardActions(
-                onNext = { focusManager.moveFocus(FocusDirection.Down) }
+
+            if (loginError != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                    modifier = Modifier.padding(bottom = 16.dp).widthIn(max = 400.dp)
+                ) {
+                    Text(
+                        text = loginError,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+            
+            OutlinedTextField(
+                value = host,
+                onValueChange = { host = it },
+                label = { Text("Server URL") },
+                placeholder = { Text("t.ex. mmtv.com:8080") },
+                modifier = Modifier.widthIn(max = 400.dp).fillMaxWidth(),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Next
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                )
             )
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        OutlinedTextField(
-            value = password,
-            onValueChange = { password = it },
-            label = { Text("Password") },
-            modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth(0.8f),
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = Color.Gray,
-                focusedLabelColor = MaterialTheme.colorScheme.primary,
-                unfocusedLabelColor = Color.Gray,
-                cursorColor = MaterialTheme.colorScheme.primary
-            ),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = KeyboardType.Password,
-                imeAction = ImeAction.Done
-            ),
-            keyboardActions = KeyboardActions(
-                onDone = { 
-                    focusManager.clearFocus()
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            OutlinedTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("Användarnamn") },
+                modifier = Modifier.widthIn(max = 400.dp).fillMaxWidth(),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Next
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { focusManager.moveFocus(FocusDirection.Down) }
+                )
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Lösenord") },
+                modifier = Modifier.widthIn(max = 400.dp).fillMaxWidth(),
+                singleLine = true,
+                // Ingen PasswordVisualTransformation för att underlätta på TV
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Text,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { 
+                        focusManager.clearFocus()
+                        val finalHost = if (!host.startsWith("http")) "http://$host" else host
+                        onLogin(finalHost, username, password) 
+                    }
+                )
+            )
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            Button(
+                onClick = { 
                     val finalHost = if (!host.startsWith("http")) "http://$host" else host
                     onLogin(finalHost, username, password) 
-                }
-            )
-        )
-        Spacer(modifier = Modifier.height(24.dp))
-        
-        Button(
-            onClick = { 
-                val finalHost = if (!host.startsWith("http")) "http://$host" else host
-                onLogin(finalHost, username, password) 
-            },
-            modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth(0.8f)
+                },
+                modifier = Modifier.widthIn(max = 400.dp).fillMaxWidth(),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+            ) {
+                Text("LOGGA IN", modifier = Modifier.padding(vertical = 8.dp))
+            }
+        }
+
+        // HÖGER SIDA: Stor logga (som syns även när tangentbordet är uppe)
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
-            Text("Login")
+            Image(
+                painter = painterResource(id = R.drawable.ic_splash_icon),
+                contentDescription = "MMTV Logo",
+                modifier = Modifier.size(280.dp).alpha(0.6f)
+            )
         }
     }
 }

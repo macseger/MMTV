@@ -42,7 +42,7 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            contentPadding = PaddingValues(vertical = 64.dp, horizontal = 48.dp)
+            contentPadding = PaddingValues(top = 64.dp, bottom = 64.dp, start = 48.dp, end = 48.dp)
         ) {
             item {
                 Text(
@@ -54,32 +54,6 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
                     color = MaterialTheme.colorScheme.primary
                 )
                 Spacer(modifier = Modifier.height(48.dp))
-            }
-
-            // User Info Card
-            item {
-                Card(
-                    modifier = Modifier.widthIn(max = 600.dp).fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(modifier = Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            modifier = Modifier.size(64.dp),
-                            shape = RoundedCornerShape(32.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                        ) {
-                            Icon(Icons.Default.Person, null, modifier = Modifier.padding(16.dp), tint = MaterialTheme.colorScheme.primary)
-                        }
-                        Spacer(modifier = Modifier.width(24.dp))
-                        Column {
-                            Text("Inloggad som", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                            Text(loginInfo?.second ?: "Okänd", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Text(loginInfo?.first ?: "Ingen server vald", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(32.dp))
             }
 
             item { SectionHeader("Uppspelning") }
@@ -141,9 +115,10 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
             item { SectionHeader("System") }
 
             item {
+                val username = loginInfo?.second ?: "Okänd"
                 SettingsAction(
-                    title = "Logga ut",
-                    subtitle = "Byt användare eller server",
+                    title = "Logga ut $username",
+                    subtitle = "Byt användare eller server (${loginInfo?.first ?: ""})",
                     icon = Icons.AutoMirrored.Filled.Logout,
                     isDestructive = true,
                     onClick = {

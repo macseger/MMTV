@@ -5,6 +5,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -48,6 +49,7 @@ fun HomeScreen(
     onMediaSelected: (MediaSource) -> Unit
 ) {
     val tvFocusRequester = remember { FocusRequester() }
+    var isLiveTvFocused by remember { mutableStateOf(false) }
     val dbSearchResults by viewModel.dbSearchResults.collectAsState()
     val recentlyAdded by viewModel.recentlyAdded.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
@@ -58,9 +60,16 @@ fun HomeScreen(
     val favoriteMovies = favorites.filter { it.type == MediaType.MOVIE }
     val favoriteSeries = favorites.filter { it.type == MediaType.SERIES }
 
-    // 1. Hantera back-knappen vid sökning
-    BackHandler(enabled = viewModel.searchQuery.isNotEmpty()) {
-        viewModel.searchQuery = ""
+    // 1. Hantera back-knappen
+    // Om sökning är aktiv -> Rensa sökning
+    // Om vi inte står på LIVE TV-ikonen -> Hoppa till den
+    // Annars -> Stäng appen (standardbeteende när BackHandler är disabled)
+    BackHandler(enabled = viewModel.searchQuery.isNotEmpty() || !isLiveTvFocused) {
+        if (viewModel.searchQuery.isNotEmpty()) {
+            viewModel.searchQuery = ""
+        } else {
+            tvFocusRequester.requestFocus()
+        }
     }
 
     // Fokusera på rätt element när skärmen laddas
@@ -77,7 +86,7 @@ fun HomeScreen(
         ) {
             // Header Section
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 20.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 32.dp, top = 16.dp, bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -113,6 +122,37 @@ fun HomeScreen(
                 )
             }
 
+            // Fixerad huvudmeny (nu utanför den scrollbara grid-vyn)
+            if (viewModel.searchQuery.isEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 32.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        HomeCard(
+                            "LIVE TV", 
+                            Icons.Default.LiveTv, 
+                            modifier = Modifier
+                                .focusRequester(tvFocusRequester)
+                                .onFocusChanged { isLiveTvFocused = it.isFocused }
+                        ) {
+                            onNavigate("live") 
+                        }
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        HomeCard("FILMER", Icons.Default.Movie) { onNavigate("movies") }
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        HomeCard("SERIER", Icons.Default.Tv) { onNavigate("series") }
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        HomeCard("INSTÄLLNINGAR", Icons.Default.Settings) { onNavigate("settings") }
+                    }
+                }
+            }
+
             if (viewModel.searchQuery.isNotEmpty()) {
                 // Sökresultat
                 LazyVerticalGrid(
@@ -137,27 +177,12 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 8.dp, bottom = 48.dp)
                 ) {
-                    // 1. Snabbnavigering (Huvudmenyn)
-                    item { 
-                        HomeCard("LIVE TV", Icons.Default.LiveTv, modifier = Modifier.focusRequester(tvFocusRequester)) { 
-                            onNavigate("live") 
-                        } 
-                    }
-                    item { HomeCard("FILMER", Icons.Default.Movie) { onNavigate("movies") } }
-                    item { HomeCard("SERIER", Icons.Default.Tv) { onNavigate("series") } }
-                    item { HomeCard("INSTÄLLNINGAR", Icons.Default.Settings) { onNavigate("settings") } }
+                    // Innehåll (Huvudmenyn är nu flyttad till den fasta sektionen ovanför)
 
-                    // 1. Favoriter TV
-                    if (favoriteTV.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            MediaRow("FAVORITER TV", favoriteTV, viewModel, isHorizontal = true) { onMediaSelected(it) }
-                        }
-                    }
-
-                    // 2. Fortsätt titta (History)
+                    // 1. Fortsätt titta (History)
                     if (history.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            Column(modifier = Modifier.padding(top = 24.dp)) {
+                            Column(modifier = Modifier.padding(top = 12.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -166,16 +191,23 @@ fun HomeScreen(
                                     Text("FORTSÄTT TITTA", style = MaterialTheme.typography.titleSmall, color = Color.Gray)
                                     Text("SENASTE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                                 }
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
                                 LazyRow(
                                     horizontalArrangement = Arrangement.spacedBy(24.dp),
-                                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp)
+                                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 8.dp)
                                 ) {
                                     items(history.take(15)) { item ->
                                         HistoryCard(item) { onMediaSelected(item) }
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    // 2. Favoriter TV
+                    if (favoriteTV.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            MediaRow("FAVORITER TV", favoriteTV, viewModel, isHorizontal = true) { onMediaSelected(it) }
                         }
                     }
 
@@ -214,11 +246,11 @@ fun HomeScreen(
         if (updateStatus != null) {
             Surface(
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(32.dp)
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp) // Högst upp
                     .animateContentSize(),
-                color = Color.Black.copy(alpha = 0.8f),
-                shape = RoundedCornerShape(16.dp),
+                color = Color.Black.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(50), // Mer rundad "piller"-form
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
             ) {
                 Row(
@@ -260,12 +292,12 @@ fun MediaRow(
     isHorizontal: Boolean = false,
     onMediaClick: (MediaSource) -> Unit
 ) {
-    Column(modifier = Modifier.padding(top = 24.dp)) {
+    Column(modifier = Modifier.padding(top = 16.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall, color = Color.Gray, modifier = Modifier.padding(horizontal = 32.dp))
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         LazyRow(
             horizontalArrangement = Arrangement.spacedBy(24.dp),
-            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp)
+            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 8.dp)
         ) {
             items(items) { item ->
                 if (isHorizontal) {
@@ -332,12 +364,19 @@ fun HistoryCard(
             .onKeyEvent { keyEvent ->
                 val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 
                                  keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
+                val isRedKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_PROG_RED || 
+                               keyEvent.nativeKeyEvent.keyCode == 183
                 
+                if (isRedKey && keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                    onToggleFavorite?.invoke()
+                    return@onKeyEvent true
+                }
+
                 if (isCenterKey) {
                     if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                         if (pressJob == null) {
                             pressJob = scope.launch {
-                                delay(700)
+                                delay(650)
                                 onToggleFavorite?.invoke()
                                 pressJob = null
                             }
@@ -354,7 +393,11 @@ fun HistoryCard(
                     true
                 } else false
             }
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
         horizontalAlignment = Alignment.Start
     ) {
         Card(
@@ -367,7 +410,7 @@ fun HistoryCard(
                     shape = RoundedCornerShape(12.dp)
                 ),
             shape = RoundedCornerShape(12.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = if (hasFocus) 12.dp else 4.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) {
                 if (!media.icon.isNullOrEmpty()) {
@@ -438,30 +481,29 @@ fun HistoryCard(
 fun HomeCard(title: String, icon: ImageVector, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var hasFocus by remember { mutableStateOf(false) }
     
-    val backgroundColor = if (hasFocus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.03f)
-    val contentColor = if (hasFocus) Color.Black else Color.White
-    val iconSize = if (hasFocus) 28.dp else 24.dp
+    // Använd primärfärg (turkos) vid fokus, annars grå/vit
+    val contentColor = if (hasFocus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f)
+    val iconSize = if (hasFocus) 26.dp else 22.dp
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(64.dp)
+            .height(56.dp) // Mycket lägre höjd nu när det är horisontellt
             .onFocusChanged { hasFocus = it.isFocused }
-            .scale(if (hasFocus) 1.05f else 1.0f)
-            .clip(RoundedCornerShape(12.dp))
-            .border(
-                width = if (hasFocus) 0.dp else 1.dp,
-                color = Color.White.copy(alpha = 0.05f),
-                shape = RoundedCornerShape(12.dp)
-            )
-            .clickable { onClick() },
-        color = backgroundColor,
-        tonalElevation = 0.dp
+            .scale(if (hasFocus) 1.1f else 1.0f)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        color = Color.Transparent,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
             Icon(
                 imageVector = icon,
@@ -469,13 +511,13 @@ fun HomeCard(title: String, icon: ImageVector, modifier: Modifier = Modifier, on
                 modifier = Modifier.size(iconSize),
                 tint = contentColor
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(12.dp)) // Avstånd mellan ikon och text
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleSmall.copy(
+                style = MaterialTheme.typography.labelMedium.copy(
                     fontWeight = if (hasFocus) FontWeight.Bold else FontWeight.Normal,
                     letterSpacing = 1.sp,
-                    fontSize = 14.sp
+                    fontSize = 13.sp
                 ),
                 color = contentColor,
                 textAlign = TextAlign.Center

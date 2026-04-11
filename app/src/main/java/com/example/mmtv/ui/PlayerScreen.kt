@@ -85,6 +85,13 @@ fun PlayerScreen(
         }
     }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.stop()
+            exoPlayer.release()
+        }
+    }
+
     var isPlaying by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(false) }
     var overlayState by remember { mutableStateOf(OverlayState.NONE) }
@@ -182,6 +189,12 @@ fun PlayerScreen(
 
     LaunchedEffect(url) {
         focusManager.clearFocus()
+        
+        // Synka kategorin i bakgrunden så att vi hamnar rätt när vi backar ut
+        if (media?.type == MediaType.LIVE) {
+            viewModel.setLiveCategoryByMediaId(media.id)
+        }
+
         val mediaItem = MediaItem.Builder().setUri(url).build()
         exoPlayer.setMediaItem(mediaItem)
         if (media?.type != MediaType.LIVE) {

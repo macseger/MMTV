@@ -267,6 +267,29 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         }
     }
 
+    fun setLiveCategoryByMediaId(mediaId: Int) {
+        val groupedList = uiState.liveStreamsGrouped
+        val specialTitles = listOf("★ FAVORITER", "Historik", "Senast visade")
+        
+        // 1. Letar först i RIKTIGA kategorier (inte specialkategorier)
+        var index = groupedList.indexOfFirst { group ->
+            !specialTitles.contains(group.title) && group.items.any { it.id == mediaId }
+        }
+        
+        // 2. Om vi inte hittade den där, sök i alla (inklusive favoriter/historik)
+        if (index == -1) {
+            index = groupedList.indexOfFirst { group ->
+                group.items.any { it.id == mediaId }
+            }
+        }
+
+        if (index != -1) {
+            lastLiveCategoryIndex = index
+            // Tvinga även spelarens interna lista att uppdateras till den valda kategorins innehåll
+            currentPlaylist = groupedList[index].items
+        }
+    }
+
     private fun addHistoryCategory(list: List<GroupedMedia>, history: List<MediaSource>, type: MediaType): List<GroupedMedia> {
         val relevantHistory = history.filter { it.type == type }
         if (relevantHistory.isEmpty()) return list
@@ -340,6 +363,36 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
             // Uppdatera även senast tillagda
             val recent = withContext(Dispatchers.IO) { mediaDao.getRecentlyAdded() }
             _recentlyAdded.value = recent.map { it.toMediaSource() }
+        }
+    }
+
+    var isLoggingOut by mutableStateOf(false)
+        private set
+
+    fun performFullLogout(onComplete: () -> Unit) {
+        viewModelScope.launch {
+            isLoggingOut = true
+            
+            // 1. Rensa databasen (Favoriter, EPG etc)
+            withContext(Dispatchers.IO) {
+                database.clearAllTables()
+            }
+            
+            // 2. Rensa VM:ens interna cacher
+            _favorites.value = emptyList()
+            _recentlyAdded.value = emptyList()
+            _dbSearchResults.value = emptyList()
+            fullEpgData.clear()
+            channelToEpgMap.clear()
+            
+            // 3. Rensa sessionen (SharedPreferences)
+            sessionManager.logout()
+            
+            // Lite delay för att användaren ska hinna se att det händer nåt
+            delay(1500)
+            
+            isLoggingOut = false
+            onComplete()
         }
     }
 

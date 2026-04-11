@@ -105,6 +105,9 @@ class MainActivity : ComponentActivity() {
                                     onMediaSelected = { media ->
                                         sharedViewModel.addToHistory(media)
                                         if (media.type == MediaType.LIVE) {
+                                            // Hitta kanalens original-kategori och sätt den som aktiv
+                                            sharedViewModel.setLiveCategoryByMediaId(media.id)
+
                                             val currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(sharedViewModel.lastLiveCategoryIndex)?.items ?: emptyList()
                                             playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                         } else {

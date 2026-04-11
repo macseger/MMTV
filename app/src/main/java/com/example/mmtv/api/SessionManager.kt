@@ -142,6 +142,6 @@ class SessionManager(context: Context) {
     }
 
     fun logout() {
-        prefs.edit { clear() }
+        prefs.edit(commit = true) { clear() }
     }
 }

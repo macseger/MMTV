@@ -67,7 +67,7 @@ fun MediaListScreen(
     backgroundColor: Color = MaterialTheme.colorScheme.background,
     onBackPressed: (() -> Unit)? = null
 ) {
-    var selectedCategoryIndex by remember { mutableIntStateOf(initialCategoryIndex) }
+    var selectedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
     val selectedCategory = groupedList.getOrNull(selectedCategoryIndex)
     val isLive = selectedCategory?.items?.firstOrNull()?.type == MediaType.LIVE
     
@@ -80,9 +80,11 @@ fun MediaListScreen(
     val categoryFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val channelFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
 
-    // Fokusera på vald kanal eller kategori när skärmen laddas
-    LaunchedEffect(Unit) {
+    // Fokusera på vald kanal eller kategori när skärmen laddas ELLER när initiala värden ändras
+    LaunchedEffect(initialCategoryIndex, initialMediaId) {
         kotlinx.coroutines.delay(100)
+        selectedCategoryIndex = initialCategoryIndex
+
         if (initialMediaId != null && isLive) {
             val index = selectedCategory?.items?.indexOfFirst { it.id == initialMediaId } ?: -1
             if (index != -1) {
@@ -464,12 +466,19 @@ fun TvChannelItem(
             .onKeyEvent { keyEvent ->
                 val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 
                                  keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
+                val isRedKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_PROG_RED || 
+                               keyEvent.nativeKeyEvent.keyCode == 183 // RED på vissa fjärrkontroller
                 
+                if (isRedKey && keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                    onToggleFavorite()
+                    return@onKeyEvent true
+                }
+
                 if (isCenterKey) {
                     if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                         if (pressJob == null) {
                             pressJob = scope.launch {
-                                delay(700)
+                                delay(650) // Synkad med PlayerScreen timeout
                                 onToggleFavorite()
                                 pressJob = null
                             }
@@ -487,13 +496,13 @@ fun TvChannelItem(
                 }
                 false
             }
-            .clickable { onClick() }
-            .border(
-                width = if (hasFocus) 2.dp else 1.dp,
-                color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.05f),
-                shape = MaterialTheme.shapes.medium
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
             ),
-        colors = CardDefaults.cardColors(containerColor = backgroundColor)
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -632,12 +641,19 @@ fun MediaCard(
             .onKeyEvent { keyEvent ->
                 val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 
                                  keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
+                val isRedKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_PROG_RED || 
+                               keyEvent.nativeKeyEvent.keyCode == 183
                 
+                if (isRedKey && keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                    onToggleFavorite()
+                    return@onKeyEvent true
+                }
+
                 if (isCenterKey) {
                     if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                         if (pressJob == null) {
                             pressJob = scope.launch {
-                                delay(700)
+                                delay(650)
                                 onToggleFavorite()
                                 pressJob = null
                             }
@@ -655,7 +671,11 @@ fun MediaCard(
                 }
                 false
             }
-            .clickable(onClick = { onClick() }),
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Card(
@@ -664,10 +684,10 @@ fun MediaCard(
                 .aspectRatio(0.7f)
                 .border(
                     width = if (hasFocus) 3.dp else 0.dp,
-                    color = if (hasFocus) MaterialTheme.colorScheme.secondary else Color.Transparent,
+                    color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.Transparent,
                     shape = MaterialTheme.shapes.medium
                 ),
-            elevation = CardDefaults.cardElevation(defaultElevation = if (hasFocus) 8.dp else 2.dp)
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 AsyncImage(
@@ -694,10 +714,9 @@ fun MediaCard(
         }
         Text(
             text = media.title ?: "Okänd",
-            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-            maxLines = 2,
-            minLines = 2,
-            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+            maxLines = 1,
+            style = MaterialTheme.typography.labelSmall,
             textAlign = TextAlign.Center,
             color = if (hasFocus) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             overflow = TextOverflow.Ellipsis

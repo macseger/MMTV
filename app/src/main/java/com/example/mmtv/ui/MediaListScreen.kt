@@ -18,6 +18,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,6 +31,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.ContentScale
@@ -37,6 +41,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.GroupedMedia
 import com.example.mmtv.model.MediaSource
@@ -53,6 +59,7 @@ fun MediaListScreen(
     initialMediaId: Int? = null,
     onCategoryChanged: (Int) -> Unit = {},
     onMediaSelected: (MediaSource) -> Unit,
+    onToggleFavorite: (MediaSource) -> Unit = {},
     onHideCategory: (String) -> Unit = {},
     epgProvider: (Int) -> EpgListing? = { null },
     nextEpgProvider: (Int) -> EpgListing? = { null },
@@ -65,6 +72,7 @@ fun MediaListScreen(
     val isLive = selectedCategory?.items?.firstOrNull()?.type == MediaType.LIVE
     
     var categoryToShowMenu by remember { mutableStateOf<String?>(null) }
+    var mediaToShowMenu by remember { mutableStateOf<MediaSource?>(null) }
 
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
@@ -182,7 +190,8 @@ fun MediaListScreen(
                                         } else false
                                     },
                                 onFocused = { onItemFocused(media.id) },
-                                onClick = { onMediaSelected(media) }
+                                onClick = { onMediaSelected(media) },
+                                onToggleFavorite = { mediaToShowMenu = media }
                             )
                         }
                     }
@@ -200,7 +209,8 @@ fun MediaListScreen(
                                 media = media,
                                 modifier = Modifier
                                     .focusRequester(requester),
-                                onClick = { onMediaSelected(media) }
+                                onClick = { onMediaSelected(media) },
+                                onToggleFavorite = { mediaToShowMenu = media }
                             )
                         }
                     }
@@ -209,23 +219,93 @@ fun MediaListScreen(
         }
     }
 
-    if (categoryToShowMenu != null) {
-        val isHistory = categoryToShowMenu?.lowercase()?.let { 
-            it.contains("historik") || it.contains("senast sedda") || it.contains("history") 
-        } ?: false
-        
+    if (mediaToShowMenu != null) {
+        val media = mediaToShowMenu!!
         AlertDialog(
-            onDismissRequest = { categoryToShowMenu = null },
+            onDismissRequest = { mediaToShowMenu = null },
             title = { 
                 Text(
-                    if (isHistory) "Systemkategori" else "Kategorinställningar",
+                    media.title ?: "Alternativ",
                     style = MaterialTheme.typography.headlineSmall,
                     color = MaterialTheme.colorScheme.primary
                 ) 
             },
             text = { 
                 Text(
-                    if (isHistory) 
+                    if (media.isFavorite) "Vill du ta bort från favoriter?" else "Vill du lägga till i favoriter?",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = Color.White
+                )
+            },
+            containerColor = Color(0xFF121212),
+            shape = RoundedCornerShape(16.dp),
+            confirmButton = {
+                val focusRequester = remember { FocusRequester() }
+                var isFocused by remember { mutableStateOf(false) }
+                
+                Button(
+                    onClick = {
+                        onToggleFavorite(media)
+                        mediaToShowMenu = null
+                    },
+                    modifier = Modifier
+                        .focusRequester(focusRequester)
+                        .onFocusChanged { isFocused = it.isFocused }
+                        .padding(horizontal = 4.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
+                        contentColor = if (isFocused) Color.Black else Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(if (media.isFavorite) Icons.Default.FavoriteBorder else Icons.Default.Favorite, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (media.isFavorite) "Ta bort" else "Lägg till", fontWeight = FontWeight.Bold)
+                }
+                
+                LaunchedEffect(Unit) {
+                    focusRequester.requestFocus()
+                }
+            },
+            dismissButton = {
+                var isFocused by remember { mutableStateOf(false) }
+                Button(
+                    onClick = { mediaToShowMenu = null },
+                    modifier = Modifier
+                        .onFocusChanged { isFocused = it.isFocused }
+                        .padding(horizontal = 4.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
+                        contentColor = if (isFocused) Color.Black else Color.White
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Avbryt", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
+    if (categoryToShowMenu != null) {
+        val isSpecial = categoryToShowMenu?.let { 
+            val lower = it.lowercase()
+            lower.contains("historik") || lower.contains("senast sedda") || 
+            lower.contains("history") || lower.contains("favorit") || 
+            lower.contains("★") 
+        } ?: false
+        
+        AlertDialog(
+            onDismissRequest = { categoryToShowMenu = null },
+            title = { 
+                Text(
+                    if (isSpecial) "Systemkategori" else "Kategorinställningar",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.primary
+                ) 
+            },
+            text = { 
+                Text(
+                    if (isSpecial) 
                         "Kategorin \"$categoryToShowMenu\" är viktig för appens funktion och kan inte döljas."
                     else 
                         "Vill du dölja kategorin \"$categoryToShowMenu\"? Du kan visa den igen under Inställningar.",
@@ -241,7 +321,7 @@ fun MediaListScreen(
                 
                 Button(
                     onClick = {
-                        if (!isHistory) onHideCategory(categoryToShowMenu!!)
+                        if (!isSpecial) onHideCategory(categoryToShowMenu!!)
                         categoryToShowMenu = null
                     },
                     modifier = Modifier
@@ -254,7 +334,7 @@ fun MediaListScreen(
                     ),
                     shape = RoundedCornerShape(12.dp)
                 ) {
-                    if (!isHistory) {
+                    if (!isSpecial) {
                         Icon(Icons.Default.VisibilityOff, null, modifier = Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
                         Text("Dölj kategori", fontWeight = FontWeight.Bold)
@@ -268,7 +348,7 @@ fun MediaListScreen(
                 }
             },
             dismissButton = {
-                if (!isHistory) {
+                if (!isSpecial) {
                     var isFocused by remember { mutableStateOf(false) }
                     Button(
                         onClick = { categoryToShowMenu = null },
@@ -353,8 +433,18 @@ fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifi
 }
 
 @Composable
-fun TvChannelItem(media: MediaSource, epg: EpgListing?, nextEpg: EpgListing?, modifier: Modifier = Modifier, onFocused: () -> Unit, onClick: () -> Unit) {
+fun TvChannelItem(
+    media: MediaSource, 
+    epg: EpgListing?, 
+    nextEpg: EpgListing?, 
+    modifier: Modifier = Modifier, 
+    onFocused: () -> Unit, 
+    onClick: () -> Unit,
+    onToggleFavorite: () -> Unit
+) {
     var hasFocus by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var pressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val formatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
     LaunchedEffect(hasFocus) {
@@ -371,6 +461,32 @@ fun TvChannelItem(media: MediaSource, epg: EpgListing?, nextEpg: EpgListing?, mo
             .fillMaxWidth()
             .onFocusChanged { hasFocus = it.isFocused }
             .scale(if (hasFocus) 1.02f else 1.0f)
+            .onKeyEvent { keyEvent ->
+                val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 
+                                 keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
+                
+                if (isCenterKey) {
+                    if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                        if (pressJob == null) {
+                            pressJob = scope.launch {
+                                delay(700)
+                                onToggleFavorite()
+                                pressJob = null
+                            }
+                        }
+                        return@onKeyEvent true
+                    } else if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
+                        val isLongPress = pressJob == null
+                        pressJob?.cancel()
+                        pressJob = null
+                        if (!isLongPress) {
+                            onClick()
+                        }
+                        return@onKeyEvent true
+                    }
+                }
+                false
+            }
             .clickable { onClick() }
             .border(
                 width = if (hasFocus) 2.dp else 1.dp,
@@ -383,12 +499,22 @@ fun TvChannelItem(media: MediaSource, epg: EpgListing?, nextEpg: EpgListing?, mo
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AsyncImage(
-                model = media.icon,
-                contentDescription = null,
-                modifier = Modifier.size(60.dp).clip(MaterialTheme.shapes.small),
-                contentScale = ContentScale.Fit
-            )
+            Box(contentAlignment = Alignment.TopStart) {
+                AsyncImage(
+                    model = media.icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(60.dp).clip(MaterialTheme.shapes.small),
+                    contentScale = ContentScale.Fit
+                )
+                if (media.isFavorite) {
+                    Icon(
+                        Icons.Default.Favorite,
+                        contentDescription = null,
+                        tint = Color.Red,
+                        modifier = Modifier.size(16.dp).offset(x = (-4).dp, y = (-4).dp)
+                    )
+                }
+            }
             
             Spacer(modifier = Modifier.width(16.dp))
             
@@ -488,14 +614,48 @@ fun TvChannelItem(media: MediaSource, epg: EpgListing?, nextEpg: EpgListing?, mo
 }
 
 @Composable
-fun MediaCard(media: MediaSource, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun MediaCard(
+    media: MediaSource, 
+    modifier: Modifier = Modifier, 
+    onClick: () -> Unit,
+    onToggleFavorite: () -> Unit
+) {
     var hasFocus by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    var pressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
     Column(
         modifier = modifier
             .width(130.dp)
             .onFocusChanged { hasFocus = it.isFocused }
             .scale(if (hasFocus) 1.05f else 1.0f)
-            .clickable(onClick = onClick),
+            .onKeyEvent { keyEvent ->
+                val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 
+                                 keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
+                
+                if (isCenterKey) {
+                    if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                        if (pressJob == null) {
+                            pressJob = scope.launch {
+                                delay(700)
+                                onToggleFavorite()
+                                pressJob = null
+                            }
+                        }
+                        return@onKeyEvent true
+                    } else if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
+                        val isLongPress = pressJob == null
+                        pressJob?.cancel()
+                        pressJob = null
+                        if (!isLongPress) {
+                            onClick()
+                        }
+                        return@onKeyEvent true
+                    }
+                }
+                false
+            }
+            .clickable(onClick = { onClick() }),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Card(
@@ -509,12 +669,28 @@ fun MediaCard(media: MediaSource, modifier: Modifier = Modifier, onClick: () -> 
                 ),
             elevation = CardDefaults.cardElevation(defaultElevation = if (hasFocus) 8.dp else 2.dp)
         ) {
-            AsyncImage(
-                model = media.icon,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
+            Box(modifier = Modifier.fillMaxSize()) {
+                AsyncImage(
+                    model = media.icon,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                if (media.isFavorite) {
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(bottomEnd = 8.dp),
+                        modifier = Modifier.align(Alignment.TopStart)
+                    ) {
+                        Icon(
+                            Icons.Default.Favorite,
+                            contentDescription = null,
+                            tint = Color.Red,
+                            modifier = Modifier.size(20.dp).padding(4.dp)
+                        )
+                    }
+                }
+            }
         }
         Text(
             text = media.title ?: "Okänd",

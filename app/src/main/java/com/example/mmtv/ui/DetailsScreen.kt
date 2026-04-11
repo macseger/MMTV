@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,6 +37,7 @@ fun DetailsScreen(
     media: MediaSource,
     onPlayMovie: (MediaSource, Boolean) -> Unit,
     onPlayEpisode: (Episode, Boolean) -> Unit,
+    onToggleFavorite: (MediaSource) -> Unit,
     viewModel: MediaViewModel
 ) {
     val context = LocalContext.current
@@ -56,7 +59,8 @@ fun DetailsScreen(
     // Sätt första säsongen som vald när data laddats
     LaunchedEffect(seriesInfo) {
         if (selectedSeason == null && seriesInfo?.episodes?.isNotEmpty() == true) {
-            selectedSeason = seriesInfo.episodes.keys.sorted().firstOrNull()
+            // Sortera numeriskt för att hitta första säsongen korrekt
+            selectedSeason = seriesInfo.episodes.keys.sortedBy { it.toIntOrNull() ?: 999 }.firstOrNull()
         }
     }
 
@@ -132,26 +136,48 @@ fun DetailsScreen(
 
                         Spacer(modifier = Modifier.height(32.dp))
 
-                        if (!isSeries) {
-                            var btnFocus by remember { mutableStateOf(false) }
-                            Button(
-                                onClick = {
-                                    val pos = sessionManager.getPlaybackPosition(media.id.toString())
-                                    if (pos > 10000) {
-                                        showResumeDialog = ResumeData(media, null, pos)
-                                    } else {
-                                        onPlayMovie(media, false)
-                                    }
-                                },
-                                modifier = Modifier.height(56.dp).width(200.dp).onFocusChanged { btnFocus = it.isFocused },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (btnFocus) Color.White else MaterialTheme.colorScheme.primary,
-                                    contentColor = if (btnFocus) Color.Black else Color.White
-                                )
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            if (!isSeries) {
+                                var playBtnFocus by remember { mutableStateOf(false) }
+                                Button(
+                                    onClick = {
+                                        val pos = sessionManager.getPlaybackPosition(media.id.toString())
+                                        if (pos > 10000) {
+                                            showResumeDialog = ResumeData(media, null, pos)
+                                        } else {
+                                            onPlayMovie(media, false)
+                                        }
+                                    },
+                                    modifier = Modifier.height(56.dp).width(200.dp).onFocusChanged { playBtnFocus = it.isFocused },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (playBtnFocus) Color.White else MaterialTheme.colorScheme.primary,
+                                        contentColor = if (playBtnFocus) Color.Black else Color.White
+                                    )
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("SPELA FILM", style = MaterialTheme.typography.titleMedium)
+                                }
+                            }
+
+                            // Favorit-knapp
+                            var favBtnFocus by remember { mutableStateOf(false) }
+                            OutlinedButton(
+                                onClick = { onToggleFavorite(media) },
+                                modifier = Modifier.height(56.dp).onFocusChanged { favBtnFocus = it.isFocused },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (favBtnFocus) Color.White.copy(alpha = 0.1f) else Color.Transparent,
+                                    contentColor = if (favBtnFocus) Color.White else Color.Gray
+                                ),
+                                border = if (favBtnFocus) ButtonDefaults.outlinedButtonBorder.copy(brush = Brush.linearGradient(listOf(Color.White, Color.White))) else ButtonDefaults.outlinedButtonBorder
                             ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                Icon(
+                                    imageVector = if (media.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                    contentDescription = null,
+                                    tint = if (media.isFavorite) Color.Red else if (favBtnFocus) Color.White else Color.Gray
+                                )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("SPELA FILM", style = MaterialTheme.typography.titleMedium)
+                                Text(if (media.isFavorite) "FAVORIT" else "LÄGG TILL", style = MaterialTheme.typography.titleMedium)
                             }
                         }
                     }
@@ -180,12 +206,18 @@ fun DetailsScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            val seasons = seriesInfo.episodes.keys.sorted()
-                            items(seasons) { season ->
+                            // Vi försöker använda 'seasons' listan för ordning och namn, annars 'episodes' nycklar
+                            val seasonList = if (seriesInfo.seasons != null && seriesInfo.seasons.isNotEmpty()) {
+                                seriesInfo.seasons.sortedBy { it.seasonNumber }.map { it.seasonNumber.toString() to (it.name ?: "Säsong ${it.seasonNumber}") }
+                            } else {
+                                seriesInfo.episodes.keys.sortedBy { it.toIntOrNull() ?: 999 }.map { it to "Säsong $it" }
+                            }
+
+                            items(seasonList, key = { it.first }) { (seasonKey, seasonName) ->
                                 SeasonTab(
-                                    title = "Säsong $season",
-                                    isSelected = selectedSeason == season,
-                                    onClick = { selectedSeason = season }
+                                    title = seasonName.uppercase(),
+                                    isSelected = selectedSeason == seasonKey,
+                                    onClick = { selectedSeason = seasonKey }
                                 )
                             }
                         }
@@ -194,7 +226,7 @@ fun DetailsScreen(
                     
                     // Avsnitt för vald säsong
                     val episodes = seriesInfo.episodes[selectedSeason] ?: emptyList()
-                    items(episodes) { episode ->
+                    items(episodes, key = { it.id ?: "" }) { episode ->
                         EpisodeItem(episode) {
                             val pos = sessionManager.getPlaybackPosition(episode.id ?: "0")
                             if (pos > 10000) {
@@ -300,10 +332,27 @@ fun EpisodeItem(episode: Episode, onClick: () -> Unit) {
                 imageVector = Icons.Default.PlayArrow,
                 contentDescription = null,
                 tint = if (hasFocus) Color.White else Color.Gray,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(32.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
-            Column {
+            
+            // Avsnittsbild (om den finns)
+            if (!episode.info?.icon.isNullOrEmpty()) {
+                Card(
+                    modifier = Modifier.size(width = 120.dp, height = 68.dp),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    AsyncImage(
+                        model = episode.info?.icon,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = episode.title ?: "Avsnitt",
                     color = Color.White,
@@ -313,11 +362,20 @@ fun EpisodeItem(episode: Episode, onClick: () -> Unit) {
                     Text(
                         text = episode.info?.plot ?: "",
                         color = Color.LightGray,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
+            }
+            
+            if (!episode.info?.duration.isNullOrEmpty()) {
+                Text(
+                    text = episode.info?.duration ?: "",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(start = 16.dp)
+                )
             }
         }
     }

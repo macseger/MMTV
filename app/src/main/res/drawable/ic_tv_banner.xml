@@ -31,10 +31,4 @@
         android:fillColor="#1E88E5"
         android:pathData="M235,60 l12,60 h11 l12,-60 h-11 l-6,35 l-6,-35 z" />
 
-    <!-- Ljusstänk/Skugga -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:alpha="0.05"
-        android:pathData="M0,0 l320,180 v-180 z" />
-
 </vector>

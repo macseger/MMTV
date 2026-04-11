@@ -135,6 +135,12 @@ class SessionManager(context: Context) {
         }
     }
 
+    fun clearHistory() {
+        prefs.edit {
+            remove("watch_history")
+        }
+    }
+
     fun logout() {
         prefs.edit { clear() }
     }

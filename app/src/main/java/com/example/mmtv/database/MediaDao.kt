@@ -19,6 +19,18 @@ interface MediaDao {
     @Query("SELECT * FROM media_items WHERE type = :type ORDER BY categoryOrder ASC, itemOrder ASC")
     suspend fun getMediaByType(type: com.example.mmtv.model.MediaType): List<MediaEntity>
 
+    @Query("SELECT * FROM media_items WHERE isFavorite = 1 ORDER BY favoriteDate DESC")
+    suspend fun getFavorites(): List<MediaEntity>
+
+    @Query("UPDATE media_items SET isFavorite = :isFav, favoriteDate = :favDate WHERE id = :id")
+    suspend fun updateFavoriteWithDate(id: Int, isFav: Boolean, favDate: Long)
+
+    @Query("UPDATE media_items SET isFavorite = 0, favoriteDate = 0")
+    suspend fun clearAllFavorites()
+
+    @Query("SELECT * FROM media_items WHERE type != 'LIVE' ORDER BY addedDate DESC LIMIT 10")
+    suspend fun getRecentlyAdded(): List<MediaEntity>
+
     @Query("DELETE FROM media_items WHERE type = :type")
     suspend fun deleteByType(type: com.example.mmtv.model.MediaType)
 
@@ -29,8 +41,8 @@ interface MediaDao {
     @Query("DELETE FROM epg_listings WHERE stopTimestamp < :currentTime")
     suspend fun deleteOldEpg(currentTime: Long)
 
-    @Query("SELECT * FROM epg_listings WHERE epgId = :epgId AND stopTimestamp > :currentTime ORDER BY startTimestamp ASC LIMIT 5")
-    suspend fun getEpgForChannel(epgId: String, currentTime: Long): List<EpgEntity>
+    @Query("SELECT * FROM epg_listings WHERE epgId = :epgId AND stopTimestamp > :currentTime AND startTimestamp < :endLimit ORDER BY startTimestamp ASC")
+    suspend fun getEpgForChannelWithLimit(epgId: String, currentTime: Long, endLimit: Long): List<EpgEntity>
 
     @Query("SELECT COUNT(*) FROM epg_listings")
     suspend fun getEpgCount(): Int

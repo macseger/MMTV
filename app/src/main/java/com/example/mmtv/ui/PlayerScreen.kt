@@ -52,6 +52,7 @@ import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.GroupedMedia
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
+import com.example.mmtv.model.Episode
 import com.example.mmtv.player.MmtvPlayer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -75,6 +76,7 @@ fun PlayerScreen(
     onMediaSelected: (MediaSource) -> Unit = {},
     onCategorySelected: (Int) -> Unit = {},
     onBackPressed: () -> Unit = {},
+    onPlayNextEpisode: (Episode) -> Unit = {},
     viewModel: MediaViewModel
 ) {
     val context = LocalContext.current
@@ -129,6 +131,34 @@ fun PlayerScreen(
     var availableSubtitles by remember { mutableStateOf<List<Tracks.Group>>(emptyList()) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
+    
+    // För "Spela nästa avsnitt"
+    val isSeries = media?.type == MediaType.SERIES
+    val nextEpisode = remember(media, viewModel.selectedSeriesInfo) {
+        if (!isSeries || media == null || viewModel.selectedSeriesInfo?.episodes == null) null
+        else {
+            val episodesMap = viewModel.selectedSeriesInfo!!.episodes!!
+            val allEpisodes = episodesMap.keys.sortedBy { it.toIntOrNull() ?: 0 }
+                .flatMap { episodesMap[it] ?: emptyList() }
+            
+            val currentIndex = allEpisodes.indexOfFirst { it.id == media.id.toString() }
+            if (currentIndex != -1 && currentIndex < allEpisodes.size - 1) {
+                allEpisodes[currentIndex + 1]
+            } else null
+        }
+    }
+    
+    var showNextEpisodeButton by remember { mutableStateOf(false) }
+    val nextEpisodeButtonFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(currentPosition, duration) {
+        if (isSeries && nextEpisode != null && duration > 0) {
+            val remainingSeconds = (duration - currentPosition) / 1000
+            showNextEpisodeButton = remainingSeconds in 1..30
+        } else {
+            showNextEpisodeButton = false
+        }
+    }
 
     LaunchedEffect(exoPlayer) {
         while (true) {
@@ -164,6 +194,10 @@ fun PlayerScreen(
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
+                if (playbackState == Player.STATE_ENDED) {
+                    // Backa ur när videon är slut (enligt önskemål)
+                    onBackPressed()
+                }
             }
         }
         exoPlayer.addListener(listener)
@@ -269,13 +303,18 @@ fun PlayerScreen(
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                     when (keyEvent.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_DPAD_UP -> {
-                            if (overlayState == OverlayState.NONE && media?.type == MediaType.LIVE && playlist.isNotEmpty()) {
-                                val currentIndex = playlist.indexOfFirst { it.id == media.id }
-                                if (currentIndex != -1) {
-                                    val prevIndex = if (currentIndex - 1 < 0) playlist.size - 1 else currentIndex - 1
-                                    onMediaSelected(playlist[prevIndex])
-                                }
-                                true
+                            if (overlayState == OverlayState.NONE) {
+                                if (media?.type == MediaType.LIVE && playlist.isNotEmpty()) {
+                                    val currentIndex = playlist.indexOfFirst { it.id == media.id }
+                                    if (currentIndex != -1) {
+                                        val prevIndex = if (currentIndex - 1 < 0) playlist.size - 1 else currentIndex - 1
+                                        onMediaSelected(playlist[prevIndex])
+                                    }
+                                    true
+                                } else if (showNextEpisodeButton) {
+                                    nextEpisodeButtonFocusRequester.requestFocus()
+                                    true
+                                } else false
                             } else false
                         }
                         KeyEvent.KEYCODE_DPAD_DOWN -> {
@@ -315,7 +354,10 @@ fun PlayerScreen(
                             } else false
                         }
                         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                            if (overlayState == OverlayState.NONE) {
+                            if (showNextEpisodeButton && nextEpisode != null) {
+                                onPlayNextEpisode(nextEpisode)
+                                true
+                            } else if (overlayState == OverlayState.NONE) {
                                 if (media?.type == MediaType.LIVE) {
                                     val currentTime = System.currentTimeMillis()
                                     if (currentTime - lastCenterClickTime < doubleClickTimeout) {
@@ -355,7 +397,9 @@ fun PlayerScreen(
                         }
                         KeyEvent.KEYCODE_BACK -> {
                             when (overlayState) {
-                                OverlayState.CHANNELS -> overlayState = OverlayState.CATEGORIES
+                                OverlayState.CHANNELS, OverlayState.CATEGORIES -> {
+                                    overlayState = OverlayState.NONE
+                                }
                                 OverlayState.QUICK_INFO -> {
                                     overlayState = OverlayState.NONE
                                     onBackPressed()
@@ -462,6 +506,45 @@ fun PlayerScreen(
         if (isBuffering) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(64.dp), strokeWidth = 6.dp)
+            }
+        }
+
+        // --- NEXT EPISODE BUTTON ---
+        AnimatedVisibility(
+            visible = showNextEpisodeButton && nextEpisode != null,
+            enter = fadeIn() + slideInHorizontally(initialOffsetX = { it }),
+            exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it }),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 120.dp, end = 48.dp)
+        ) {
+            var isFocused by remember { mutableStateOf(false) }
+            Button(
+                onClick = { nextEpisode?.let { onPlayNextEpisode(it) } },
+                modifier = Modifier
+                    .height(64.dp)
+                    .width(280.dp)
+                    .focusRequester(nextEpisodeButtonFocusRequester)
+                    .onFocusChanged { isFocused = it.isFocused },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isFocused) Color.White else MaterialTheme.colorScheme.primary,
+                    contentColor = if (isFocused) Color.Black else Color.White
+                ),
+                shape = RoundedCornerShape(12.dp),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("NÄSTA AVSNITT", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text(nextEpisode?.title ?: "", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            
+            LaunchedEffect(showNextEpisodeButton) {
+                if (showNextEpisodeButton) {
+                    // Vi vill inte tvinga fokus direkt om man sitter och tittar, 
+                    // men om man trycker på en knapp ska man kunna nå den.
+                    // För TV är det bäst att INTE stjäla fokus automatiskt mitt i en scen.
+                }
             }
         }
 

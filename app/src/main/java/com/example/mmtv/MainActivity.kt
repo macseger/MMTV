@@ -23,6 +23,7 @@ import com.example.mmtv.api.SessionManager
 import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.MediaSource
+import com.example.mmtv.model.Episode
 import com.example.mmtv.repository.MediaRepository
 import com.example.mmtv.ui.*
 import com.example.mmtv.ui.theme.MMTVTheme
@@ -118,11 +119,13 @@ class MainActivity : ComponentActivity() {
                                 MediaListScreen(
                                     groupedList = sharedViewModel.uiState.liveStreamsGrouped,
                                     initialCategoryIndex = sharedViewModel.lastLiveCategoryIndex,
+                                    initialMediaId = sharedViewModel.selectedMedia?.id,
                                     onCategoryChanged = { 
                                         sharedViewModel.lastLiveCategoryIndex = it
                                         sharedViewModel.prefetchEpgForCategory(it)
                                     },
                                     onHideCategory = { title -> sharedViewModel.hideCategory("live", title) },
+                                    onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                     onMediaSelected = { media -> 
                                         sharedViewModel.addToHistory(media)
                                         val currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(sharedViewModel.lastLiveCategoryIndex)?.items ?: emptyList()
@@ -140,6 +143,7 @@ class MainActivity : ComponentActivity() {
                                     initialCategoryIndex = sharedViewModel.lastMovieCategoryIndex,
                                     onCategoryChanged = { sharedViewModel.lastMovieCategoryIndex = it },
                                     onHideCategory = { title -> sharedViewModel.hideCategory("movies", title) },
+                                    onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                     onMediaSelected = { media ->
                                         sharedViewModel.selectedMedia = media
                                         navController.navigate("details")
@@ -154,6 +158,7 @@ class MainActivity : ComponentActivity() {
                                     initialCategoryIndex = sharedViewModel.lastSeriesCategoryIndex,
                                     onCategoryChanged = { sharedViewModel.lastSeriesCategoryIndex = it },
                                     onHideCategory = { title -> sharedViewModel.hideCategory("series", title) },
+                                    onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                     onMediaSelected = { media ->
                                         sharedViewModel.selectedMedia = media
                                         navController.navigate("details")
@@ -191,6 +196,7 @@ class MainActivity : ComponentActivity() {
                                                 navController.navigate("player/$encodedUrl")
                                             }
                                         },
+                                        onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                         viewModel = sharedViewModel
                                     )
                                 }
@@ -222,6 +228,24 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onBackPressed = {
                                         navController.popBackStack()
+                                    },
+                                    onPlayNextEpisode = { ep ->
+                                        sessionManager.getLogin()?.let { login ->
+                                            val (h, u, p) = login
+                                            val streamUrl = "${h}/series/${u}/${p}/${ep.id}.${ep.containerExtension ?: "mp4"}"
+                                            val encodedUrl = URLEncoder.encode(streamUrl, StandardCharsets.UTF_8.toString())
+                                            
+                                            sharedViewModel.selectedMedia = sharedViewModel.selectedMedia?.copy(
+                                                id = ep.id?.toIntOrNull() ?: 0,
+                                                title = ep.title ?: "Avsnitt"
+                                            )
+                                            
+                                            sessionManager.clearPlaybackPosition(ep.id ?: "0")
+                                            
+                                            navController.navigate("player/$encodedUrl") {
+                                                popUpTo("player/{url}") { inclusive = true }
+                                            }
+                                        }
                                     },
                                     viewModel = sharedViewModel
                                 )

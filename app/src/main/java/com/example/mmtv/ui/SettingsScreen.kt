@@ -120,6 +120,24 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
                 )
             }
 
+            item {
+                SettingsAction(
+                    title = "Ta bort favoriter",
+                    subtitle = "Rensa alla dina sparade favoriter",
+                    icon = Icons.Default.DeleteForever,
+                    onClick = { viewModel.clearAllFavorites() }
+                )
+            }
+
+            item {
+                SettingsAction(
+                    title = "Töm historiken",
+                    subtitle = "Rensa listan över senast sedda",
+                    icon = Icons.Default.History,
+                    onClick = { viewModel.clearHistory() }
+                )
+            }
+
             item { SectionHeader("System") }
 
             item {

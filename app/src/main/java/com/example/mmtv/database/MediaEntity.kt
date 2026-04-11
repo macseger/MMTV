@@ -20,5 +20,8 @@ data class MediaEntity(
     val cast: String? = null,
     val epgId: String? = null,
     val categoryOrder: Int = 0,
-    val itemOrder: Int = 0
+    val itemOrder: Int = 0,
+    val isFavorite: Boolean = false,
+    val favoriteDate: Long = 0,
+    val addedDate: Long = System.currentTimeMillis()
 )

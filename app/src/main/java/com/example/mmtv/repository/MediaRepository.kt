@@ -62,6 +62,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
 
         val streamsByCategory = streams.groupBy { it.categoryId }
         
+        val existingFavorites = mediaDao.getFavorites().map { it.id }.toSet()
+        
         val allEntities = mutableListOf<MediaEntity>()
         val result = categories.mapIndexed { catIdx, category ->
             val categoryStreams = streamsByCategory[category.categoryId] ?: emptyList()
@@ -71,7 +73,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
                     title = s.name ?: "Okänd kanal",
                     icon = s.streamIcon,
                     type = MediaType.LIVE,
-                    epgId = s.epgId
+                    epgId = s.epgId,
+                    isFavorite = existingFavorites.contains(s.streamId)
                 )
             }
             
@@ -106,7 +109,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         director = director,
         genre = genre,
         cast = cast,
-        epgId = epgId
+        epgId = epgId,
+        isFavorite = isFavorite
     )
 
     private fun MediaSource.toEntity(catId: String?, catName: String?) = MediaEntity(
@@ -122,7 +126,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         director = director,
         genre = genre,
         cast = cast,
-        epgId = epgId
+        epgId = epgId,
+        isFavorite = isFavorite
     )
 
     suspend fun getGroupedMovies(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
@@ -165,6 +170,7 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         }
 
         val moviesByCategory = movies.groupBy { it.categoryId }
+        val existingFavorites = mediaDao.getFavorites().map { it.id }.toSet()
 
         val allEntities = mutableListOf<MediaEntity>()
         val result = categories.mapIndexed { catIdx, category ->
@@ -176,7 +182,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
                     icon = movie.streamIcon,
                     type = MediaType.MOVIE,
                     extension = movie.containerExtension,
-                    rating = movie.rating
+                    rating = movie.rating,
+                    isFavorite = existingFavorites.contains(movie.streamId)
                 )
             }
             allEntities.addAll(mediaSources.mapIndexed { itemIdx, it -> 
@@ -235,6 +242,7 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         }
 
         val seriesByCategory = series.groupBy { it.categoryId }
+        val existingFavorites = mediaDao.getFavorites().map { it.id }.toSet()
 
         val allEntities = mutableListOf<MediaEntity>()
         val result = categories.mapIndexed { catIdx, category ->
@@ -249,7 +257,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
                     rating = s.rating,
                     director = s.director,
                     genre = s.genre,
-                    cast = s.cast
+                    cast = s.cast,
+                    isFavorite = existingFavorites.contains(s.seriesId)
                 )
             }
             allEntities.addAll(mediaSources.mapIndexed { itemIdx, it -> 
@@ -275,12 +284,12 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
     suspend fun fetchAndStoreEpg(user: String, pass: String, forceRefresh: Boolean = false) = withContext(Dispatchers.IO) {
         val xmlFile = File(cacheDir, "full_epg.xml")
         val now = System.currentTimeMillis()
-        val twelveHours = 12 * 60 * 60 * 1000L
+        val twentyFourHours = 24 * 60 * 60 * 1000L
         
         val dbCount = mediaDao.getEpgCount()
 
         // Hämta ny om forceRefresh, fil saknas eller fil är gammal
-        val shouldDownload = forceRefresh || !xmlFile.exists() || (now - xmlFile.lastModified() > twelveHours)
+        val shouldDownload = forceRefresh || !xmlFile.exists() || (now - xmlFile.lastModified() > twentyFourHours)
         
         if (shouldDownload || dbCount == 0) {
             try {
@@ -333,7 +342,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
 
     suspend fun getEpgForChannel(epgId: String): List<EpgListing> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis() / 1000
-        mediaDao.getEpgForChannel(epgId, now).map {
+        val endLimit = now + (24 * 60 * 60) // Hämta 24 timmar framåt
+        mediaDao.getEpgForChannelWithLimit(epgId, now, endLimit).map {
             EpgListing(
                 id = it.id.toString(),
                 epgId = it.epgId,

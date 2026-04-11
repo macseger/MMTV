@@ -84,58 +84,59 @@ fun HomeScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Header Section
+            // Top Bar
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 32.dp, top = 12.dp, bottom = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 32.dp, end = 32.dp, top = 8.dp, bottom = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                    Column {
-                    Text(
-                        "MULTIMEDIA TV",
-                        style = MaterialTheme.typography.headlineSmall.copy(
-                            fontWeight = FontWeight.ExtraLight,
-                            letterSpacing = 6.sp
-                        ),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        "PREMIUM STREAMING",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            letterSpacing = 3.sp,
-                            fontSize = 8.sp
-                        ),
-                        color = Color.Gray
-                    )
+                // Menu Items on the left
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    HomeCard(
+                        "LIVE TV",
+                        Icons.Default.LiveTv,
+                        modifier = Modifier
+                            .focusRequester(tvFocusRequester)
+                            .onFocusChanged { isLiveTvFocused = it.isFocused }
+                    ) {
+                        onNavigate("live")
+                    }
+                    HomeCard("FILMER", Icons.Default.Movie) { onNavigate("movies") }
+                    HomeCard("SERIER", Icons.Default.Tv) { onNavigate("series") }
+                    HomeCard("INSTÄLLNINGAR", Icons.Default.Settings) { onNavigate("settings") }
                 }
 
-                // Modern Search Bar in Header
+                // Clean Search Bar on the right
                 TextField(
                     value = viewModel.searchQuery,
                     onValueChange = { viewModel.searchQuery = it },
-                    placeholder = { 
+                    placeholder = {
                         Text(
-                            "Sök...", 
+                            "Sök...",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.Gray.copy(alpha = 0.7f)
-                        ) 
+                        )
                     },
                     modifier = Modifier
-                        .width(260.dp)
-                        .height(48.dp),
-                    leadingIcon = { 
+                        .width(220.dp)
+                        .height(56.dp),
+                    leadingIcon = {
                         Icon(
-                            Icons.Default.Search, 
-                            null, 
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        ) 
+                            Icons.Default.Search,
+                            null,
+                            modifier = Modifier.size(24.dp),
+                            tint = if (viewModel.searchQuery.isNotEmpty()) MaterialTheme.colorScheme.primary else Color.Gray
+                        )
                     },
                     singleLine = true,
-                    shape = RoundedCornerShape(24.dp),
                     colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.White.copy(alpha = 0.12f),
-                        unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
                         disabledIndicatorColor = Color.Transparent,
@@ -147,45 +148,14 @@ fun HomeScreen(
                 )
             }
 
-            // Fixerad huvudmeny (nu utanför den scrollbara grid-vyn)
-            if (viewModel.searchQuery.isEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 32.dp, end = 32.dp, top = 4.dp, bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp)
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        HomeCard(
-                            "LIVE TV", 
-                            Icons.Default.LiveTv, 
-                            modifier = Modifier
-                                .focusRequester(tvFocusRequester)
-                                .onFocusChanged { isLiveTvFocused = it.isFocused }
-                        ) {
-                            onNavigate("live") 
-                        }
-                    }
-                    Box(modifier = Modifier.weight(1f)) {
-                        HomeCard("FILMER", Icons.Default.Movie) { onNavigate("movies") }
-                    }
-                    Box(modifier = Modifier.weight(1f)) {
-                        HomeCard("SERIER", Icons.Default.Tv) { onNavigate("series") }
-                    }
-                    Box(modifier = Modifier.weight(1f)) {
-                        HomeCard("INSTÄLLNINGAR", Icons.Default.Settings) { onNavigate("settings") }
-                    }
-                }
-            }
-
             if (viewModel.searchQuery.isNotEmpty()) {
                 // Sökresultat
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 140.dp),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                    columns = GridCells.Adaptive(minSize = 110.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 8.dp, bottom = 48.dp)
+                    contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 48.dp)
                 ) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text("SÖKRESULTAT", style = MaterialTheme.typography.titleSmall, color = Color.Gray, modifier = Modifier.padding(vertical = 8.dp))
@@ -200,7 +170,7 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(24.dp),
                     verticalArrangement = Arrangement.spacedBy(24.dp),
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 0.dp, bottom = 48.dp)
+                    contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 48.dp)
                 ) {
                     // Innehåll (Huvudmenyn är nu flyttad till den fasta sektionen ovanför)
 
@@ -270,8 +240,8 @@ fun HomeScreen(
         if (updateStatus != null) {
             Surface(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 16.dp) // Högst upp
+                    .align(Alignment.TopEnd)
+                    .padding(top = 16.dp, end = 32.dp)
                     .animateContentSize(),
                 color = Color.Black.copy(alpha = 0.9f),
                 shape = RoundedCornerShape(50), // Mer rundad "piller"-form
@@ -507,12 +477,12 @@ fun HomeCard(title: String, icon: ImageVector, modifier: Modifier = Modifier, on
     
     // Använd primärfärg (turkos) vid fokus, annars grå/vit
     val contentColor = if (hasFocus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f)
-    val iconSize = if (hasFocus) 26.dp else 22.dp
+    val iconSize = if (hasFocus) 22.dp else 20.dp
 
     Surface(
         modifier = modifier
-            .fillMaxWidth()
-            .height(56.dp) // Mycket lägre höjd nu när det är horisontellt
+            .wrapContentWidth()
+            .height(48.dp)
             .onFocusChanged { hasFocus = it.isFocused }
             .scale(if (hasFocus) 1.1f else 1.0f)
             .clickable(
@@ -525,9 +495,9 @@ fun HomeCard(title: String, icon: ImageVector, modifier: Modifier = Modifier, on
         shadowElevation = 0.dp
     ) {
         Row(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = Arrangement.Start
         ) {
             Icon(
                 imageVector = icon,
@@ -535,7 +505,7 @@ fun HomeCard(title: String, icon: ImageVector, modifier: Modifier = Modifier, on
                 modifier = Modifier.size(iconSize),
                 tint = contentColor
             )
-            Spacer(modifier = Modifier.width(12.dp)) // Avstånd mellan ikon och text
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelMedium.copy(
@@ -544,7 +514,7 @@ fun HomeCard(title: String, icon: ImageVector, modifier: Modifier = Modifier, on
                     fontSize = 13.sp
                 ),
                 color = contentColor,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Start
             )
         }
     }

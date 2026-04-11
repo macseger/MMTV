@@ -134,8 +134,8 @@ class MainActivity : ComponentActivity() {
                                         val currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(sharedViewModel.lastLiveCategoryIndex)?.items ?: emptyList()
                                         playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                     },
-                                    epgProvider = { id -> sharedViewModel.getEpgForId(id) },
-                                    nextEpgProvider = { id -> sharedViewModel.getNextEpgForId(id) },
+                                    epgProvider = { id, name -> sharedViewModel.getEpgForId(id, name) },
+                                    nextEpgProvider = { id, name -> sharedViewModel.getNextEpgForId(id, name) },
                                     onBackPressed = { navController.popBackStack() }
                                 )
                             }

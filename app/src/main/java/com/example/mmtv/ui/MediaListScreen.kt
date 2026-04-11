@@ -62,8 +62,8 @@ fun MediaListScreen(
     onMediaSelected: (MediaSource) -> Unit,
     onToggleFavorite: (MediaSource) -> Unit = {},
     onHideCategory: (String) -> Unit = {},
-    epgProvider: (Int) -> EpgListing? = { null },
-    nextEpgProvider: (Int) -> EpgListing? = { null },
+    epgProvider: (Int, String?) -> EpgListing? = { _, _ -> null },
+    nextEpgProvider: (Int, String?) -> EpgListing? = { _, _ -> null },
     onItemFocused: (Int) -> Unit = {},
     backgroundColor: Color = MaterialTheme.colorScheme.background,
     onBackPressed: (() -> Unit)? = null
@@ -182,8 +182,8 @@ fun MediaListScreen(
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
                             TvChannelItem(
                                 media = media,
-                                epg = epgProvider(media.id),
-                                nextEpg = nextEpgProvider(media.id),
+                                epg = epgProvider(media.id, media.title),
+                                nextEpg = nextEpgProvider(media.id, media.title),
                                 modifier = Modifier
                                     .focusRequester(requester)
                                     .onKeyEvent { 

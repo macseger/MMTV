@@ -67,4 +67,7 @@ interface XCodesApi {
         @Query("username") user: String,
         @Query("password") pass: String
     ): ResponseBody
+
+    @GET
+    suspend fun getExternalEpg(@retrofit2.http.Url url: String): ResponseBody
 }

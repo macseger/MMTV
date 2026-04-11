@@ -44,6 +44,9 @@ interface MediaDao {
     @Query("SELECT * FROM epg_listings WHERE epgId = :epgId AND stopTimestamp > :currentTime AND startTimestamp < :endLimit ORDER BY startTimestamp ASC")
     suspend fun getEpgForChannelWithLimit(epgId: String, currentTime: Long, endLimit: Long): List<EpgEntity>
 
+    @Query("SELECT * FROM epg_listings WHERE (epgId LIKE '%' || :name || '%' OR title LIKE '%' || :name || '%') AND stopTimestamp > :currentTime AND startTimestamp < :endLimit GROUP BY startTimestamp ORDER BY startTimestamp ASC LIMIT 50")
+    suspend fun findEpgByFuzzyName(name: String, currentTime: Long, endLimit: Long): List<EpgEntity>
+
     @Query("SELECT COUNT(*) FROM epg_listings")
     suspend fun getEpgCount(): Int
 

@@ -14,6 +14,8 @@ import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.database.MediaEntity
 import com.example.mmtv.database.EpgEntity
 
+import java.util.zip.GZIPInputStream
+
 class MediaRepository(private val api: XCodesApi, private val context: Context, private val database: MediaDatabase) {
     private val gson = Gson()
     private val cacheDir = context.cacheDir
@@ -68,9 +70,10 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         val result = categories.mapIndexed { catIdx, category ->
             val categoryStreams = streamsByCategory[category.categoryId] ?: emptyList()
             val mediaSources = categoryStreams.mapIndexed { itemIdx, s ->
+                val title = s.name ?: "Okänd kanal"
                 MediaSource(
                     id = s.streamId,
-                    title = s.name ?: "Okänd kanal",
+                    title = cleanName(title, MediaType.LIVE),
                     icon = s.streamIcon,
                     type = MediaType.LIVE,
                     epgId = s.epgId,
@@ -98,9 +101,20 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         result
     }
 
+    private fun cleanName(name: String?, type: MediaType): String? {
+        if (type != MediaType.LIVE || name == null) return name
+        return when {
+            name.startsWith("SE:", ignoreCase = true) -> name.substring(3).trim()
+            name.startsWith("SE :", ignoreCase = true) -> name.substring(4).trim()
+            name.startsWith("SE |", ignoreCase = true) -> name.substring(4).trim()
+            name.startsWith("SE|", ignoreCase = true) -> name.substring(3).trim()
+            else -> name
+        }
+    }
+
     private fun MediaEntity.toMediaSource() = MediaSource(
         id = id,
-        title = title,
+        title = cleanName(title, type),
         icon = icon,
         type = type,
         extension = extension,
@@ -186,10 +200,19 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
                     isFavorite = existingFavorites.contains(movie.streamId)
                 )
             }
-            allEntities.addAll(mediaSources.mapIndexed { itemIdx, it -> 
-                it.toEntity(category.categoryId, category.categoryName).copy(
+            allEntities.addAll(categoryMovies.mapIndexed { itemIdx, movie ->
+                MediaSource(
+                    id = movie.streamId,
+                    title = movie.name ?: "Okänd film",
+                    icon = movie.streamIcon,
+                    type = MediaType.MOVIE,
+                    extension = movie.containerExtension,
+                    rating = movie.rating,
+                    isFavorite = existingFavorites.contains(movie.streamId)
+                ).toEntity(category.categoryId, category.categoryName).copy(
                     categoryOrder = catIdx,
-                    itemOrder = itemIdx
+                    itemOrder = itemIdx,
+                    addedDate = movie.added?.toLongOrNull() ?: 0L
                 )
             })
             GroupedMedia(title = category.categoryName ?: "Okänd kategori", items = mediaSources)
@@ -261,10 +284,22 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
                     isFavorite = existingFavorites.contains(s.seriesId)
                 )
             }
-            allEntities.addAll(mediaSources.mapIndexed { itemIdx, it -> 
-                it.toEntity(category.categoryId, category.categoryName).copy(
+            allEntities.addAll(categorySeries.mapIndexed { itemIdx, s ->
+                MediaSource(
+                    id = s.seriesId,
+                    title = s.name ?: "Okänd serie",
+                    icon = s.cover,
+                    type = MediaType.SERIES,
+                    plot = s.plot,
+                    rating = s.rating,
+                    director = s.director,
+                    genre = s.genre,
+                    cast = s.cast,
+                    isFavorite = existingFavorites.contains(s.seriesId)
+                ).toEntity(category.categoryId, category.categoryName).copy(
                     categoryOrder = catIdx,
-                    itemOrder = itemIdx
+                    itemOrder = itemIdx,
+                    addedDate = s.lastModified?.toLongOrNull() ?: 0L
                 )
             })
             GroupedMedia(title = category.categoryName ?: "Okänd kategori", items = mediaSources)
@@ -283,79 +318,120 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
 
     suspend fun fetchAndStoreEpg(user: String, pass: String, forceRefresh: Boolean = false) = withContext(Dispatchers.IO) {
         val xmlFile = File(cacheDir, "full_epg.xml")
+        val externalXmlFile = File(cacheDir, "external_epg.xml")
         val now = System.currentTimeMillis()
         val twentyFourHours = 24 * 60 * 60 * 1000L
         
         val dbCount = mediaDao.getEpgCount()
 
-        // Hämta ny om forceRefresh, fil saknas eller fil är gammal
-        val shouldDownload = forceRefresh || !xmlFile.exists() || (now - xmlFile.lastModified() > twentyFourHours)
-        
-        if (shouldDownload || dbCount == 0) {
+        // 1. Hantera Serverns EPG
+        val shouldDownloadServer = forceRefresh || !xmlFile.exists() || (now - xmlFile.lastModified() > twentyFourHours)
+        if (shouldDownloadServer || dbCount == 0) {
             try {
-                if (shouldDownload) {
+                if (shouldDownloadServer) {
                     val responseBody = api.getFullEpg(user, pass)
                     xmlFile.outputStream().use { output ->
-                        responseBody.byteStream().use { input ->
-                            input.copyTo(output)
-                        }
+                        responseBody.byteStream().use { input -> input.copyTo(output) }
+                    }
+                }
+                if (xmlFile.exists()) {
+                    parseAndStore(xmlFile, true)
+                }
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+
+        // 2. Hantera Extern Backup EPG (epgshare01)
+        val shouldDownloadExternal = forceRefresh || !externalXmlFile.exists() || (now - externalXmlFile.lastModified() > twentyFourHours)
+        if (shouldDownloadExternal) {
+            try {
+                val url = "https://epgshare01.online/epgshare01/epg_ripper_SE1.xml.gz"
+                val responseBody = api.getExternalEpg(url)
+                
+                // Packa upp GZIP och spara som XML
+                GZIPInputStream(responseBody.byteStream()).use { gzipInput ->
+                    externalXmlFile.outputStream().use { output ->
+                        gzipInput.copyTo(output)
                     }
                 }
                 
-                // Parsa och spara i DB i mindre batchar
-                // VIKTIGT: Rensa bara om vi faktiskt har en fil att läsa in
-                if (xmlFile.exists()) {
-                    val batch = mutableListOf<EpgEntity>()
-                    var isFirstBatch = true
-                    
-                    xmlFile.inputStream().use { input ->
-                        epgParser.parseStreaming(input) { epgId, it ->
-                            batch.add(EpgEntity(
-                                epgId = epgId,
-                                title = it.title,
-                                description = it.description,
-                                startTimestamp = it.startTimestamp ?: 0L,
-                                stopTimestamp = it.stopTimestamp ?: 0L
-                            ))
-                            
-                            if (batch.size >= 500) {
-                                if (isFirstBatch) {
-                                    mediaDao.clearEpg() // Rensa först när vi vet att vi har ny data att skriva
-                                    isFirstBatch = false
-                                }
-                                mediaDao.insertEpg(ArrayList(batch))
-                                batch.clear()
-                            }
-                        }
-                    }
-
-                    if (batch.isNotEmpty()) {
-                        if (isFirstBatch) mediaDao.clearEpg()
-                        mediaDao.insertEpg(batch)
-                    }
+                if (externalXmlFile.exists()) {
+                    // Vi rensar INTE databasen här, vi bara fyller på (isClearFirst = false)
+                    parseAndStore(externalXmlFile, false)
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
+    private suspend fun parseAndStore(file: File, isClearFirst: Boolean) {
+        val batch = mutableListOf<EpgEntity>()
+        var isFirstBatch = true
+        
+        file.inputStream().use { input ->
+            epgParser.parseStreaming(input) { epgId, it ->
+                batch.add(EpgEntity(
+                    epgId = epgId,
+                    title = it.title,
+                    description = it.description,
+                    startTimestamp = it.startTimestamp ?: 0L,
+                    stopTimestamp = it.stopTimestamp ?: 0L
+                ))
+                
+                if (batch.size >= 500) {
+                    if (isFirstBatch && isClearFirst) {
+                        mediaDao.clearEpg()
+                    }
+                    isFirstBatch = false
+                    mediaDao.insertEpg(ArrayList(batch))
+                    batch.clear()
+                }
             }
         }
-    }
 
-    suspend fun getEpgForChannel(epgId: String): List<EpgListing> = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis() / 1000
-        val endLimit = now + (24 * 60 * 60) // Hämta 24 timmar framåt
-        mediaDao.getEpgForChannelWithLimit(epgId, now, endLimit).map {
-            EpgListing(
-                id = it.id.toString(),
-                epgId = it.epgId,
-                title = it.title,
-                description = it.description,
-                start = null,
-                end = null,
-                startTimestamp = it.startTimestamp,
-                stopTimestamp = it.stopTimestamp
-            )
+        if (batch.isNotEmpty()) {
+            if (isFirstBatch && isClearFirst) mediaDao.clearEpg()
+            mediaDao.insertEpg(batch)
         }
     }
+
+    suspend fun getEpgForChannel(epgId: String, channelName: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis() / 1000
+        val endLimit = now + (24 * 60 * 60) // Hämta 24 timmar framåt
+        
+        // 1. Försök med exakt ID först
+        val exactMatch = mediaDao.getEpgForChannelWithLimit(epgId, now, endLimit)
+        if (exactMatch.isNotEmpty()) {
+            return@withContext exactMatch.map { it.toEpgListing() }
+        }
+
+        // 2. Om ingen träff, försök med Fuzzy Matching på namnet
+        if (channelName != null) {
+            val cleanName = channelName
+                .replace("HD", "", ignoreCase = true)
+                .replace("FHD", "", ignoreCase = true)
+                .replace("4K", "", ignoreCase = true)
+                .replace("SD", "", ignoreCase = true)
+                .replace("Sverige", "", ignoreCase = true)
+                .trim()
+            
+            val fuzzyMatch = mediaDao.findEpgByFuzzyName(cleanName, now, endLimit)
+            if (fuzzyMatch.isNotEmpty()) {
+                return@withContext fuzzyMatch.map { it.toEpgListing() }
+            }
+        }
+
+        emptyList()
+    }
+
+    private fun EpgEntity.toEpgListing() = EpgListing(
+        id = id.toString(),
+        epgId = epgId,
+        title = title,
+        description = description,
+        start = null,
+        end = null,
+        startTimestamp = startTimestamp,
+        stopTimestamp = stopTimestamp
+    )
 
     private suspend fun <T> getCachedOrFetch(
         cacheKey: String, 

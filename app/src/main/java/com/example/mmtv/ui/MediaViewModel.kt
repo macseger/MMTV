@@ -172,6 +172,12 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
                             if (it.epgId != null) channelToEpgMap[it.id] = it.epgId 
                         }
                         
+                        // Ladda nyligen tillagt och favoriter från DB omedelbart
+                        val recent = mediaDao.getRecentlyAdded()
+                        _recentlyAdded.value = recent.map { it.toMediaSource() }
+                        val favs = mediaDao.getFavorites()
+                        _favorites.value = favs.map { it.toMediaSource() }
+
                         // Ladda EPG för den första synliga kategorin direkt
                         prefetchEpgForCategory(0)
                         onResult?.invoke(true)
@@ -230,6 +236,9 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
                         }
                         withContext(Dispatchers.Main) {
                             uiState = uiState.copy(movies = filteredMovies)
+                            // Uppdatera nyligen tillagda efter att filmer har laddats/cacheats
+                            val recent = mediaDao.getRecentlyAdded()
+                            _recentlyAdded.value = recent.map { it.toMediaSource() }
                         }
                     } catch (e: Exception) {}
                 }
@@ -246,6 +255,10 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
                         }
                         withContext(Dispatchers.Main) {
                             uiState = uiState.copy(series = filteredSeries)
+                            // Uppdatera nyligen tillagda även efter serier
+                            val recent = mediaDao.getRecentlyAdded()
+                            _recentlyAdded.value = recent.map { it.toMediaSource() }
+
                             updateStatus = "Allt är fixat, ha en fin dag!"
                             viewModelScope.launch {
                                 delay(4000)
@@ -460,20 +473,33 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         }
     }
 
-    fun getEpgForId(streamId: Int): EpgListing? {
-        val epgId = channelToEpgMap[streamId] ?: return null
+    fun getEpgForId(streamId: Int, channelName: String? = null): EpgListing? {
+        val epgId = channelToEpgMap[streamId] ?: ""
         val now = System.currentTimeMillis() / 1000
         
-        return fullEpgData[epgId]?.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
+        val epgList = fullEpgData[epgId]
+        if (epgList == null && epgId.isNotEmpty()) {
+            // Om den saknas i cachen, försök ladda den i bakgrunden för nästa gång
+            viewModelScope.launch(Dispatchers.IO) {
+                val dbEpg = repository.getEpgForChannel(epgId, channelName)
+                if (dbEpg.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        fullEpgData[epgId] = dbEpg
+                    }
+                }
+            }
+        }
+        
+        return epgList?.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
     }
 
     fun prefetchEpgForCategory(categoryIndex: Int) {
         val category = uiState.liveStreamsGrouped.getOrNull(categoryIndex) ?: return
         viewModelScope.launch(Dispatchers.IO) {
             category.items.forEach { media ->
-                val epgId = media.epgId ?: return@forEach
+                val epgId = media.epgId ?: ""
                 if (!fullEpgData.containsKey(epgId)) {
-                    val dbEpg = repository.getEpgForChannel(epgId)
+                    val dbEpg = repository.getEpgForChannel(epgId, media.title)
                     if (dbEpg.isNotEmpty()) {
                         withContext(Dispatchers.Main) {
                             fullEpgData[epgId] = dbEpg
@@ -484,20 +510,33 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         }
     }
 
-    fun getNextEpgForId(streamId: Int): EpgListing? {
+    fun getNextEpgForId(streamId: Int, channelName: String? = null): EpgListing? {
         val epgId = channelToEpgMap[streamId] ?: return null
         val now = System.currentTimeMillis() / 1000
-        val channelList = fullEpgData[epgId] ?: return null
-        val currentIndex = channelList.indexOfFirst { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
-        return if (currentIndex != -1) channelList.getOrNull(currentIndex + 1) else null
+        var channelList = fullEpgData[epgId]
+        
+        if (channelList == null && channelName != null) {
+             // Försök ladda om den saknas
+             viewModelScope.launch(Dispatchers.IO) {
+                 val dbEpg = repository.getEpgForChannel(epgId, channelName)
+                 if (dbEpg.isNotEmpty()) {
+                     withContext(Dispatchers.Main) {
+                         fullEpgData[epgId] = dbEpg
+                     }
+                 }
+             }
+        }
+        
+        val currentIndex = channelList?.indexOfFirst { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) } ?: -1
+        return if (currentIndex != -1) channelList?.getOrNull(currentIndex + 1) else null
     }
 
-    fun getFullEpgForId(streamId: Int): List<EpgListing> {
+    fun getFullEpgForId(streamId: Int, channelName: String? = null): List<EpgListing> {
         val epgId = channelToEpgMap[streamId] ?: return emptyList()
         val epgData = fullEpgData[epgId]
         if (epgData == null) {
             viewModelScope.launch(Dispatchers.IO) {
-                val dbEpg = repository.getEpgForChannel(epgId)
+                val dbEpg = repository.getEpgForChannel(epgId, channelName)
                 if (dbEpg.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
                         fullEpgData[epgId] = dbEpg

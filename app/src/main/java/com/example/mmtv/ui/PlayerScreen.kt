@@ -97,7 +97,7 @@ fun PlayerScreen(
     var infoJob by remember { mutableStateOf<Job?>(null) }
 
     var lastCenterClickTime by remember { mutableLongStateOf(0L) }
-    val doubleClickTimeout = 500L
+    val doubleClickTimeout = 650L
 
     val channelListState = rememberLazyListState()
     val categoryListState = rememberLazyListState()
@@ -163,9 +163,19 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(exoPlayer) {
+        var counter = 0
         while (true) {
             currentPosition = exoPlayer.currentPosition
             duration = exoPlayer.duration
+            
+            // Spara position var 30:e sekund för extra stabilitet
+            if (media?.type != MediaType.LIVE && isPlaying) {
+                counter++
+                if (counter >= 30) {
+                    sessionManager.savePlaybackPosition(media?.id.toString(), currentPosition)
+                    counter = 0
+                }
+            }
             delay(1000)
         }
     }
@@ -418,7 +428,6 @@ fun PlayerScreen(
                                 }
                                 OverlayState.QUICK_INFO -> {
                                     overlayState = OverlayState.NONE
-                                    onBackPressed()
                                 }
                                 OverlayState.EPG_INFO -> {
                                     overlayState = OverlayState.NONE

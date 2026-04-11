@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.mmtv.model.EpgListing
@@ -435,6 +436,40 @@ fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifi
 }
 
 @Composable
+fun ChannelPlaceholder(title: String, modifier: Modifier = Modifier, isMovie: Boolean = false) {
+    val firstLetter = title.firstOrNull()?.uppercase() ?: "?"
+    val colors = if (isMovie) {
+        listOf(Color(0xFF1e3c72), Color(0xFF2a5298)) // Blåaktig gradient för film
+    } else {
+        listOf(Color(0xFF232526), Color(0xFF414345)) // Gråsvart för kanaler
+    }
+    
+    Box(
+        modifier = modifier.background(Brush.verticalGradient(colors)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = firstLetter,
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = if (isMovie) 40.sp else 24.sp
+                ),
+                color = Color.White.copy(alpha = 0.5f)
+            )
+            if (!isMovie) {
+                Text(
+                    text = title.take(5).uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.3f),
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun TvChannelItem(
     media: MediaSource, 
     epg: EpgListing?, 
@@ -509,12 +544,23 @@ fun TvChannelItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(contentAlignment = Alignment.TopStart) {
-                AsyncImage(
-                    model = media.icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(60.dp).clip(MaterialTheme.shapes.small),
-                    contentScale = ContentScale.Fit
-                )
+                if (!media.icon.isNullOrEmpty()) {
+                    SubcomposeAsyncImage(
+                        model = media.icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(60.dp).clip(MaterialTheme.shapes.small),
+                        contentScale = ContentScale.Fit,
+                        error = {
+                            ChannelPlaceholder(media.title ?: "?", Modifier.size(60.dp).clip(MaterialTheme.shapes.small))
+                        },
+                        loading = {
+                            Box(Modifier.fillMaxSize().background(Color.DarkGray.copy(alpha = 0.3f)))
+                        }
+                    )
+                } else {
+                    ChannelPlaceholder(media.title ?: "?", Modifier.size(60.dp).clip(MaterialTheme.shapes.small))
+                }
+                
                 if (media.isFavorite) {
                     Icon(
                         Icons.Default.Favorite,
@@ -690,12 +736,23 @@ fun MediaCard(
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                AsyncImage(
-                    model = media.icon,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
+                if (!media.icon.isNullOrEmpty()) {
+                    SubcomposeAsyncImage(
+                        model = media.icon,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        error = {
+                            ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = true)
+                        },
+                        loading = {
+                            Box(Modifier.fillMaxSize().background(Color.DarkGray.copy(alpha = 0.3f)))
+                        }
+                    )
+                } else {
+                    ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = true)
+                }
+
                 if (media.isFavorite) {
                     Surface(
                         color = Color.Black.copy(alpha = 0.5f),

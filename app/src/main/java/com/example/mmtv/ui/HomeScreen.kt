@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
 
@@ -407,37 +408,22 @@ fun HistoryCard(
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) {
+                val isMovie = media.type == MediaType.MOVIE || media.type == MediaType.SERIES
                 if (!media.icon.isNullOrEmpty()) {
-                    AsyncImage(
+                    SubcomposeAsyncImage(
                         model = media.icon,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        error = {
+                            ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = isMovie)
+                        },
+                        loading = {
+                            Box(Modifier.fillMaxSize().background(Color.DarkGray.copy(alpha = 0.3f)))
+                        }
                     )
                 } else {
-                    Box(
-                        modifier = Modifier.fillMaxSize().background(
-                            Brush.verticalGradient(listOf(Color(0xFF232526), Color(0xFF414345)))
-                        ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = if (media.type == MediaType.LIVE) Icons.Default.LiveTv else Icons.Default.Movie,
-                                contentDescription = null,
-                                tint = Color.White.copy(alpha = 0.3f),
-                                modifier = Modifier.size(40.dp)
-                            )
-                            Text(
-                                text = media.title ?: "",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.White.copy(alpha = 0.5f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(horizontal = 8.dp)
-                            )
-                        }
-                    }
+                    ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = isMovie)
                 }
                 
                 if (media.type == MediaType.LIVE) {

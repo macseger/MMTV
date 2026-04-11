@@ -64,8 +64,15 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
             snapshotFlow { searchQuery }.collectLatest { query ->
                 if (query.length >= 2) {
                     try {
+                        val hiddenLive = sessionManager.getHiddenCategories("live")
+                        val hiddenMovies = sessionManager.getHiddenCategories("movies")
+                        val hiddenSeries = sessionManager.getHiddenCategories("series")
+                        val allHidden = hiddenLive + hiddenMovies + hiddenSeries
+
                         val entities = mediaDao.searchMedia("%$query%")
-                        _dbSearchResults.value = entities.map { it.toMediaSource() }
+                        _dbSearchResults.value = entities
+                            .filter { it.categoryName !in allHidden }
+                            .map { it.toMediaSource() }
                     } catch (e: Exception) {
                         _dbSearchResults.value = emptyList()
                     }

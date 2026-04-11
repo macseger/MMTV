@@ -86,39 +86,64 @@ fun HomeScreen(
         ) {
             // Header Section
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 32.dp, top = 16.dp, bottom = 12.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 32.dp, end = 32.dp, top = 12.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Column {
+                    Column {
                     Text(
                         "MULTIMEDIA TV",
-                        style = MaterialTheme.typography.headlineMedium.copy(
+                        style = MaterialTheme.typography.headlineSmall.copy(
                             fontWeight = FontWeight.ExtraLight,
-                            letterSpacing = 8.sp
+                            letterSpacing = 6.sp
                         ),
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
                         "PREMIUM STREAMING",
-                        style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 4.sp),
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            letterSpacing = 3.sp,
+                            fontSize = 8.sp
+                        ),
                         color = Color.Gray
                     )
                 }
 
-                // Small Search Bar in Header
-                OutlinedTextField(
+                // Modern Search Bar in Header
+                TextField(
                     value = viewModel.searchQuery,
                     onValueChange = { viewModel.searchQuery = it },
-                    placeholder = { Text("Sök...", fontSize = 14.sp) },
-                    modifier = Modifier.width(300.dp),
-                    leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp)) },
+                    placeholder = { 
+                        Text(
+                            "Sök...", 
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.Gray.copy(alpha = 0.7f)
+                        ) 
+                    },
+                    modifier = Modifier
+                        .width(260.dp)
+                        .height(48.dp),
+                    leadingIcon = { 
+                        Icon(
+                            Icons.Default.Search, 
+                            null, 
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        ) 
+                    },
                     singleLine = true,
-                    shape = RoundedCornerShape(50),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Color.White.copy(alpha = 0.05f),
-                        unfocusedContainerColor = Color.Transparent
-                    )
+                    shape = RoundedCornerShape(24.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.White.copy(alpha = 0.12f),
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.06f),
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        cursorColor = MaterialTheme.colorScheme.primary,
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White.copy(alpha = 0.9f)
+                    ),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp)
                 )
             }
 
@@ -127,7 +152,7 @@ fun HomeScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 32.dp, vertical = 16.dp),
+                        .padding(start = 32.dp, end = 32.dp, top = 4.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
                     Box(modifier = Modifier.weight(1f)) {
@@ -175,26 +200,25 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(24.dp),
                     verticalArrangement = Arrangement.spacedBy(24.dp),
                     modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 8.dp, bottom = 48.dp)
+                    contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 0.dp, bottom = 48.dp)
                 ) {
                     // Innehåll (Huvudmenyn är nu flyttad till den fasta sektionen ovanför)
 
                     // 1. Fortsätt titta (History)
                     if (history.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
-                            Column(modifier = Modifier.padding(top = 12.dp)) {
+                            Column(modifier = Modifier.padding(top = 0.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
-                                    Text("FORTSÄTT TITTA", style = MaterialTheme.typography.titleSmall, color = Color.Gray)
-                                    Text("SENASTE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                    Text("FORTSÄTT TITTA", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
                                 }
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(4.dp))
                                 LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
                                 ) {
                                     items(history.take(15)) { item ->
                                         HistoryCard(item) { onMediaSelected(item) }
@@ -292,12 +316,12 @@ fun MediaRow(
     isHorizontal: Boolean = false,
     onMediaClick: (MediaSource) -> Unit
 ) {
-    Column(modifier = Modifier.padding(top = 16.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = Color.Gray, modifier = Modifier.padding(horizontal = 32.dp))
-        Spacer(modifier = Modifier.height(8.dp))
+    Column(modifier = Modifier.padding(top = 4.dp)) {
+        Text(title, style = MaterialTheme.typography.labelMedium, color = Color.Gray, modifier = Modifier.padding(horizontal = 32.dp))
+        Spacer(modifier = Modifier.height(4.dp))
         LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(24.dp),
-            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 8.dp)
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
         ) {
             items(items) { item ->
                 if (isHorizontal) {
@@ -358,7 +382,7 @@ fun HistoryCard(
 
     Column(
         modifier = Modifier
-            .width(200.dp)
+            .width(160.dp)
             .onFocusChanged { hasFocus = it.isFocused }
             .scale(if (hasFocus) 1.05f else 1.0f)
             .onKeyEvent { keyEvent ->
@@ -403,7 +427,7 @@ fun HistoryCard(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(112.dp)
+                .height(90.dp)
                 .border(
                     width = if (hasFocus) 3.dp else 0.dp,
                     color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.Transparent,

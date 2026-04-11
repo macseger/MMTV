@@ -114,6 +114,7 @@ fun PlayerScreen(
     
     val mainFocusRequester = remember { FocusRequester() }
     val epgFocusRequester = remember { FocusRequester() }
+    val subtitleIconFocusRequester = remember { FocusRequester() }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(lifecycleOwner) {
@@ -343,6 +344,20 @@ fun PlayerScreen(
                                 } else false
                             } else false
                         }
+                        KeyEvent.KEYCODE_DPAD_UP -> {
+                            if (overlayState == OverlayState.NONE && media?.type != MediaType.LIVE) {
+                                if (!showSeekFeedback) {
+                                    showSeekFeedback = true
+                                    seekJob?.cancel()
+                                    seekJob = scope.launch {
+                                        delay(5000)
+                                        showSeekFeedback = false
+                                    }
+                                }
+                                subtitleIconFocusRequester.requestFocus()
+                                true
+                            } else false
+                        }
                         KeyEvent.KEYCODE_DPAD_DOWN -> {
                             if (overlayState == OverlayState.NONE && media?.type == MediaType.LIVE && playlist.isNotEmpty()) {
                                 val currentIndex = playlist.indexOfFirst { it.id == media.id }
@@ -511,6 +526,45 @@ fun PlayerScreen(
                             if (!isPlaying && accumulatedSeekMs == 0L) {
                                 Icon(Icons.Default.Pause, null, tint = Color.White, modifier = Modifier.size(32.dp).padding(end = 12.dp))
                             }
+                            
+                            // Interactive Subtitle Button
+                            var isSubFocused by remember { mutableStateOf(false) }
+                            Surface(
+                                onClick = { overlayState = OverlayState.SUBTITLES },
+                                modifier = Modifier
+                                    .padding(end = 16.dp)
+                                    .focusRequester(subtitleIconFocusRequester)
+                                    .onFocusChanged { 
+                                        isSubFocused = it.isFocused 
+                                        if (it.isFocused) {
+                                            // Förläng visningstiden om vi har fokus
+                                            seekJob?.cancel()
+                                        } else {
+                                            // Starta timern igen när vi tappar fokus
+                                            seekJob = scope.launch {
+                                                delay(5000)
+                                                showSeekFeedback = false
+                                            }
+                                        }
+                                    },
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSubFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
+                                contentColor = if (isSubFocused) Color.Black else Color.White
+                            ) {
+                                Text(
+                                    text = "UNDERTEXTER",
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    style = MaterialTheme.typography.labelLarge.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 1.sp,
+                                        fontSize = 14.sp
+                                    ),
+                                    color = if (availableSubtitles.isNotEmpty()) 
+                                            (if (isSubFocused) Color.Black else Color.White) 
+                                          else (if (isSubFocused) Color.Black.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.3f))
+                                )
+                            }
+
                             Text(
                                 text = "${formatTime(currentPosition)} / ${formatTime(duration)}",
                                 style = MaterialTheme.typography.titleMedium,

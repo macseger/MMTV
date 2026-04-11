@@ -11,13 +11,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Subtitles
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -150,6 +146,12 @@ fun PlayerScreen(
     
     var showNextEpisodeButton by remember { mutableStateOf(false) }
     val nextEpisodeButtonFocusRequester = remember { FocusRequester() }
+
+    // Favorit-feedback
+    var showFavoriteFeedback by remember { mutableStateOf(false) }
+    var favoriteMessage by remember { mutableStateOf("") }
+    var favoriteJob by remember { mutableStateOf<Job?>(null) }
+    val favorites by viewModel.favorites.collectAsState()
 
     LaunchedEffect(currentPosition, duration) {
         if (isSeries && nextEpisode != null && duration > 0) {
@@ -395,6 +397,20 @@ fun PlayerScreen(
                                 true
                             } else false
                         }
+                        KeyEvent.KEYCODE_PROG_RED, 183 -> { // 183 är ofta röd knapp på Android TV
+                            if (media != null) {
+                                val isFav = favorites.any { it.id == media.id }
+                                viewModel.toggleFavorite(media)
+                                favoriteMessage = if (isFav) "Borttagen från favoriter" else "Tillagd i favoriter"
+                                showFavoriteFeedback = true
+                                favoriteJob?.cancel()
+                                favoriteJob = scope.launch {
+                                    delay(3000)
+                                    showFavoriteFeedback = false
+                                }
+                            }
+                            true
+                        }
                         KeyEvent.KEYCODE_BACK -> {
                             when (overlayState) {
                                 OverlayState.CHANNELS, OverlayState.CATEGORIES -> {
@@ -405,7 +421,7 @@ fun PlayerScreen(
                                     onBackPressed()
                                 }
                                 OverlayState.EPG_INFO -> {
-                                    overlayState = OverlayState.QUICK_INFO
+                                    overlayState = OverlayState.NONE
                                 }
                                 OverlayState.NONE -> onBackPressed()
                                 else -> overlayState = OverlayState.NONE
@@ -509,6 +525,39 @@ fun PlayerScreen(
             }
         }
 
+        // --- FAVORITE FEEDBACK ---
+        AnimatedVisibility(
+            visible = showFavoriteFeedback,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 100.dp)
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.8f),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = null,
+                        tint = if (favoriteMessage.contains("Tillagd")) Color.Red else Color.Gray,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = favoriteMessage,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
         // --- NEXT EPISODE BUTTON ---
         AnimatedVisibility(
             visible = showNextEpisodeButton && nextEpisode != null,
@@ -561,35 +610,124 @@ fun PlayerScreen(
             
             Surface(
                 modifier = Modifier.fillMaxWidth().padding(24.dp),
-                color = Color.Black.copy(alpha = 0.85f),
-                shape = MaterialTheme.shapes.large
+                color = Color.Black.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(20.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
             ) {
-                Row(modifier = Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.padding(24.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(text = media?.title ?: "", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = media?.title ?: "",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Black,
+                            color = Color.White
+                        )
+                        
                         if (epg != null) {
                             val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
                             val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
-                            Text(text = epg.title ?: "", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            Text(text = "$start - $stop", style = MaterialTheme.typography.bodyLarge, color = Color.LightGray)
+                            
+                            Text(
+                                text = epg.title ?: "",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "$start - $stop",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = Color.LightGray
+                                )
+                                
+                                val now = System.currentTimeMillis() / 1000
+                                val remainingMin = ((epg.stopTimestamp ?: 0) - now) / 60
+                                if (remainingMin > 0) {
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = "($remainingMin min kvar)",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                    )
+                                }
+                            }
                             
                             val now = System.currentTimeMillis() / 1000
                             val progress = (now - (epg.startTimestamp ?: 0)).toFloat() / ((epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0)).toFloat()
                             if (progress in 0f..1f) {
-                                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(6.dp).clip(MaterialTheme.shapes.small))
+                                LinearProgressIndicator(
+                                    progress = { progress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 12.dp)
+                                        .height(6.dp)
+                                        .clip(CircleShape),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = Color.White.copy(alpha = 0.1f)
+                                )
                             }
                         } else {
-                            Text(text = "Ingen programinfo", style = MaterialTheme.typography.bodyLarge, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Ingen programinfo tillgänglig",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = Color.Gray
+                            )
                         }
                     }
                     
                     if (nextEpg != null) {
-                        Spacer(modifier = Modifier.width(40.dp))
+                        Spacer(modifier = Modifier.width(32.dp))
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(80.dp)
+                                .background(Color.White.copy(alpha = 0.1f))
+                        )
+                        Spacer(modifier = Modifier.width(32.dp))
+                        
                         Column(modifier = Modifier.width(300.dp)) {
                             val nextStart = timeFormatter.format(Instant.ofEpochSecond(nextEpg.startTimestamp ?: 0))
-                            Text(text = "NÄSTA ($nextStart)", style = MaterialTheme.typography.labelLarge, color = Color.Gray)
-                            Text(text = nextEpg.title ?: "", style = MaterialTheme.typography.titleMedium, color = Color.White, maxLines = 2)
+                            val now = System.currentTimeMillis() / 1000
+                            val untilNextMin = ((nextEpg.startTimestamp ?: 0) - now) / 60
+                            
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "NÄSTA",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = Color.Gray,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = nextStart,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            
+                            Text(
+                                text = nextEpg.title ?: "",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            
+                            if (untilNextMin > 0) {
+                                Text(
+                                    text = "Börjar om $untilNextMin min",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color.LightGray
+                                )
+                            }
                         }
                     }
                 }
@@ -707,7 +845,7 @@ fun PlayerScreen(
                     .background(Color.Black.copy(alpha = 0.85f))
                     .onKeyEvent { 
                         if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                            overlayState = OverlayState.QUICK_INFO
+                            overlayState = OverlayState.NONE
                             true
                         } else false
                     },

@@ -194,54 +194,48 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
                 // Hämta EPG asynkront
                 val epgJob = launch { repository.fetchAndStoreEpg(user, pass, forceRefresh) }
 
-                val live = async { repository.getGroupedLive(user, pass, forceRefresh) }
-                val movies = async { repository.getGroupedMovies(user, pass, forceRefresh) }
-                val series = async { repository.getGroupedSeries(user, pass, forceRefresh) }
+                // Hämta bara kategorierna för snabb start
+                val liveCats = async { repository.getJustCategories(MediaType.LIVE, user, pass, forceRefresh) }
+                val movieCats = async { repository.getJustCategories(MediaType.MOVIE, user, pass, forceRefresh) }
+                val seriesCats = async { repository.getJustCategories(MediaType.SERIES, user, pass, forceRefresh) }
 
-                val liveData = live.await()
-                val movieData = movies.await()
-                val seriesData = series.await()
+                val liveData = liveCats.await()
+                val movieData = movieCats.await()
+                val seriesData = seriesCats.await()
                 
-                // Mappa stream_id till epg_channel_id för snabbare lookup
-                liveData.forEach { group ->
-                    group.items.forEach { item ->
-                        item.epgId?.let { epgId ->
-                            channelToEpgMap[item.id] = epgId
-                        }
-                    }
-                }
-
-                // Hämta favoriter från DB för att bygga favoritkategorier
+                // Hämta favoriter och historik (dessa vill vi ha i minnet direkt)
                 val allFavs = withContext(Dispatchers.IO) { mediaDao.getFavorites().map { it.toMediaSource() } }
                 
-                fun List<GroupedMedia>.withFavorites(type: MediaType): List<GroupedMedia> {
+                fun List<GroupedMedia>.withFavoritesAndHistory(type: MediaType): List<GroupedMedia> {
                     var favsForType = allFavs.filter { it.type == type }
-                    // För TV vill vi ha nyaste sist (omvänd kronologisk i DB -> kronologisk här)
-                    if (type == MediaType.LIVE) {
-                        favsForType = favsForType.reversed()
-                    }
+                    if (type == MediaType.LIVE) favsForType = favsForType.reversed()
                     
-                    val listWithFavs = if (favsForType.isNotEmpty()) {
+                    var result = if (favsForType.isNotEmpty()) {
                         listOf(GroupedMedia(title = "⭐ FAVORITER", items = favsForType)) + this
                     } else this
 
-                    // Lägg till historik för filmer och serier (men inte TV)
-                    return if (type != MediaType.LIVE) {
+                    if (type != MediaType.LIVE) {
                         val historyForType = sessionManager.getHistory().filter { it.type == type }
                         if (historyForType.isNotEmpty()) {
-                            listOf(GroupedMedia(title = "🕒 SENAST SEDDA", items = historyForType)) + listWithFavs
-                        } else listWithFavs
-                    } else listWithFavs
+                            result = listOf(GroupedMedia(title = "🕒 SENAST SEDDA", items = historyForType)) + result
+                        }
+                    }
+                    return result
                 }
 
                 uiState = uiState.copy(
-                    liveCategories = liveData.withFavorites(MediaType.LIVE),
-                    movieCategories = movieData.withFavorites(MediaType.MOVIE),
-                    seriesCategories = seriesData.withFavorites(MediaType.SERIES),
+                    liveCategories = liveData.withFavoritesAndHistory(MediaType.LIVE),
+                    movieCategories = movieData.withFavoritesAndHistory(MediaType.MOVIE),
+                    seriesCategories = seriesData.withFavoritesAndHistory(MediaType.SERIES),
                     isLoading = false,
                     history = sessionManager.getHistory()
                 )
                 
+                // Första gången vi laddar, ladda in innehållet för den första kategorin (förutom favoriter/historik)
+                loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
+                loadItemsForCategory(MediaType.MOVIE, movieData.firstOrNull()?.categoryId)
+                loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
+
                 // Uppdatera nyligen tillagda och favoriter från DB
                 withContext(Dispatchers.IO) {
                     val recent = mediaDao.getRecentlyAdded()
@@ -250,11 +244,9 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
                     _favorites.value = favs.map { it.toMediaSource() }
                 }
 
-                // Vänta på att EPG-jobbet också blir klart innan vi säger att vi är helt färdiga
                 epgJob.join()
-                
                 isUpdatingBackground = false
-                updateStatus = "Spellista & EPG uppdaterad!"
+                updateStatus = "Kategorier & EPG uppdaterad!"
                 delay(4000)
                 updateStatus = null
 
@@ -263,6 +255,43 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
                 isUpdatingBackground = false
             } finally {
                 isFetching = false
+            }
+        }
+    }
+
+    fun loadItemsForCategory(type: MediaType, categoryId: String?) {
+        if (categoryId == null) return
+        
+        viewModelScope.launch {
+            val items = repository.getMediaForCategory(type, categoryId)
+            
+            // Mappa stream_id till epg_channel_id för snabbare lookup (LIVE)
+            if (type == MediaType.LIVE) {
+                items.forEach { item ->
+                    item.epgId?.let { epgId ->
+                        channelToEpgMap[item.id] = epgId
+                    }
+                }
+            }
+            
+            // Uppdatera uiState med de laddade objekten för just denna kategori
+            uiState = when (type) {
+                MediaType.LIVE -> uiState.copy(liveCategories = uiState.liveCategories.map { 
+                    if (it.categoryId == categoryId) it.copy(items = items) else it 
+                })
+                MediaType.MOVIE -> uiState.copy(movieCategories = uiState.movieCategories.map { 
+                    if (it.categoryId == categoryId) it.copy(items = items) else it 
+                })
+                MediaType.SERIES -> uiState.copy(seriesCategories = uiState.seriesCategories.map { 
+                    if (it.categoryId == categoryId) it.copy(items = items) else it 
+                })
+            }
+            
+            // Om det är LIVE, prefetcha EPG för de första kanalerna
+            if (type == MediaType.LIVE) {
+                items.take(15).forEach { item ->
+                    launch(Dispatchers.IO) { getEpgForId(item.id, item.title) }
+                }
             }
         }
     }

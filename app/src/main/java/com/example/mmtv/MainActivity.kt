@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -123,16 +124,28 @@ class MainActivity : ComponentActivity() {
                                 containerColor = Color(0xFF1A1A1A),
                                 shape = RoundedCornerShape(16.dp),
                                 confirmButton = {
+                                    var isExitFocused by remember { mutableStateOf(false) }
                                     Button(
                                         onClick = { (context as? android.app.Activity)?.finish() },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.8f))
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (isExitFocused) Color.Red else Color.Gray.copy(alpha = 0.2f),
+                                            contentColor = if (isExitFocused) Color.White else Color.LightGray
+                                        ),
+                                        modifier = Modifier.onFocusChanged { state -> isExitFocused = state.isFocused }
                                     ) {
-                                        Text("AVSLUTA", color = Color.White, fontWeight = FontWeight.Bold)
+                                        Text("AVSLUTA", fontWeight = FontWeight.Bold)
                                     }
                                 },
                                 dismissButton = {
-                                    TextButton(onClick = { showExitDialog = false }) {
-                                        Text("AVBRYT", color = Color.Gray)
+                                    var isCancelFocused by remember { mutableStateOf(false) }
+                                    TextButton(
+                                        onClick = { showExitDialog = false },
+                                        modifier = Modifier.onFocusChanged { state -> isCancelFocused = state.isFocused },
+                                        colors = ButtonDefaults.textButtonColors(
+                                            contentColor = if (isCancelFocused) MaterialTheme.colorScheme.primary else Color.Gray
+                                        )
+                                    ) {
+                                        Text("AVBRYT", fontWeight = FontWeight.Bold)
                                     }
                                 }
                             )
@@ -209,9 +222,13 @@ class MainActivity : ComponentActivity() {
                                             groupedList = sharedViewModel.uiState.liveStreamsGrouped,
                                             initialCategoryIndex = sharedViewModel.lastLiveCategoryIndex,
                                             initialMediaId = sharedViewModel.selectedMedia?.id,
-                                            onCategoryChanged = { 
-                                                sharedViewModel.lastLiveCategoryIndex = it
-                                                sharedViewModel.prefetchEpgForCategory(it)
+                                            onCategoryChanged = { index ->
+                                                sharedViewModel.lastLiveCategoryIndex = index
+                                                val category = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(index)
+                                                if (category?.items?.isEmpty() == true) {
+                                                    sharedViewModel.loadItemsForCategory(MediaType.LIVE, category.categoryId)
+                                                }
+                                                sharedViewModel.prefetchEpgForCategory(index)
                                             },
                                             onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                             onMediaSelected = { media -> 
@@ -231,7 +248,13 @@ class MainActivity : ComponentActivity() {
                                         MediaListScreen(
                                             groupedList = sharedViewModel.uiState.movies,
                                             initialCategoryIndex = sharedViewModel.lastMovieCategoryIndex,
-                                            onCategoryChanged = { sharedViewModel.lastMovieCategoryIndex = it },
+                                            onCategoryChanged = { index -> 
+                                                sharedViewModel.lastMovieCategoryIndex = index 
+                                                val category = sharedViewModel.uiState.movies.getOrNull(index)
+                                                if (category?.items?.isEmpty() == true) {
+                                                    sharedViewModel.loadItemsForCategory(MediaType.MOVIE, category.categoryId)
+                                                }
+                                            },
                                             onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                             onMediaSelected = { media ->
                                                 sharedViewModel.selectedMedia = media
@@ -247,7 +270,13 @@ class MainActivity : ComponentActivity() {
                                         MediaListScreen(
                                             groupedList = sharedViewModel.uiState.series,
                                             initialCategoryIndex = sharedViewModel.lastSeriesCategoryIndex,
-                                            onCategoryChanged = { sharedViewModel.lastSeriesCategoryIndex = it },
+                                            onCategoryChanged = { index -> 
+                                                sharedViewModel.lastSeriesCategoryIndex = index 
+                                                val category = sharedViewModel.uiState.series.getOrNull(index)
+                                                if (category?.items?.isEmpty() == true) {
+                                                    sharedViewModel.loadItemsForCategory(MediaType.SERIES, category.categoryId)
+                                                }
+                                            },
                                             onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                             onMediaSelected = { media ->
                                                 sharedViewModel.selectedMedia = media

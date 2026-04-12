@@ -19,6 +19,12 @@ interface MediaDao {
     @Query("SELECT * FROM media_items WHERE type = :type ORDER BY categoryOrder ASC, itemOrder ASC")
     suspend fun getMediaByType(type: com.example.mmtv.model.MediaType): List<MediaEntity>
 
+    @Query("SELECT DISTINCT categoryId, categoryName FROM media_items WHERE type = :type ORDER BY categoryOrder ASC")
+    suspend fun getCategoriesByType(type: com.example.mmtv.model.MediaType): List<CategorySimple>
+
+    @Query("SELECT * FROM media_items WHERE type = :type AND categoryId = :catId ORDER BY itemOrder ASC")
+    suspend fun getMediaByCategoryId(type: com.example.mmtv.model.MediaType, catId: String): List<MediaEntity>
+
     @Query("SELECT * FROM media_items WHERE isFavorite = 1 ORDER BY favoriteDate DESC")
     suspend fun getFavorites(): List<MediaEntity>
 
@@ -62,3 +68,8 @@ interface MediaDao {
     @Query("DELETE FROM epg_listings")
     suspend fun clearEpg()
 }
+
+data class CategorySimple(
+    val categoryId: String,
+    val categoryName: String
+)

@@ -24,6 +24,71 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
     private val mediaDao = database.mediaDao()
     private val CACHE_VERSION = "v5"
 
+    suspend fun getJustCategories(type: MediaType, user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
+        val dbCount = mediaDao.getCountByType(type)
+        
+        // Om vi tvingar refresh, ladda ner allt först och spara i DB
+        if (forceRefresh || dbCount == 0) {
+            syncMediaFromApi(type, user, pass)
+        }
+
+        // Hämta bara kategorierna från DB
+        val categories = mediaDao.getCategoriesByType(type)
+        categories.map { 
+            GroupedMedia(title = it.categoryName, items = emptyList(), categoryId = it.categoryId) 
+        }
+    }
+
+    suspend fun getMediaForCategory(type: MediaType, categoryId: String): List<MediaSource> = withContext(Dispatchers.IO) {
+        mediaDao.getMediaByCategoryId(type, categoryId).map { it.toMediaSource() }
+    }
+
+    private suspend fun syncMediaFromApi(type: MediaType, user: String, pass: String) {
+        try {
+            val categories = when(type) {
+                MediaType.LIVE -> api.getLiveCategories(user, pass)
+                MediaType.MOVIE -> api.getMovieCategories(user, pass)
+                MediaType.SERIES -> api.getSeriesCategories(user, pass)
+            }
+            
+            val items = when(type) {
+                MediaType.LIVE -> api.getLiveStreams(user, pass).map { 
+                    MediaSource(id = it.streamId, title = it.name, icon = it.streamIcon, type = type, epgId = it.epgId)
+                        .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
+                }
+                MediaType.MOVIE -> api.getMovies(user, pass).map { 
+                    val addedTs = it.added?.toLongOrNull() ?: parseDateToUnix(it.added)
+                    MediaSource(id = it.streamId, title = it.name, icon = it.streamIcon, type = type, extension = it.containerExtension, rating = it.rating, addedDate = addedTs)
+                        .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
+                        .copy(addedDate = addedTs)
+                }
+                MediaType.SERIES -> api.getSeries(user, pass).map { 
+                    val addedTs = it.lastModified?.toLongOrNull() ?: parseDateToUnix(it.lastModified)
+                    MediaSource(id = it.seriesId, title = it.name, icon = it.cover, type = type, plot = it.plot, rating = it.rating, director = it.director, genre = it.genre, cast = it.cast, addedDate = addedTs)
+                        .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
+                        .copy(addedDate = addedTs)
+                }
+            }
+
+            if (items.isNotEmpty()) {
+                val existingFavorites = mediaDao.getFavorites().associateBy { it.id }
+                val itemsToInsert = items.mapIndexed { index, entity ->
+                    val fav = existingFavorites[entity.id]
+                    entity.copy(
+                        isFavorite = fav?.isFavorite ?: false,
+                        favoriteDate = fav?.favoriteDate ?: 0L,
+                        categoryOrder = categories.indexOfFirst { it.categoryId == entity.categoryId }.let { if (it == -1) 999 else it },
+                        itemOrder = index
+                    )
+                }
+                mediaDao.deleteByType(type)
+                mediaDao.insertAll(itemsToInsert)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     suspend fun getGroupedLive(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
         val dbCount = mediaDao.getCountByType(MediaType.LIVE)
         

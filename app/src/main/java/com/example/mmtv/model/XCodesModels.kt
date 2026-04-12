@@ -106,7 +106,8 @@ data class EpgListing(
 
 data class GroupedMedia(
     val title: String?,
-    val items: List<MediaSource>
+    val items: List<MediaSource>,
+    val categoryId: String? = null
 )
 
 data class MediaSource(

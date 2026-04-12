@@ -21,6 +21,19 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 
+data class MediaUiState(
+    val liveCategories: List<GroupedMedia> = emptyList(),
+    val movieCategories: List<GroupedMedia> = emptyList(),
+    val seriesCategories: List<GroupedMedia> = emptyList(),
+    val isLoading: Boolean = false,
+    val history: List<MediaSource> = emptyList()
+) {
+    // Aliases for MainActivity
+    val liveStreamsGrouped get() = liveCategories
+    val movies get() = movieCategories
+    val series get() = seriesCategories
+}
+
 class MediaViewModel(private var repository: MediaRepository, private val sessionManager: SessionManager, private val database: MediaDatabase) : ViewModel() {
 
     var uiState by mutableStateOf(MediaUiState())
@@ -114,7 +127,8 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         genre = genre,
         cast = cast,
         epgId = epgId,
-        isFavorite = isFavorite
+        isFavorite = isFavorite,
+        addedDate = addedDate
     )
 
     private fun MediaSource.toEntity(catId: String?, catName: String?) = MediaEntity(
@@ -131,310 +145,93 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         genre = genre,
         cast = cast,
         epgId = epgId,
-        isFavorite = isFavorite
+        isFavorite = isFavorite,
+        addedDate = addedDate
     )
 
     fun updateRepository(newRepository: MediaRepository) {
         this.repository = newRepository
     }
 
-    fun loadData(user: String, pass: String, host: String, forceRefresh: Boolean = false, onResult: ((Boolean) -> Unit)? = null) {
-        if (isFetching && !forceRefresh) return
-        
+    suspend fun login(h: String, u: String, p: String): Boolean {
         loginError = null
-        // Om vi redan har data i minnet och inte tvingar refresh, gör ingenting.
-        if (!forceRefresh && uiState.liveStreamsGrouped.isNotEmpty()) {
-            onResult?.invoke(true)
-            return
+        return try {
+            val response = repository.api.login(u, p)
+            val success = response.userInfo?.status == "Active"
+            if (success) {
+                sessionManager.saveLogin(h, u, p)
+            } else {
+                loginError = "Ogiltiga inloggningsuppgifter eller konto inte aktivt"
+            }
+            success
+        } catch (e: Exception) {
+            loginError = "Anslutningsfel: ${e.message}"
+            false
         }
+    }
 
+    fun logout() {
+        sessionManager.logout()
+        uiState = MediaUiState()
+        fullEpgData.clear()
+        channelToEpgMap.clear()
+        _dbSearchResults.value = emptyList()
+    }
+
+    fun refreshLists() {
+        val creds = sessionManager.getLogin()
+        if (creds != null) {
+            fetchData(creds.second, creds.third, forceRefresh = true)
+        }
+    }
+
+    fun fetchData(user: String, pass: String, forceRefresh: Boolean = false) {
+        if (isFetching) return
         isFetching = true
-        updateStatus = "Uppdaterar allt i bakgrunden..."
+        
         viewModelScope.launch {
-            uiState = uiState.copy(username = user, password = pass, baseUrl = host)
-            
+            uiState = uiState.copy(isLoading = true)
             try {
-                val favorites = withContext(Dispatchers.IO) { mediaDao.getFavorites().map { it.toMediaSource() } }
+                // Hämta EPG asynkront
+                launch { repository.fetchAndStoreEpg(user, pass, forceRefresh) }
+
+                val live = async { repository.getGroupedLive(user, pass, forceRefresh) }
+                val movies = async { repository.getGroupedMovies(user, pass, forceRefresh) }
+                val series = async { repository.getGroupedSeries(user, pass, forceRefresh) }
+
+                val liveData = live.await()
                 
-                // 1. Försök ladda från DB OMEDELBART för att få bort Splash Screen snabbt
-                if (!forceRefresh) {
-                    val cachedLive = withContext(Dispatchers.IO) {
-                        repository.getGroupedLive(user, pass, forceRefresh = false)
-                    }
-                    val history = sessionManager.getHistory()
-                    if (cachedLive.isNotEmpty()) {
-                        val filteredLive = withContext(Dispatchers.Default) {
-                            addSpecialCategories(applyFiltersAndOrder("live", cachedLive), history, favorites, MediaType.LIVE)
+                // Mappa stream_id till epg_channel_id för snabbare lookup
+                liveData.forEach { group ->
+                    group.items.forEach { item ->
+                        item.epgId?.let { epgId ->
+                            channelToEpgMap[item.id] = epgId
                         }
-                        uiState = uiState.copy(liveStreamsGrouped = filteredLive, history = history, isLoading = false)
-                        
-                        // Kartlägg EPG-ID:n
-                        cachedLive.flatMap { it.items }.forEach { 
-                            if (it.epgId != null) channelToEpgMap[it.id] = it.epgId 
-                        }
-                        
-                        // Ladda nyligen tillagt och favoriter från DB omedelbart
-                        val recent = mediaDao.getRecentlyAdded()
-                        _recentlyAdded.value = recent.map { it.toMediaSource() }
-                        val favs = mediaDao.getFavorites()
-                        _favorites.value = favs.map { it.toMediaSource() }
-
-                        // Ladda EPG för den första synliga kategorin direkt
-                        prefetchEpgForCategory(0)
-                        onResult?.invoke(true)
                     }
                 }
 
-                // 2. Starta nätverksuppdatering i bakgrunden (eller prioriterad om DB var tom)
-                val liveJob = async(Dispatchers.IO) {
-                    val dbCount = withContext(Dispatchers.IO) { database.mediaDao().getCountByType(MediaType.LIVE) }
-                    if (forceRefresh || dbCount == 0) {
-                        repository.getGroupedLive(user, pass, forceRefresh)
-                    } else {
-                        null
-                    }
-                }
-
-                launch(Dispatchers.IO) {
-                    loadEpgInBackground(user, pass, forceRefresh)
-                }
-
-                val newLive = liveJob.await()
-                if (newLive != null) {
-                    if (newLive.isEmpty()) {
-                         loginError = "Kunde inte hämta data. Kontrollera uppgifter och server."
-                         onResult?.invoke(false)
-                    } else {
-                        val history = sessionManager.getHistory()
-                        val filteredLive = withContext(Dispatchers.Default) {
-                            addSpecialCategories(applyFiltersAndOrder("live", newLive), history, favorites, MediaType.LIVE)
-                        }
-                        uiState = uiState.copy(
-                            liveStreamsGrouped = filteredLive,
-                            history = history,
-                            isLoading = false
-                        )
-                        
-                        newLive.flatMap { it.items }.forEach { 
-                            if (it.epgId != null) channelToEpgMap[it.id] = it.epgId 
-                        }
-                        onResult?.invoke(true)
-                    }
-                } else if (uiState.liveStreamsGrouped.isNotEmpty()) {
-                    onResult?.invoke(true)
-                }
-
-                // Ladda Film och Serier asynkront
-                launch(Dispatchers.IO) {
-                    try {
-                        val movies = repository.getGroupedMovies(user, pass, forceRefresh)
-                        val history = sessionManager.getHistory()
-                        val filteredMovies = withContext(Dispatchers.Default) {
-                            val sortedMovies = movies.filter { it.items.isNotEmpty() }.map { group ->
-                                group.copy(items = group.items.sortedByDescending { it.id })
-                            }
-                            addSpecialCategories(applyFiltersAndOrder("movies", sortedMovies), history, favorites, MediaType.MOVIE)
-                        }
-                        withContext(Dispatchers.Main) {
-                            uiState = uiState.copy(movies = filteredMovies)
-                            // Uppdatera nyligen tillagda efter att filmer har laddats/cacheats
-                            val recent = mediaDao.getRecentlyAdded()
-                            _recentlyAdded.value = recent.map { it.toMediaSource() }
-                        }
-                    } catch (e: Exception) {}
-                }
-
-                launch(Dispatchers.IO) {
-                    try {
-                        val series = repository.getGroupedSeries(user, pass, forceRefresh)
-                        val history = sessionManager.getHistory()
-                        val filteredSeries = withContext(Dispatchers.Default) {
-                            val sortedSeries = series.filter { it.items.isNotEmpty() }.map { group ->
-                                group.copy(items = group.items.sortedByDescending { it.id })
-                            }
-                            addSpecialCategories(applyFiltersAndOrder("series", sortedSeries), history, favorites, MediaType.SERIES)
-                        }
-                        withContext(Dispatchers.Main) {
-                            uiState = uiState.copy(series = filteredSeries)
-                            // Uppdatera nyligen tillagda även efter serier
-                            val recent = mediaDao.getRecentlyAdded()
-                            _recentlyAdded.value = recent.map { it.toMediaSource() }
-
-                            updateStatus = "Allt är fixat, ha en fin dag!"
-                            viewModelScope.launch {
-                                delay(4000)
-                                if (updateStatus == "Allt är fixat, ha en fin dag!") {
-                                    updateStatus = null
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {}
+                uiState = uiState.copy(
+                    liveCategories = liveData,
+                    movieCategories = movies.await(),
+                    seriesCategories = series.await(),
+                    isLoading = false,
+                    history = sessionManager.getHistory()
+                )
+                
+                // Uppdatera nyligen tillagda och favoriter från DB
+                withContext(Dispatchers.IO) {
+                    val recent = mediaDao.getRecentlyAdded()
+                    _recentlyAdded.value = recent.map { it.toMediaSource() }
+                    val favs = mediaDao.getFavorites()
+                    _favorites.value = favs.map { it.toMediaSource() }
                 }
 
             } catch (e: Exception) {
-                loginError = "Anslutningsfel: ${e.message}"
-                uiState = uiState.copy(error = e.message, isLoading = false)
-                onResult?.invoke(false)
+                uiState = uiState.copy(isLoading = false)
             } finally {
                 isFetching = false
             }
         }
-    }
-
-    fun setLiveCategoryByMediaId(mediaId: Int) {
-        val groupedList = uiState.liveStreamsGrouped
-        val specialTitles = listOf("★ FAVORITER", "Senast visade")
-        
-        // 1. Letar först i RIKTIGA kategorier (inte specialkategorier)
-        var index = groupedList.indexOfFirst { group ->
-            !specialTitles.contains(group.title) && group.items.any { it.id == mediaId }
-        }
-        
-        // 2. Om vi inte hittade den där, sök i alla (inklusive favoriter/historik)
-        if (index == -1) {
-            index = groupedList.indexOfFirst { group ->
-                group.items.any { it.id == mediaId }
-            }
-        }
-
-        if (index != -1) {
-            lastLiveCategoryIndex = index
-            // Tvinga även spelarens interna lista att uppdateras till den valda kategorins innehåll
-            currentPlaylist = groupedList[index].items
-        }
-    }
-
-    private fun addHistoryCategory(list: List<GroupedMedia>, history: List<MediaSource>, type: MediaType): List<GroupedMedia> {
-        val relevantHistory = history.filter { it.type == type }
-        if (relevantHistory.isEmpty()) return list
-        return listOf(GroupedMedia(title = "Historik", items = relevantHistory)) + list
-    }
-
-    private fun applyFiltersAndOrder(type: String, list: List<GroupedMedia>): List<GroupedMedia> {
-        val hiddenCategories = sessionManager.getHiddenCategories(type)
-        val filteredList = list.filter { it.title !in hiddenCategories }
-        val savedOrder = sessionManager.getCategoryOrder(type)
-        if (savedOrder.isEmpty()) return filteredList
-        val orderedList = mutableListOf<GroupedMedia>()
-        val remainingList = filteredList.toMutableList()
-        savedOrder.forEach { title ->
-            val found = remainingList.find { it.title == title }
-            if (found != null) {
-                orderedList.add(found)
-                remainingList.remove(found)
-            }
-        }
-        orderedList.addAll(remainingList)
-        return orderedList
-    }
-
-    fun refreshDataManually() {
-        viewModelScope.launch {
-            updateStatus = "Uppdaterar allt i bakgrunden..."
-            loadData(uiState.username, uiState.password, uiState.baseUrl, forceRefresh = true) { success ->
-                if (!success) {
-                    updateStatus = "Kunde inte uppdatera."
-                    viewModelScope.launch {
-                        delay(3000)
-                        updateStatus = null
-                    }
-                }
-            }
-        }
-    }
-
-    fun hideCategory(type: String, categoryTitle: String) {
-        sessionManager.hideCategory(type, categoryTitle)
-        refreshLists()
-    }
-
-    fun showAllCategories() {
-        sessionManager.clearHiddenCategories()
-        refreshLists()
-    }
-
-    fun refreshLists() {
-        viewModelScope.launch {
-            val live = repository.getGroupedLive(uiState.username, uiState.password)
-            val movies = repository.getGroupedMovies(uiState.username, uiState.password)
-            val series = repository.getGroupedSeries(uiState.username, uiState.password)
-            val history = sessionManager.getHistory()
-            val favorites = withContext(Dispatchers.IO) { mediaDao.getFavorites().map { it.toMediaSource() } }
-            
-            val sortedMovies = movies.map { it.copy(items = it.items.sortedByDescending { m -> m.id }) }
-            val sortedSeries = series.map { it.copy(items = it.items.sortedByDescending { s -> s.id }) }
-
-            uiState = uiState.copy(
-                liveStreamsGrouped = addSpecialCategories(applyFiltersAndOrder("live", live), history, favorites, MediaType.LIVE),
-                movies = addSpecialCategories(applyFiltersAndOrder("movies", sortedMovies), history, favorites, MediaType.MOVIE),
-                series = addSpecialCategories(applyFiltersAndOrder("series", sortedSeries), history, favorites, MediaType.SERIES),
-                history = history
-            )
-            _favorites.value = favorites
-            // Trigger prefetch after refresh
-            prefetchEpgForCategory(0)
-            
-            // Uppdatera även senast tillagda
-            val recent = withContext(Dispatchers.IO) { mediaDao.getRecentlyAdded() }
-            _recentlyAdded.value = recent.map { it.toMediaSource() }
-        }
-    }
-
-    var isLoggingOut by mutableStateOf(false)
-        private set
-
-    fun performFullLogout(onComplete: () -> Unit) {
-        viewModelScope.launch {
-            isLoggingOut = true
-            
-            // 1. Rensa databasen (Favoriter, EPG etc)
-            withContext(Dispatchers.IO) {
-                database.clearAllTables()
-            }
-            
-            // 2. Rensa VM:ens interna cacher
-            _favorites.value = emptyList()
-            _recentlyAdded.value = emptyList()
-            _dbSearchResults.value = emptyList()
-            fullEpgData.clear()
-            channelToEpgMap.clear()
-            
-            // 3. Rensa sessionen (SharedPreferences)
-            sessionManager.logout()
-            
-            // Lite delay för att användaren ska hinna se att det händer nåt
-            delay(1500)
-            
-            isLoggingOut = false
-            onComplete()
-        }
-    }
-
-    private fun addSpecialCategories(list: List<GroupedMedia>, history: List<MediaSource>, favorites: List<MediaSource>, type: MediaType): List<GroupedMedia> {
-        val result = mutableListOf<GroupedMedia>()
-        
-        // 1. Favoriter ÖVERST
-        var relevantFavs = favorites.filter { it.type == type }
-        
-        // För LIVE TV vill vi ha nyaste favoriten sist i listan
-        if (type == MediaType.LIVE) {
-            relevantFavs = relevantFavs.reversed()
-        }
-
-        if (relevantFavs.isNotEmpty()) {
-            result.add(GroupedMedia(title = "★ FAVORITER", items = relevantFavs))
-        }
-
-        // 2. Historik - Endast för Film och Serier, inte för LIVE TV (enligt önskemål)
-        if (type != MediaType.LIVE) {
-            val relevantHistory = history.filter { it.type == type }
-            if (relevantHistory.isNotEmpty()) {
-                result.add(GroupedMedia(title = "Historik", items = relevantHistory))
-            }
-        }
-
-        result.addAll(list)
-        return result
     }
 
     fun toggleFavorite(media: MediaSource) {
@@ -458,75 +255,60 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         }
     }
 
-    fun addToHistory(media: MediaSource) {
-        sessionManager.addToHistory(media)
-        refreshLists()
-    }
-
     fun loadSeriesInfo(seriesId: Int) {
+        if (lastLoadedSeriesId == seriesId) return
+        
+        val creds = sessionManager.getLogin()
+        if (creds == null) return
+
         viewModelScope.launch {
             isDetailsLoading = true
             try {
-                selectedSeriesInfo = repository.getSeriesInfo(uiState.username, uiState.password, seriesId)
-            } catch (e: Exception) {} finally {
+                selectedSeriesInfo = repository.getSeriesInfo(creds.second, creds.third, seriesId)
+                lastLoadedSeriesId = seriesId
+            } catch (e: Exception) {
+                selectedSeriesInfo = null
+            } finally {
                 isDetailsLoading = false
             }
         }
     }
 
-    suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
-        try {
-            repository.getIconForChannel(epgId, channelName)
-        } catch (e: Exception) {
-            null
-        }
-    }
-
     suspend fun getEpgForId(streamId: Int, channelName: String? = null): EpgListing? = withContext(Dispatchers.IO) {
-        val epgId = channelToEpgMap[streamId] ?: ""
+        val epgId = channelToEpgMap[streamId]
         val now = System.currentTimeMillis() / 1000
         
-        var epgList = fullEpgData[epgId]
-        if (epgList == null && epgId.isNotEmpty()) {
-            val dbEpg = repository.getEpgForChannel(epgId, channelName)
-            if (dbEpg.isNotEmpty()) {
-                withContext(Dispatchers.Main) {
-                    fullEpgData[epgId] = dbEpg
-                }
-                epgList = dbEpg
+        // Kolla cachen först
+        if (epgId != null) {
+            val cached = fullEpgData[epgId]
+            if (cached != null) {
+                return@withContext cached.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
             }
         }
         
-        epgList?.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
-    }
-
-    fun prefetchEpgForCategory(categoryIndex: Int) {
-        val category = uiState.liveStreamsGrouped.getOrNull(categoryIndex) ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            category.items.forEach { media ->
-                val epgId = media.epgId ?: ""
-                if (!fullEpgData.containsKey(epgId)) {
-                    val dbEpg = repository.getEpgForChannel(epgId, media.title)
-                    if (dbEpg.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            fullEpgData[epgId] = dbEpg
-                        }
-                    }
-                }
+        // Annars hämta från repository (som kollar DB/API)
+        val fullEpg = repository.getEpgForChannel(epgId, channelName)
+        if (fullEpg.isNotEmpty()) {
+            val finalEpgId = epgId ?: fullEpg.first().epgId ?: channelName ?: "unknown"
+            withContext(Dispatchers.Main) {
+                fullEpgData[finalEpgId] = fullEpg
             }
+            return@withContext fullEpg.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
         }
+        null
     }
 
     suspend fun getNextEpgForId(streamId: Int, channelName: String? = null): EpgListing? = withContext(Dispatchers.IO) {
-        val epgId = channelToEpgMap[streamId] ?: return@withContext null
+        val epgId = channelToEpgMap[streamId]
         val now = System.currentTimeMillis() / 1000
-        var channelList = fullEpgData[epgId]
         
-        if (channelList == null && epgId.isNotEmpty()) {
+        var channelList = epgId?.let { fullEpgData[it] }
+        if (channelList == null) {
              val dbEpg = repository.getEpgForChannel(epgId, channelName)
              if (dbEpg.isNotEmpty()) {
+                 val finalEpgId = epgId ?: dbEpg.first().epgId ?: channelName ?: "unknown"
                  withContext(Dispatchers.Main) {
-                     fullEpgData[epgId] = dbEpg
+                    fullEpgData[finalEpgId] = dbEpg
                  }
                  channelList = dbEpg
              }
@@ -537,13 +319,14 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
     }
 
     suspend fun getFullEpgForId(streamId: Int, channelName: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {
-        val epgId = channelToEpgMap[streamId] ?: return@withContext emptyList()
-        var epgData = fullEpgData[epgId]
+        val epgId = channelToEpgMap[streamId]
+        var epgData = epgId?.let { fullEpgData[it] }
         if (epgData == null) {
             val dbEpg = repository.getEpgForChannel(epgId, channelName)
             if (dbEpg.isNotEmpty()) {
+                val finalEpgId = epgId ?: dbEpg.first().epgId ?: channelName ?: "unknown"
                 withContext(Dispatchers.Main) {
-                    fullEpgData[epgId] = dbEpg
+                    fullEpgData[finalEpgId] = dbEpg
                 }
                 epgData = dbEpg
             }
@@ -553,6 +336,7 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
 
     fun clearHistory() {
         sessionManager.clearHistory()
+        uiState = uiState.copy(history = emptyList())
         refreshLists()
         viewModelScope.launch {
             updateStatus = "Historiken har rensats!"
@@ -561,39 +345,56 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         }
     }
 
-    fun clearAllFavorites() {
-        viewModelScope.launch(Dispatchers.IO) {
-            mediaDao.clearAllFavorites()
-            withContext(Dispatchers.Main) {
-                refreshLists()
-                updateStatus = "Alla favoriter har tagits bort!"
-                viewModelScope.launch {
-                    delay(3000)
-                    updateStatus = null
-                }
+    fun loadData(user: String, pass: String, host: String? = null, forceRefresh: Boolean = false, onComplete: ((Boolean) -> Unit)? = null) {
+        fetchData(user, pass, forceRefresh)
+        onComplete?.invoke(true)
+    }
+
+    fun addToHistory(media: MediaSource) {
+        sessionManager.addToHistory(media)
+        uiState = uiState.copy(history = sessionManager.getHistory())
+    }
+
+    fun hideCategory(type: String, categoryTitle: String) {
+        sessionManager.hideCategory(type, categoryTitle)
+        refreshLists()
+    }
+
+    suspend fun getIconForChannel(epgId: String?, name: String?): String? {
+        return repository.getIconForChannel(epgId, name)
+    }
+
+    fun setLiveCategoryByMediaId(mediaId: Int) {
+        uiState.liveCategories.forEachIndexed { index, group ->
+            if (group.items.any { it.id == mediaId }) {
+                lastLiveCategoryIndex = index
+                return
             }
         }
     }
 
-    private fun loadEpgInBackground(user: String, pass: String, forceRefresh: Boolean = false) {
+    fun prefetchEpgForCategory(categoryIndex: Int) {
+        val category = uiState.liveCategories.getOrNull(categoryIndex) ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                repository.fetchAndStoreEpg(user, pass, forceRefresh)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            category.items.take(20).forEach { item ->
+                getEpgForId(item.id, item.title)
             }
+        }
+    }
+
+    fun refreshDataManually() {
+        refreshLists()
+    }
+
+    fun showAllCategories() {
+        sessionManager.clearHiddenCategories()
+        refreshLists()
+    }
+
+    fun clearAllFavorites() {
+        viewModelScope.launch {
+            mediaDao.clearAllFavorites()
+            refreshLists()
         }
     }
 }
-
-data class MediaUiState(
-    val liveStreamsGrouped: List<GroupedMedia> = emptyList(),
-    val movies: List<GroupedMedia> = emptyList(),
-    val series: List<GroupedMedia> = emptyList(),
-    val history: List<MediaSource> = emptyList(),
-    val isLoading: Boolean = false,
-    val error: String? = null,
-    val baseUrl: String = "",
-    val username: String = "",
-    val password: String = ""
-)

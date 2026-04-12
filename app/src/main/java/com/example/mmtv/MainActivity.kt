@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -23,7 +22,6 @@ import com.example.mmtv.api.SessionManager
 import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.MediaSource
-import com.example.mmtv.model.Episode
 import com.example.mmtv.repository.MediaRepository
 import com.example.mmtv.ui.*
 import com.example.mmtv.ui.theme.MMTVTheme
@@ -179,7 +177,7 @@ class MainActivity : ComponentActivity() {
                                         media = media,
                                         onPlayMovie = { m, resume ->
                                             sharedViewModel.addToHistory(m)
-                                            playMedia(navController, m, sessionManager, sharedViewModel, emptyList<MediaSource>(), resume)
+                                            playMedia(navController, m, sessionManager, sharedViewModel, emptyList(), resume)
                                         },
                                         onPlayEpisode = { ep, resume ->
                                             sharedViewModel.addToHistory(media)
@@ -192,7 +190,8 @@ class MainActivity : ComponentActivity() {
                                                     id = ep.id?.toIntOrNull() ?: 0,
                                                     title = ep.title ?: "Avsnitt",
                                                     icon = media.icon,
-                                                    type = MediaType.SERIES
+                                                    type = MediaType.SERIES,
+                                                    addedDate = 0L
                                                 )
                                                 
                                                 if (!resume) {
@@ -260,13 +259,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-        }
-    }
-
-    @Composable
-    private fun LoadingBox() {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
         }
     }
 

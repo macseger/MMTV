@@ -47,6 +47,8 @@ import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.GroupedMedia
 import com.example.mmtv.model.MediaSource
+import androidx.compose.ui.res.painterResource
+import coil.request.ImageRequest
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.Episode
 import com.example.mmtv.player.MmtvPlayer
@@ -1195,10 +1197,14 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, epg: EpgListing?, on
             verticalAlignment = Alignment.CenterVertically
         ) {
             AsyncImage(
-                model = item.icon,
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(item.icon)
+                    .crossfade(true)
+                    .build(),
                 contentDescription = null,
-                modifier = Modifier.size(48.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
-                contentScale = ContentScale.Fit
+                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
+                contentScale = ContentScale.Fit,
+                error = painterResource(id = android.R.drawable.ic_menu_report_image)
             )
             
             Spacer(modifier = Modifier.width(16.dp))

@@ -16,7 +16,7 @@ import com.example.mmtv.database.EpgEntity
 
 import java.util.zip.GZIPInputStream
 
-class MediaRepository(private val api: XCodesApi, private val context: Context, private val database: MediaDatabase) {
+class MediaRepository(val api: XCodesApi, private val context: Context, private val database: MediaDatabase) {
     private val gson = Gson()
     private val cacheDir = context.cacheDir
     private val epgParser = EpgParser()
@@ -77,7 +77,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
                     icon = s.streamIcon,
                     type = MediaType.LIVE,
                     epgId = s.epgId,
-                    isFavorite = existingFavorites.contains(s.streamId)
+                    isFavorite = existingFavorites.contains(s.streamId),
+                    addedDate = 0L
                 )
             }
             
@@ -200,8 +201,9 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
                         type = MediaType.MOVIE,
                         extension = movie.containerExtension,
                         rating = movie.rating,
-                        isFavorite = existingFavorites.contains(movie.streamId)
-                    ).copy(addedDate = addedTs)
+                        isFavorite = existingFavorites.contains(movie.streamId),
+                        addedDate = addedTs
+                    )
                 }
                 allEntities.addAll(categoryMovies.mapIndexed { itemIdx, movie ->
                     val addedTs = movie.added?.toLongOrNull() ?: parseDateToUnix(movie.added)
@@ -212,7 +214,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
                         type = MediaType.MOVIE,
                         extension = movie.containerExtension,
                         rating = movie.rating,
-                        isFavorite = existingFavorites.contains(movie.streamId)
+                        isFavorite = existingFavorites.contains(movie.streamId),
+                        addedDate = addedTs
                     )
                     media.toEntity(category.categoryId, category.categoryName).copy(
                         categoryOrder = catIdx,
@@ -303,7 +306,8 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
                     director = s.director,
                     genre = s.genre,
                     cast = s.cast,
-                    isFavorite = existingFavorites.contains(s.seriesId)
+                    isFavorite = existingFavorites.contains(s.seriesId),
+                    addedDate = addedTs
                 )
                 media.toEntity(category.categoryId, category.categoryName).copy(
                     categoryOrder = catIdx,
@@ -374,17 +378,20 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
     private suspend fun parseAndStore(file: File, isClearFirst: Boolean) {
         val batch = mutableListOf<EpgEntity>()
         val channelIcons = mutableMapOf<String, String>()
+        val channelNames = mutableMapOf<String, String>()
         var isFirstBatch = true
         
         file.inputStream().use { input ->
             epgParser.parseStreaming(
                 input,
-                onChannelParsed = { id, icon ->
+                onChannelParsed = { id, displayName, icon ->
                     if (icon != null) channelIcons[id] = icon
+                    if (displayName != null) channelNames[id] = displayName
                 },
                 onProgrammeParsed = { epgId, it ->
                     batch.add(EpgEntity(
                         epgId = epgId,
+                        channelName = channelNames[epgId],
                         title = it.title,
                         description = it.description,
                         startTimestamp = it.startTimestamp ?: 0L,
@@ -410,27 +417,34 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         }
     }
 
-    suspend fun getEpgForChannel(epgId: String, channelName: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {
+    suspend fun getEpgForChannel(epgId: String?, channelName: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis() / 1000
         val endLimit = now + (24 * 60 * 60) // Hämta 24 timmar framåt
         
         // 1. Försök med exakt ID först
-        val exactMatch = mediaDao.getEpgForChannelWithLimit(epgId, now, endLimit)
-        if (exactMatch.isNotEmpty()) {
-            return@withContext exactMatch.map { it.toEpgListing() }
+        if (epgId != null) {
+            val exactMatch = mediaDao.getEpgForChannelWithLimit(epgId, now, endLimit)
+            if (exactMatch.isNotEmpty()) {
+                return@withContext exactMatch.map { it.toEpgListing() }
+            }
         }
 
         // 2. Om ingen träff, försök med Fuzzy Matching på namnet
         if (channelName != null) {
             val cleanName = channelName
+                .replace(Regex("\\(.*?\\)"), "") // Ta bort (S) etc
+                .replace(Regex("\\[.*?\\]"), "") // Ta bort [SE] etc
                 .replace("HD", "", ignoreCase = true)
                 .replace("FHD", "", ignoreCase = true)
                 .replace("4K", "", ignoreCase = true)
                 .replace("SD", "", ignoreCase = true)
                 .replace("Sverige", "", ignoreCase = true)
+                .replace("|", "")
                 .trim()
             
-            val fuzzyMatch = mediaDao.findEpgByFuzzyName(cleanName, now, endLimit)
+            val nameNoSpaces = cleanName.replace(" ", "")
+            
+            val fuzzyMatch = mediaDao.findEpgByFuzzyName(cleanName, nameNoSpaces, now, endLimit)
             if (fuzzyMatch.isNotEmpty()) {
                 return@withContext fuzzyMatch.map { it.toEpgListing() }
             }
@@ -452,13 +466,18 @@ class MediaRepository(private val api: XCodesApi, private val context: Context, 
         // 2. Kolla fuzzy på namnet
         if (channelName != null) {
             val cleanName = channelName
+                .replace(Regex("\\(.*?\\)"), "")
+                .replace(Regex("\\[.*?\\]"), "")
                 .replace("HD", "", ignoreCase = true)
                 .replace("FHD", "", ignoreCase = true)
                 .replace("4K", "", ignoreCase = true)
                 .replace("SD", "", ignoreCase = true)
                 .replace("Sverige", "", ignoreCase = true)
+                .replace("|", "")
                 .trim()
-            val entity = mediaDao.findEpgByFuzzyName(cleanName, now - 86400, endLimit).firstOrNull { it.icon != null }
+            
+            val nameNoSpaces = cleanName.replace(" ", "")
+            val entity = mediaDao.findEpgByFuzzyName(cleanName, nameNoSpaces, now - 86400, endLimit).firstOrNull { it.icon != null }
             if (entity?.icon != null) return@withContext entity.icon
         }
         

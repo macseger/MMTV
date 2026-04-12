@@ -13,6 +13,7 @@ import java.io.File
 import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.database.MediaEntity
 import com.example.mmtv.database.EpgEntity
+import com.example.mmtv.database.ChannelEntity
 
 import java.util.zip.GZIPInputStream
 
@@ -377,26 +378,29 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
 
     private suspend fun parseAndStore(file: File, isClearFirst: Boolean) {
         val batch = mutableListOf<EpgEntity>()
-        val channelIcons = mutableMapOf<String, String>()
-        val channelNames = mutableMapOf<String, String>()
+        val channelsToInsert = mutableListOf<ChannelEntity>()
         var isFirstBatch = true
         
         file.inputStream().use { input ->
             epgParser.parseStreaming(
                 input,
                 onChannelParsed = { id, displayName, icon ->
-                    if (icon != null) channelIcons[id] = icon
-                    if (displayName != null) channelNames[id] = displayName
+                    channelsToInsert.add(ChannelEntity(id, displayName, icon))
+                    if (channelsToInsert.size >= 100) {
+                        mediaDao.insertChannels(ArrayList(channelsToInsert))
+                        channelsToInsert.clear()
+                    }
                 },
                 onProgrammeParsed = { epgId, it ->
+                    // Vi behöver veta ikon och namn för detta program. 
+                    // Eftersom vi streamar kan vi inte vara säkra på att vi sett kanalen än om XML:en är dåligt strukturerad,
+                    // men oftast kommer <channel> före <programme>.
                     batch.add(EpgEntity(
                         epgId = epgId,
-                        channelName = channelNames[epgId],
                         title = it.title,
                         description = it.description,
                         startTimestamp = it.startTimestamp ?: 0L,
-                        stopTimestamp = it.stopTimestamp ?: 0L,
-                        icon = channelIcons[epgId]
+                        stopTimestamp = it.stopTimestamp ?: 0L
                     ))
                     
                     if (batch.size >= 500) {
@@ -409,6 +413,10 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
                     }
                 }
             )
+        }
+
+        if (channelsToInsert.isNotEmpty()) {
+            mediaDao.insertChannels(channelsToInsert)
         }
 
         if (batch.isNotEmpty()) {
@@ -454,13 +462,10 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
     }
 
     suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis() / 1000
-        val endLimit = now + (48 * 60 * 60)
-        
         // 1. Kolla exakt EPG ID
         if (epgId != null) {
-            val entity = mediaDao.getEpgForChannelWithLimit(epgId, now - 86400, endLimit).firstOrNull { it.icon != null }
-            if (entity?.icon != null) return@withContext entity.icon
+            val icon = mediaDao.getIconByEpgId(epgId)
+            if (icon != null) return@withContext icon
         }
         
         // 2. Kolla fuzzy på namnet
@@ -477,8 +482,8 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
                 .trim()
             
             val nameNoSpaces = cleanName.replace(" ", "")
-            val entity = mediaDao.findEpgByFuzzyName(cleanName, nameNoSpaces, now - 86400, endLimit).firstOrNull { it.icon != null }
-            if (entity?.icon != null) return@withContext entity.icon
+            val icon = mediaDao.findIconByFuzzyName(cleanName, nameNoSpaces)
+            if (icon != null) return@withContext icon
         }
         
         null
@@ -492,7 +497,8 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         start = null,
         end = null,
         startTimestamp = startTimestamp,
-        stopTimestamp = stopTimestamp
+        stopTimestamp = stopTimestamp,
+        icon = icon
     )
 
     private fun parseDateToUnix(dateStr: String?): Long {

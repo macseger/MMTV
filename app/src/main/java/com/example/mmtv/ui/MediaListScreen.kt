@@ -1,12 +1,10 @@
 package com.example.mmtv.ui
 
 import android.view.KeyEvent
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -66,14 +64,14 @@ fun MediaListScreen(
     nextEpgProvider: suspend (Int, String?) -> EpgListing? = { _, _ -> null },
     onGetIcon: suspend (String?, String?) -> String? = { _, _ -> null },
     onItemFocused: (Int) -> Unit = {},
-    backgroundColor: Color = MaterialTheme.colorScheme.background,
+    backgroundColor: Color = Color.Black,
     onBackPressed: (() -> Unit)? = null
 ) {
     var selectedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
     val selectedCategory = groupedList.getOrNull(selectedCategoryIndex)
     val isLive = selectedCategory?.items?.firstOrNull()?.type == MediaType.LIVE
     
-    var categoryToShowMenu by remember { mutableStateOf<String?>(null) }
+    var focusedMedia by remember { mutableStateOf<MediaSource?>(null) }
     var mediaToShowMenu by remember { mutableStateOf<MediaSource?>(null) }
 
     val listState = rememberLazyListState()
@@ -82,9 +80,8 @@ fun MediaListScreen(
     val categoryFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val channelFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
 
-    // Fokusera på vald kanal eller kategori när skärmen laddas ELLER när initiala värden ändras
     LaunchedEffect(initialCategoryIndex, initialMediaId) {
-        kotlinx.coroutines.delay(100)
+        delay(100)
         selectedCategoryIndex = initialCategoryIndex
 
         if (initialMediaId != null && isLive) {
@@ -100,29 +97,38 @@ fun MediaListScreen(
         }
     }
 
-    // Scrolla till toppen när kategori ändras för att säkerställa att första item är redo för fokus
     LaunchedEffect(selectedCategoryIndex) {
         if (isLive) listState.scrollToItem(0)
         else gridState.scrollToItem(0)
     }
+
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    var isSidebarFocused by remember { mutableStateOf(false) }
 
     Row(modifier = Modifier
         .fillMaxSize()
         .background(backgroundColor)
         .onKeyEvent { 
             if (it.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK && 
-                it.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
-                onBackPressed != null) {
-                onBackPressed()
-                true
+                it.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
+                if (!isSidebarFocused) {
+                    categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+                    true
+                } else {
+                    // Från sidebar, gå till TopBar istället för att stänga skärmen
+                    focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up)
+                    true
+                }
             } else false
         }
     ) {
+        // COLUMN 1: CATEGORIES (TiviMate Sidebar Style)
         Box(
             modifier = Modifier
                 .fillMaxHeight()
                 .width(240.dp)
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                .background(Color(0xFF121212))
+                .onFocusChanged { isSidebarFocused = it.hasFocus }
                 .padding(vertical = 16.dp)
         ) {
             LazyColumn(
@@ -155,34 +161,35 @@ fun MediaListScreen(
                         onClick = { 
                             selectedCategoryIndex = index
                             onCategoryChanged(index)
-                        },
-                        onLongClick = {
-                            categoryToShowMenu = title
                         }
                     )
                 }
             }
         }
 
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            Text(
-                text = selectedCategory?.title ?: "",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+        // COLUMN 2 & 3: CONTENT
+        if (isLive) {
+            // TIVIMATE 3-COLUMN STYLE: [Categories | Channels | EPG Details]
+            Row(modifier = Modifier.fillMaxSize()) {
+                // Column 2: Channel List
+                Column(modifier = Modifier.width(420.dp).fillMaxHeight().background(Color(0xFF0A0A0A))) {
+                    Text(
+                        text = selectedCategory?.title ?: "",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.padding(24.dp)
+                    )
 
-            if (selectedCategory != null) {
-                if (isLive) {
                     LazyColumn(
                         state = listState,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(bottom = 32.dp)
+                        modifier = Modifier.fillMaxSize()
                     ) {
-                        items(selectedCategory.items, key = { it.id }) { media ->
+                        items(selectedCategory?.items ?: emptyList(), key = { it.id }) { media ->
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
                             TvChannelItem(
                                 media = media,
+                                isFocused = focusedMedia?.id == media.id,
                                 epg = produceState<EpgListing?>(initialValue = null, key1 = media.id) {
                                     value = epgProvider(media.id, media.title)
                                 }.value,
@@ -192,205 +199,187 @@ fun MediaListScreen(
                                 onGetIcon = onGetIcon,
                                 modifier = Modifier
                                     .focusRequester(requester)
+                                    .onFocusChanged { if (it.isFocused) {
+                                        focusedMedia = media
+                                        onItemFocused(media.id)
+                                    } }
                                     .onKeyEvent { 
                                         if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                                             categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
                                             true
                                         } else false
                                     },
-                                onFocused = { onItemFocused(media.id) },
                                 onClick = { onMediaSelected(media) },
                                 onToggleFavorite = { mediaToShowMenu = media }
                             )
                         }
                     }
-                } else {
-                    LazyVerticalGrid(
-                        state = gridState,
-                        columns = GridCells.Adaptive(minSize = 130.dp),
-                        contentPadding = PaddingValues(bottom = 32.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(selectedCategory.items, key = { it.id }) { media ->
-                            val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
-                            MediaCard(
-                                media = media,
-                                onGetIcon = onGetIcon,
-                                modifier = Modifier
-                                    .focusRequester(requester),
-                                onClick = { onMediaSelected(media) },
-                                onToggleFavorite = { mediaToShowMenu = media }
-                            )
-                        }
+                }
+
+                // Column 3: EPG Detail Pane
+                Box(modifier = Modifier.weight(1f).fillMaxHeight().background(Color.Black).padding(24.dp)) {
+                    focusedMedia?.let { media ->
+                        val currentEpg = produceState<EpgListing?>(initialValue = null, key1 = media.id) {
+                            value = epgProvider(media.id, media.title)
+                        }.value
+                        val nextEpg = produceState<EpgListing?>(initialValue = null, key1 = media.id) {
+                            value = nextEpgProvider(media.id, media.title)
+                        }.value
+                        
+                        LiveDetailPane(media = media, currentEpg = currentEpg, nextEpg = nextEpg)
+                    }
+                }
+            }
+        } else {
+            // NETFLIX-STYLE VOD GRID
+            Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 24.dp)) {
+                    Text(
+                        text = selectedCategory?.title ?: "",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(
+                        text = "${selectedCategory?.items?.size ?: 0} TITLAR",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.Gray
+                    )
+                }
+
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Adaptive(minSize = 124.dp),
+                    contentPadding = PaddingValues(bottom = 100.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    items(selectedCategory?.items ?: emptyList(), key = { it.id }) { media ->
+                        val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
+                        val isFirstInRow = (selectedCategory?.items?.indexOf(media) ?: 0) % 5 == 0 // Rough heuristic for 5 columns
+
+                        MediaCard(
+                            media = media,
+                            onGetIcon = onGetIcon,
+                            modifier = Modifier
+                                .focusRequester(requester)
+                                .onFocusChanged { if (it.isFocused) focusedMedia = media }
+                                .onKeyEvent {
+                                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                        if (isFirstInRow) {
+                                            categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+                                            true
+                                        } else false
+                                    } else false
+                                },
+                            onClick = { onMediaSelected(media) },
+                            onToggleFavorite = { mediaToShowMenu = media }
+                        )
                     }
                 }
             }
         }
     }
 
+    // Dialogs remain the same...
     if (mediaToShowMenu != null) {
         val media = mediaToShowMenu!!
         AlertDialog(
             onDismissRequest = { mediaToShowMenu = null },
-            title = { 
-                Text(
-                    media.title ?: "Alternativ",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.primary
-                ) 
-            },
-            text = { 
-                Text(
-                    if (media.isFavorite) "Vill du ta bort från favoriter?" else "Vill du lägga till i favoriter?",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = Color.White
-                )
-            },
+            title = { Text(media.title ?: "Alternativ", color = MaterialTheme.colorScheme.primary) },
+            text = { Text(if (media.isFavorite) "Vill du ta bort från favoriter?" else "Vill du lägga till i favoriter?", color = Color.White) },
             containerColor = Color(0xFF121212),
-            shape = RoundedCornerShape(16.dp),
             confirmButton = {
-                val focusRequester = remember { FocusRequester() }
-                var isFocused by remember { mutableStateOf(false) }
-                
-                Button(
-                    onClick = {
-                        onToggleFavorite(media)
-                        mediaToShowMenu = null
-                    },
-                    modifier = Modifier
-                        .focusRequester(focusRequester)
-                        .onFocusChanged { isFocused = it.isFocused }
-                        .padding(horizontal = 4.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
-                        contentColor = if (isFocused) Color.Black else Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(if (media.isFavorite) Icons.Default.FavoriteBorder else Icons.Default.Favorite, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(if (media.isFavorite) "Ta bort" else "Lägg till", fontWeight = FontWeight.Bold)
-                }
-                
-                LaunchedEffect(Unit) {
-                    focusRequester.requestFocus()
+                Button(onClick = { onToggleFavorite(media); mediaToShowMenu = null }) {
+                    Text(if (media.isFavorite) "Ta bort" else "Lägg till")
                 }
             },
             dismissButton = {
-                var isFocused by remember { mutableStateOf(false) }
-                Button(
-                    onClick = { mediaToShowMenu = null },
-                    modifier = Modifier
-                        .onFocusChanged { isFocused = it.isFocused }
-                        .padding(horizontal = 4.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
-                        contentColor = if (isFocused) Color.Black else Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("Avbryt", fontWeight = FontWeight.Bold)
-                }
-            }
-        )
-    }
-
-    if (categoryToShowMenu != null) {
-        val isSpecial = categoryToShowMenu?.let { 
-            val lower = it.lowercase()
-            lower.contains("historik") || lower.contains("senast sedda") || 
-            lower.contains("history") || lower.contains("favorit") || 
-            lower.contains("★") 
-        } ?: false
-        
-        AlertDialog(
-            onDismissRequest = { categoryToShowMenu = null },
-            title = { 
-                Text(
-                    if (isSpecial) "Systemkategori" else "Kategorinställningar",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.primary
-                ) 
-            },
-            text = { 
-                Text(
-                    if (isSpecial) 
-                        "Kategorin \"$categoryToShowMenu\" är viktig för appens funktion och kan inte döljas."
-                    else 
-                        "Vill du dölja kategorin \"$categoryToShowMenu\"? Du kan visa den igen under Inställningar.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = Color.White
-                )
-            },
-            containerColor = Color(0xFF121212),
-            shape = RoundedCornerShape(16.dp),
-            confirmButton = {
-                val focusRequester = remember { FocusRequester() }
-                var isFocused by remember { mutableStateOf(false) }
-                
-                Button(
-                    onClick = {
-                        if (!isSpecial) onHideCategory(categoryToShowMenu!!)
-                        categoryToShowMenu = null
-                    },
-                    modifier = Modifier
-                        .focusRequester(focusRequester)
-                        .onFocusChanged { isFocused = it.isFocused }
-                        .padding(horizontal = 4.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
-                        contentColor = if (isFocused) Color.Black else Color.White
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    if (!isSpecial) {
-                        Icon(Icons.Default.VisibilityOff, null, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Dölj kategori", fontWeight = FontWeight.Bold)
-                    } else {
-                        Text("Okej", fontWeight = FontWeight.Bold)
-                    }
-                }
-                
-                LaunchedEffect(Unit) {
-                    focusRequester.requestFocus()
-                }
-            },
-            dismissButton = {
-                if (!isSpecial) {
-                    var isFocused by remember { mutableStateOf(false) }
-                    Button(
-                        onClick = { categoryToShowMenu = null },
-                        modifier = Modifier
-                            .onFocusChanged { isFocused = it.isFocused }
-                            .padding(horizontal = 4.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
-                            contentColor = if (isFocused) Color.Black else Color.White
-                        ),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text("Avbryt", fontWeight = FontWeight.Bold)
-                    }
-                }
+                TextButton(onClick = { mediaToShowMenu = null }) { Text("Avbryt") }
             }
         )
     }
 }
 
 @Composable
-fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit, onLongClick: () -> Unit) {
-    var hasFocus by remember { mutableStateOf(false) }
-    var lastClickTime by remember { mutableLongStateOf(0L) }
+fun LiveDetailPane(media: MediaSource, currentEpg: EpgListing?, nextEpg: EpgListing?) {
+    val formatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
+    
+    Column(modifier = Modifier.fillMaxSize()) {
+        AsyncImage(
+            model = media.icon,
+            contentDescription = null,
+            modifier = Modifier
+                .height(120.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White.copy(alpha = 0.05f)),
+            contentScale = ContentScale.Fit
+        )
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Text(
+            text = media.title ?: "",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Black,
+            color = Color.White
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        if (currentEpg != null) {
+            val start = formatter.format(Instant.ofEpochSecond(currentEpg.startTimestamp ?: 0))
+            val stop = formatter.format(Instant.ofEpochSecond(currentEpg.stopTimestamp ?: 0))
+            
+            Text(
+                text = currentEpg.title ?: "",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Bold
+            )
+            Text(text = "$start - $stop", style = MaterialTheme.typography.bodyLarge, color = Color.Gray)
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Text(
+                text = currentEpg.description ?: "Ingen beskrivning tillgänglig.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.LightGray,
+                maxLines = 8,
+                overflow = TextOverflow.Ellipsis
+            )
+            
+            if (nextEpg != null) {
+                Spacer(modifier = Modifier.height(32.dp))
+                Text(text = "NÄSTA", style = MaterialTheme.typography.labelLarge, color = Color.Gray, fontWeight = FontWeight.Black)
+                Text(
+                    text = nextEpg.title ?: "",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
+                )
+                Text(
+                    text = formatter.format(Instant.ofEpochSecond(nextEpg.startTimestamp ?: 0)),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray
+                )
+            }
+        } else {
+            Text("Ingen programinformation tillgänglig just nu.", color = Color.Gray)
+        }
+    }
+}
 
+@Composable
+fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    var hasFocus by remember { mutableStateOf(false) }
     val backgroundColor by animateColorAsState(
         targetValue = when {
             isSelected -> MaterialTheme.colorScheme.primary
             hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
             else -> Color.Transparent
-        },
-        label = "bgColor"
+        }, label = "catBg"
     )
 
     Surface(
@@ -398,44 +387,17 @@ fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifi
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
             .onFocusChanged { hasFocus = it.isFocused }
-            .onKeyEvent { keyEvent ->
-                val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 
-                                 keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
-                
-                if (isCenterKey && keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
-                    val currentTime = System.currentTimeMillis()
-                    if (currentTime - lastClickTime < 500) { // 500ms fönster för dubbelklick
-                        onLongClick()
-                        lastClickTime = 0L // Återställ efter dubbelklick
-                    } else {
-                        onClick()
-                        lastClickTime = currentTime
-                    }
-                    return@onKeyEvent true
-                }
-                false
-            }
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {
-                val currentTime = System.currentTimeMillis()
-                if (currentTime - lastClickTime < 500) {
-                    onLongClick()
-                    lastClickTime = 0L
-                } else {
-                    onClick()
-                    lastClickTime = currentTime
-                }
-            },
+            .clickable { onClick() },
         color = backgroundColor,
-        shape = MaterialTheme.shapes.small
+        shape = RoundedCornerShape(8.dp)
     ) {
         Text(
             text = title,
-            modifier = Modifier.padding(12.dp, 10.dp),
+            modifier = Modifier.padding(16.dp, 12.dp),
             style = MaterialTheme.typography.bodyLarge.copy(
-                fontWeight = if (isSelected || hasFocus) FontWeight.Bold else FontWeight.Normal,
-                fontSize = 15.sp
+                fontWeight = if (isSelected || hasFocus) FontWeight.Bold else FontWeight.Normal
             ),
-            color = if (isSelected) Color.Black else if (hasFocus) Color.White else Color.LightGray,
+            color = if (isSelected) Color.Black else if (hasFocus) Color.White else Color.Gray,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -443,180 +405,57 @@ fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifi
 }
 
 @Composable
-fun ChannelPlaceholder(title: String, modifier: Modifier = Modifier, isMovie: Boolean = false) {
-    val firstLetter = title.firstOrNull()?.uppercase() ?: "?"
-    val colors = if (isMovie) {
-        listOf(Color(0xFF1e3c72), Color(0xFF2a5298)) // Blåaktig gradient för film
-    } else {
-        listOf(Color(0xFF232526), Color(0xFF414345)) // Gråsvart för kanaler
-    }
-    
-    Box(
-        modifier = modifier.background(Brush.verticalGradient(colors)),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = firstLetter,
-                style = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = if (isMovie) 40.sp else 24.sp
-                ),
-                color = Color.White.copy(alpha = 0.5f)
-            )
-            if (!isMovie) {
-                Text(
-                    text = title.take(5).uppercase(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White.copy(alpha = 0.3f),
-                    maxLines = 1
-                )
-            }
-        }
-    }
-}
-
-@Composable
 fun TvChannelItem(
     media: MediaSource, 
+    isFocused: Boolean,
     epg: EpgListing?, 
     nextEpg: EpgListing?, 
     modifier: Modifier = Modifier, 
-    onFocused: () -> Unit, 
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
     onGetIcon: (suspend (String?, String?) -> String?)? = null
 ) {
     var hasFocus by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    var pressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    val formatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
-    // Slå upp ikon asynkront istället för att blockera UI-tråden
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon, key2 = media.epgId) {
-        if (value.isNullOrEmpty() && onGetIcon != null) {
-            value = onGetIcon(media.epgId, media.title)
-        }
-    }
-
-    LaunchedEffect(hasFocus) {
-        if (hasFocus) onFocused()
+    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon) {
+        if (value.isNullOrEmpty() && onGetIcon != null) value = onGetIcon(media.epgId, media.title)
     }
 
     val backgroundColor by animateColorAsState(
-        targetValue = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-        label = "bgColor"
+        targetValue = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent,
+        label = "chBg"
     )
 
-    // Ta bort den felaktiga epgIcon-variabeln helt då den inte behövs längre
-
-    Card(
+    Surface(
         modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { hasFocus = it.isFocused }
-            .scale(if (hasFocus) 1.02f else 1.0f)
-            .onKeyEvent { keyEvent ->
-                val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 
-                                 keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
-                val isRedKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_PROG_RED || 
-                               keyEvent.nativeKeyEvent.keyCode == 183 // RED på vissa fjärrkontroller
-                
-                if (isRedKey && keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                    onToggleFavorite()
-                    return@onKeyEvent true
-                }
-
-                if (isCenterKey) {
-                    if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                        if (pressJob == null) {
-                            pressJob = scope.launch {
-                                delay(650) // Synkad med PlayerScreen timeout
-                                onToggleFavorite()
-                                pressJob = null
-                            }
-                        }
-                        return@onKeyEvent true
-                    } else if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
-                        val isLongPress = pressJob == null
-                        pressJob?.cancel()
-                        pressJob = null
-                        if (!isLongPress) {
-                            onClick()
-                        }
-                        return@onKeyEvent true
-                    }
-                }
-                false
-            }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
-        colors = CardDefaults.cardColors(containerColor = backgroundColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            .clickable(onClick = onClick),
+        color = backgroundColor
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(contentAlignment = Alignment.TopStart) {
-                if (!displayIcon.isNullOrEmpty()) {
-                    SubcomposeAsyncImage(
-                        model = displayIcon,
-                        contentDescription = null,
-                        modifier = Modifier.size(60.dp).clip(MaterialTheme.shapes.small),
-                        contentScale = ContentScale.Fit,
-                        error = {
-                            ChannelPlaceholder(media.title ?: "?", Modifier.size(60.dp).clip(MaterialTheme.shapes.small))
-                        },
-                        loading = {
-                            Box(Modifier.fillMaxSize().background(Color.DarkGray.copy(alpha = 0.3f)))
-                        }
-                    )
-                } else {
-                    ChannelPlaceholder(media.title ?: "?", Modifier.size(60.dp).clip(MaterialTheme.shapes.small))
-                }
-                
-                if (media.isFavorite) {
-                    Icon(
-                        Icons.Default.Favorite,
-                        contentDescription = null,
-                        tint = Color.Red,
-                        modifier = Modifier.size(16.dp).offset(x = (-4).dp, y = (-4).dp)
-                    )
-                }
-            }
+        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            SubcomposeAsyncImage(
+                model = displayIcon,
+                contentDescription = null,
+                modifier = Modifier.size(54.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.05f)),
+                contentScale = ContentScale.Fit,
+                error = { ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize()) }
+            )
             
             Spacer(modifier = Modifier.width(16.dp))
             
-            // Kolumn 1: Nuvarande program
-            Column(modifier = Modifier.weight(0.6f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = media.title ?: "Okänd kanal",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f)
-                    )
-                    if (epg != null && epg.startTimestamp != null && epg.stopTimestamp != null) {
-                        val start = formatter.format(Instant.ofEpochSecond(epg.startTimestamp))
-                        val stop = formatter.format(Instant.ofEpochSecond(epg.stopTimestamp))
-                        Text(
-                            text = "$start - $stop",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-                
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = media.title ?: "",
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White,
+                    maxLines = 1
+                )
                 if (epg != null) {
                     Text(
-                        text = epg.title ?: "Inget program-info",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = epg.title ?: "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.Gray,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -624,62 +463,20 @@ fun TvChannelItem(
                     val now = System.currentTimeMillis() / 1000
                     val start = epg.startTimestamp ?: 0L
                     val end = epg.stopTimestamp ?: 0L
-                    
-                    if (start > 0 && end > start) {
+                    if (now in start..end) {
                         val progress = (now - start).toFloat() / (end - start).toFloat()
-                        if (progress in 0f..1f) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            LinearProgressIndicator(
-                                progress = { progress },
-                                modifier = Modifier.fillMaxWidth().height(4.dp).clip(MaterialTheme.shapes.extraSmall),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        }
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.padding(top = 4.dp).fillMaxWidth().height(2.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = Color.White.copy(alpha = 0.1f)
+                        )
                     }
-                } else {
-                    Text(
-                        text = "Ingen information tillgänglig",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
                 }
             }
-
-            // Separator-linje
-            Spacer(modifier = Modifier.width(16.dp))
-            Box(modifier = Modifier.width(1.dp).height(40.dp).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)))
-            Spacer(modifier = Modifier.width(16.dp))
-
-            // Kolumn 2: Nästa program
-            Column(modifier = Modifier.weight(0.4f)) {
-                if (nextEpg != null) {
-                    val nextStart = formatter.format(Instant.ofEpochSecond(nextEpg.startTimestamp ?: 0))
-                    Text(
-                        text = "NÄSTA ($nextStart)",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = nextEpg.title ?: "",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                } else {
-                    Text(
-                        text = "NÄSTA",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                    )
-                    Text(
-                        text = "-",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                    )
-                }
+            
+            if (media.isFavorite) {
+                Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -694,114 +491,102 @@ fun MediaCard(
     onGetIcon: (suspend (String?, String?) -> String?)? = null
 ) {
     var hasFocus by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    var pressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-
-    // Slå upp ikon asynkront istället för att blockera UI-tråden
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon, key2 = media.epgId) {
-        if (value.isNullOrEmpty() && onGetIcon != null) {
-            value = onGetIcon(media.epgId, media.title)
-        }
+    
+    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon) {
+        if (value.isNullOrEmpty() && onGetIcon != null) value = onGetIcon(media.epgId, media.title)
     }
 
     Column(
         modifier = modifier
-            .width(130.dp)
+            .width(124.dp)
             .onFocusChanged { hasFocus = it.isFocused }
-            .scale(if (hasFocus) 1.05f else 1.0f)
-            .onKeyEvent { keyEvent ->
-                val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 
-                                 keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
-                val isRedKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_PROG_RED || 
-                               keyEvent.nativeKeyEvent.keyCode == 183
-                
-                if (isRedKey && keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                    onToggleFavorite()
-                    return@onKeyEvent true
-                }
-
-                if (isCenterKey) {
-                    if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                        if (pressJob == null) {
-                            pressJob = scope.launch {
-                                delay(650)
-                                onToggleFavorite()
-                                pressJob = null
-                            }
-                        }
-                        return@onKeyEvent true
-                    } else if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
-                        val isLongPress = pressJob == null
-                        pressJob?.cancel()
-                        pressJob = null
-                        if (!isLongPress) {
-                            onClick()
-                        }
-                        return@onKeyEvent true
-                    }
-                }
-                false
-            }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            ),
+            .scale(if (hasFocus) 1.1f else 1.0f)
+            .clickable(onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.7f)
+                .aspectRatio(0.67f) // 2:3 Netflix Ratio
                 .border(
                     width = if (hasFocus) 3.dp else 0.dp,
-                    color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.Transparent,
-                    shape = MaterialTheme.shapes.medium
+                    color = if (hasFocus) Color.White else Color.Transparent,
+                    shape = RoundedCornerShape(8.dp)
                 ),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            shape = RoundedCornerShape(8.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                if (!displayIcon.isNullOrEmpty()) {
-                    SubcomposeAsyncImage(
-                        model = displayIcon,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        error = {
-                            ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = true)
-                        },
-                        loading = {
-                            Box(Modifier.fillMaxSize().background(Color.DarkGray.copy(alpha = 0.3f)))
-                        }
-                    )
-                } else {
-                    ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = true)
-                }
-
+                SubcomposeAsyncImage(
+                    model = displayIcon,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    error = { ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = true) }
+                )
+                
                 if (media.isFavorite) {
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.5f),
-                        shape = RoundedCornerShape(bottomEnd = 8.dp),
-                        modifier = Modifier.align(Alignment.TopStart)
-                    ) {
-                        Icon(
-                            Icons.Default.Favorite,
-                            contentDescription = null,
-                            tint = Color.Red,
-                            modifier = Modifier.size(20.dp).padding(4.dp)
+                    Icon(
+                        Icons.Default.Favorite, null, 
+                        tint = Color.Red, 
+                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).size(20.dp)
+                    )
+                }
+            }
+        }
+        
+        if (hasFocus) {
+            Column(
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = media.title ?: "",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+                
+                Row(
+                    modifier = Modifier.padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (!media.rating.isNullOrBlank() && media.rating != "0.0") {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Star, null, tint = Color(0xFFFFD700), modifier = Modifier.size(14.dp))
+                            Text(text = media.rating, style = MaterialTheme.typography.labelMedium, color = Color.White)
+                        }
+                    }
+                    if (!media.genre.isNullOrBlank()) {
+                        Text(
+                            text = media.genre.split(",").firstOrNull() ?: "",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.Gray
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ChannelPlaceholder(title: String, modifier: Modifier = Modifier, isMovie: Boolean = false) {
+    val firstLetter = title.firstOrNull()?.uppercase() ?: "?"
+    Box(
+        modifier = modifier.background(Brush.verticalGradient(listOf(Color(0xFF232526), Color(0xFF414345)))),
+        contentAlignment = Alignment.Center
+    ) {
         Text(
-            text = media.title ?: "Okänd",
-            modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
-            maxLines = 1,
-            style = MaterialTheme.typography.labelSmall,
-            textAlign = TextAlign.Center,
-            color = if (hasFocus) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            overflow = TextOverflow.Ellipsis
+            text = firstLetter,
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color.White.copy(alpha = 0.5f)
         )
     }
 }

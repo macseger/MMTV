@@ -78,7 +78,7 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
             item {
                 SettingsAction(
                     title = "Uppdatera bibliotek",
-                    subtitle = "Hämta de senaste filmerna och kanalerna",
+                    subtitle = "Hämta de senaste filmerna, kanalerna & picons",
                     icon = Icons.Default.Refresh,
                     onClick = { viewModel.refreshDataManually() }
                 )

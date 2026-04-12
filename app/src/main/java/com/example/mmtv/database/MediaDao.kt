@@ -47,6 +47,15 @@ interface MediaDao {
     @Query("SELECT * FROM epg_listings WHERE (epgId LIKE '%' || :name || '%' OR epgId LIKE '%' || :nameNoSpaces || '%' OR channelName LIKE '%' || :name || '%' OR channelName LIKE '%' || :nameNoSpaces || '%') AND stopTimestamp > :currentTime AND startTimestamp < :endLimit GROUP BY startTimestamp ORDER BY startTimestamp ASC LIMIT 50")
     suspend fun findEpgByFuzzyName(name: String, nameNoSpaces: String, currentTime: Long, endLimit: Long): List<EpgEntity>
 
+    @Query("SELECT icon FROM channel_metadata WHERE epgId = :epgId LIMIT 1")
+    suspend fun getIconByEpgId(epgId: String): String?
+
+    @Query("SELECT icon FROM channel_metadata WHERE (displayName LIKE '%' || :name || '%' OR displayName LIKE '%' || :nameNoSpaces || '%' OR epgId LIKE '%' || :name || '%' OR epgId LIKE '%' || :nameNoSpaces || '%') LIMIT 1")
+    suspend fun findIconByFuzzyName(name: String, nameNoSpaces: String): String?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertChannels(channels: List<ChannelEntity>)
+
     @Query("SELECT COUNT(*) FROM epg_listings")
     suspend fun getEpgCount(): Int
 

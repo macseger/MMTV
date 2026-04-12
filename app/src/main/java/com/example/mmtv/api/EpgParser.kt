@@ -34,21 +34,22 @@ class EpgParser {
                                 val id = parser.getAttributeValue(null, "id")
                                 var icon: String? = null
                                 var displayName: String? = null
-                                var channelDepth = 1
-                                while (channelDepth > 0) {
+                                var depth = 1
+                                while (depth > 0) {
                                     val nextType = parser.next()
                                     if (nextType == XmlPullParser.START_TAG) {
-                                        channelDepth++
+                                        depth++
                                         when (parser.name) {
                                             "icon" -> icon = parser.getAttributeValue(null, "src")
                                             "display-name" -> {
-                                                if (parser.next() == XmlPullParser.TEXT) {
-                                                    displayName = parser.text
-                                                }
+                                                try {
+                                                    displayName = parser.nextText()
+                                                    depth-- // nextText moves to END_TAG
+                                                } catch (e: Exception) { }
                                             }
                                         }
                                     } else if (nextType == XmlPullParser.END_TAG) {
-                                        channelDepth--
+                                        depth--
                                     } else if (nextType == XmlPullParser.END_DOCUMENT) {
                                         break
                                     }
@@ -124,22 +125,22 @@ class EpgParser {
                                 val id = parser.getAttributeValue(null, "id")
                                 var icon: String? = null
                                 var displayName: String? = null
-                                // Vi behöver gå igenom barnen för att hitta icon och display-name
-                                var channelDepth = 1
-                                while (channelDepth > 0) {
+                                var depth = 1
+                                while (depth > 0) {
                                     val nextType = parser.next()
                                     if (nextType == XmlPullParser.START_TAG) {
-                                        channelDepth++
+                                        depth++
                                         when (parser.name) {
                                             "icon" -> icon = parser.getAttributeValue(null, "src")
                                             "display-name" -> {
-                                                if (parser.next() == XmlPullParser.TEXT) {
-                                                    displayName = parser.text
-                                                }
+                                                try {
+                                                    displayName = parser.nextText()
+                                                    depth-- // nextText moves to END_TAG
+                                                } catch (e: Exception) { }
                                             }
                                         }
                                     } else if (nextType == XmlPullParser.END_TAG) {
-                                        channelDepth--
+                                        depth--
                                     } else if (nextType == XmlPullParser.END_DOCUMENT) {
                                         break
                                     }

@@ -333,42 +333,25 @@ fun PlayerScreen(
                     when (keyEvent.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_DPAD_UP -> {
                             if (overlayState == OverlayState.NONE) {
-                                if (media?.type == MediaType.LIVE && playlist.isNotEmpty()) {
-                                    val currentIndex = playlist.indexOfFirst { it.id == media.id }
-                                    if (currentIndex != -1) {
-                                        val prevIndex = if (currentIndex - 1 < 0) playlist.size - 1 else currentIndex - 1
-                                        onMediaSelected(playlist[prevIndex])
-                                    }
-                                    true
-                                } else if (showNextEpisodeButton) {
+                                if (showNextEpisodeButton) {
                                     nextEpisodeButtonFocusRequester.requestFocus()
+                                    true
+                                } else if (media?.type != MediaType.LIVE) {
+                                    if (!showSeekFeedback) {
+                                        showSeekFeedback = true
+                                        seekJob?.cancel()
+                                        seekJob = scope.launch {
+                                            delay(5000)
+                                            showSeekFeedback = false
+                                        }
+                                    }
+                                    subtitleIconFocusRequester.requestFocus()
                                     true
                                 } else false
                             } else false
                         }
-                        KeyEvent.KEYCODE_DPAD_UP -> {
-                            if (overlayState == OverlayState.NONE && media?.type != MediaType.LIVE) {
-                                if (!showSeekFeedback) {
-                                    showSeekFeedback = true
-                                    seekJob?.cancel()
-                                    seekJob = scope.launch {
-                                        delay(5000)
-                                        showSeekFeedback = false
-                                    }
-                                }
-                                subtitleIconFocusRequester.requestFocus()
-                                true
-                            } else false
-                        }
                         KeyEvent.KEYCODE_DPAD_DOWN -> {
-                            if (overlayState == OverlayState.NONE && media?.type == MediaType.LIVE && playlist.isNotEmpty()) {
-                                val currentIndex = playlist.indexOfFirst { it.id == media.id }
-                                if (currentIndex != -1) {
-                                    val nextIndex = (currentIndex + 1) % playlist.size
-                                    onMediaSelected(playlist[nextIndex])
-                                }
-                                true
-                            } else if (overlayState == OverlayState.NONE && media?.type != MediaType.LIVE) {
+                            if (overlayState == OverlayState.NONE) {
                                 overlayState = OverlayState.SUBTITLES
                                 true
                             } else false

@@ -49,8 +49,6 @@ fun HomeScreen(
     onNavigate: (String) -> Unit,
     onMediaSelected: (MediaSource) -> Unit
 ) {
-    val tvFocusRequester = remember { FocusRequester() }
-    var isLiveTvFocused by remember { mutableStateOf(false) }
     val dbSearchResults by viewModel.dbSearchResults.collectAsState()
     val recentlyAdded by viewModel.recentlyAdded.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
@@ -61,170 +59,98 @@ fun HomeScreen(
     val favoriteMovies = favorites.filter { it.type == MediaType.MOVIE }
     val favoriteSeries = favorites.filter { it.type == MediaType.SERIES }
 
-    // 1. Hantera back-knappen
-    // Om sökning är aktiv -> Rensa sökning
-    // Om vi inte står på LIVE TV-ikonen -> Hoppa till den
-    // Annars -> Stäng appen (standardbeteende när BackHandler är disabled)
-    BackHandler(enabled = viewModel.searchQuery.isNotEmpty() || !isLiveTvFocused) {
-        if (viewModel.searchQuery.isNotEmpty()) {
-            viewModel.searchQuery = ""
-        } else {
-            tvFocusRequester.requestFocus()
-        }
-    }
-
-    // Fokusera på rätt element när skärmen laddas
-    LaunchedEffect(Unit) {
-        if (viewModel.searchQuery.isEmpty()) {
-            tvFocusRequester.requestFocus()
-        }
-    }
-
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Top Bar
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 32.dp, end = 32.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(4),
+                horizontalArrangement = Arrangement.spacedBy(24.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 48.dp)
             ) {
-                // Menu Items on the left
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    HomeCard(
-                        "LIVE TV",
-                        Icons.Default.LiveTv,
+                // Hero Section placeholder (Netflix style)
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Box(
                         modifier = Modifier
-                            .focusRequester(tvFocusRequester)
-                            .onFocusChanged { isLiveTvFocused = it.isFocused }
+                            .fillMaxWidth()
+                            .height(400.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.DarkGray)
                     ) {
-                        onNavigate("live")
+                        // In the future, this would be a featured movie/series
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(48.dp)
+                        ) {
+                            Text(
+                                "Välkommen till MMTV",
+                                style = MaterialTheme.typography.displayMedium,
+                                fontWeight = FontWeight.Black,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "Din ultimata TV-upplevelse",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = Color.White.copy(alpha = 0.8f)
+                            )
+                        }
                     }
-                    HomeCard("FILMER", Icons.Default.Movie) { onNavigate("movies") }
-                    HomeCard("SERIER", Icons.Default.Tv) { onNavigate("series") }
-                    HomeCard("INSTÄLLNINGAR", Icons.Default.Settings) { onNavigate("settings") }
                 }
 
-                // Clean Search Bar on the right
-                TextField(
-                    value = viewModel.searchQuery,
-                    onValueChange = { viewModel.searchQuery = it },
-                    placeholder = {
-                        Text(
-                            "Sök...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color.Gray.copy(alpha = 0.7f)
-                        )
-                    },
-                    modifier = Modifier
-                        .width(220.dp)
-                        .height(56.dp),
-                    leadingIcon = {
-                        Icon(
-                            Icons.Default.Search,
-                            null,
-                            modifier = Modifier.size(24.dp),
-                            tint = if (viewModel.searchQuery.isNotEmpty()) MaterialTheme.colorScheme.primary else Color.Gray
-                        )
-                    },
-                    singleLine = true,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        disabledIndicatorColor = Color.Transparent,
-                        cursorColor = MaterialTheme.colorScheme.primary,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White.copy(alpha = 0.9f)
-                    ),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(fontSize = 18.sp)
-                )
-            }
-
-            if (viewModel.searchQuery.isNotEmpty()) {
-                // Sökresultat
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 110.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 48.dp)
-                ) {
+                // 1. Fortsätt titta (History)
+                if (history.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text("SÖKRESULTAT", style = MaterialTheme.typography.titleSmall, color = Color.Gray, modifier = Modifier.padding(vertical = 8.dp))
-                    }
-                    items(dbSearchResults) { media ->
-                        MediaCard(media, onClick = { onMediaSelected(media) }, onToggleFavorite = { viewModel.toggleFavorite(media) })
-                    }
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
-                    horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 48.dp)
-                ) {
-                    // Innehåll (Huvudmenyn är nu flyttad till den fasta sektionen ovanför)
-
-                    // 1. Fortsätt titta (History)
-                    if (history.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Column(modifier = Modifier.padding(top = 0.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("FORTSÄTT TITTA", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                    contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
-                                ) {
-                                    items(history.take(15)) { item ->
-                                        HistoryCard(item) { onMediaSelected(item) }
-                                    }
+                        Column(modifier = Modifier.padding(top = 0.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("FORTSÄTT TITTA", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
+                            ) {
+                                items(history.take(15)) { item ->
+                                    HistoryCard(item) { onMediaSelected(item) }
                                 }
                             }
                         }
                     }
+                }
 
-                    // 2. Favoriter TV
-                    if (favoriteTV.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            MediaRow("FAVORITER TV", favoriteTV, viewModel, isHorizontal = true) { onMediaSelected(it) }
-                        }
+                // 2. Favoriter TV
+                if (favoriteTV.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        MediaRow("FAVORITER TV", favoriteTV, viewModel, isHorizontal = true) { onMediaSelected(it) }
                     }
+                }
 
-                    // 3. Nyligen tillagt
-                    if (recentlyAdded.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            MediaRow("NYLIGEN TILLAGT", recentlyAdded, viewModel) { onMediaSelected(it) }
-                        }
+                // 3. Nyligen tillagt
+                if (recentlyAdded.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        MediaRow("NYLIGEN TILLAGT", recentlyAdded, viewModel) { onMediaSelected(it) }
                     }
+                }
 
-                    // 4. Favoriter Film
-                    if (favoriteMovies.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            MediaRow("FAVORITER FILM", favoriteMovies, viewModel) { onMediaSelected(it) }
-                        }
+                // 4. Favoriter Film
+                if (favoriteMovies.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        MediaRow("FAVORITER FILM", favoriteMovies, viewModel) { onMediaSelected(it) }
                     }
+                }
 
-                    // 5. Favoriter Serier
-                    if (favoriteSeries.isNotEmpty()) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            MediaRow("FAVORITER SERIER", favoriteSeries, viewModel) { onMediaSelected(it) }
-                        }
+                // 5. Favoriter Serier
+                if (favoriteSeries.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        MediaRow("FAVORITER SERIER", favoriteSeries, viewModel) { onMediaSelected(it) }
                     }
                 }
             }

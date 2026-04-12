@@ -100,7 +100,8 @@ data class EpgListing(
     val start: String?,
     val end: String?,
     @SerializedName("start_timestamp") val startTimestamp: Long?,
-    @SerializedName("stop_timestamp") val stopTimestamp: Long?
+    @SerializedName("stop_timestamp") val stopTimestamp: Long?,
+    val icon: String? = null
 )
 
 data class GroupedMedia(

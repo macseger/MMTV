@@ -79,6 +79,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.security.crypto)
+    implementation(libs.androidx.work.runtime.ktx)
 
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)

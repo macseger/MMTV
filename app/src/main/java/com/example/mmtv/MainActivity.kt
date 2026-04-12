@@ -198,9 +198,10 @@ class MainActivity : ComponentActivity() {
 
                                                     // 2. Visa den snygga laddskärmen medan vi hämtar grunddata
                                                     isProvisioning = true
-                                                    provisioningStatus = "Hämtar kategorier och kanaler..."
+                                                    provisioningStatus = "Hämtar kategorier..."
                                                     
                                                     sharedViewModel.loadData(u, p, h, forceRefresh = true) { success ->
+                                                        // EPG laddas i bakgrunden i loadData, men vi väntar på kategorierna för att släppa in användaren
                                                         isProvisioning = false
                                                         if (success) {
                                                             navController.navigate("home") {

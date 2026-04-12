@@ -104,6 +104,12 @@ class MainActivity : ComponentActivity() {
 
                         val topBarHomeFocusRequester = remember { FocusRequester() }
                         val topBarLiveFocusRequester = remember { FocusRequester() }
+                        
+                        LaunchedEffect(Unit) {
+                            if (startDest == "home") {
+                                topBarHomeFocusRequester.requestFocus()
+                            }
+                        }
 
                         var showExitDialog by remember { mutableStateOf(false) }
 

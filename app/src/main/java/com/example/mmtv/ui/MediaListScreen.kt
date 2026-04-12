@@ -194,7 +194,12 @@ fun MediaListScreen(
 
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize().onKeyEvent {
+                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+                                true
+                            } else false
+                        }
                     ) {
                         items(selectedCategory?.items ?: emptyList(), key = { it.id }) { media ->
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
@@ -264,11 +269,19 @@ fun MediaListScreen(
                     columns = GridCells.Adaptive(minSize = 124.dp),
                     contentPadding = PaddingValues(bottom = 100.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                    modifier = Modifier.onKeyEvent {
+                        if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                            categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+                            true
+                        } else false
+                    }
                 ) {
-                    items(selectedCategory?.items ?: emptyList(), key = { it.id }) { media ->
+                    val items = selectedCategory?.items ?: emptyList()
+                    items(items, key = { it.id }) { media ->
                         val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
-                        val isFirstInRow = (selectedCategory?.items?.indexOf(media) ?: 0) % 5 == 0 // Rough heuristic for 5 columns
+                        val index = items.indexOf(media)
+                        val isFirstInRow = index % 5 == 0 // Rough heuristic for 5 columns
 
                         MediaCard(
                             media = media,

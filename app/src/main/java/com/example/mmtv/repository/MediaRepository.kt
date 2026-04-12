@@ -193,8 +193,9 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         val allEntities = mutableListOf<MediaEntity>()
         val result = categories.mapIndexed { catIdx, category ->
             val categoryMovies = moviesByCategory[category.categoryId] ?: emptyList()
-                val mediaSources = categoryMovies.map { movie ->
-                    val addedTs = movie.added?.toLongOrNull() ?: parseDateToUnix(movie.added)
+            val sortedCategoryMovies = categoryMovies.sortedByDescending { it.added?.toLongOrNull() ?: parseDateToUnix(it.added) }
+            val mediaSources = sortedCategoryMovies.map { movie ->
+                val addedTs = movie.added?.toLongOrNull() ?: parseDateToUnix(movie.added)
                     MediaSource(
                         id = movie.streamId,
                         title = movie.name ?: "Okänd film",
@@ -279,7 +280,8 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         val allEntities = mutableListOf<MediaEntity>()
         val result = categories.mapIndexed { catIdx, category ->
             val categorySeries = seriesByCategory[category.categoryId] ?: emptyList()
-            val mediaSources = categorySeries.map { s ->
+            val sortedCategorySeries = categorySeries.sortedByDescending { it.lastModified?.toLongOrNull() ?: parseDateToUnix(it.lastModified) }
+            val mediaSources = sortedCategorySeries.map { s ->
                 val addedTs = s.lastModified?.toLongOrNull() ?: parseDateToUnix(s.lastModified)
                 MediaSource(
                     id = s.seriesId,

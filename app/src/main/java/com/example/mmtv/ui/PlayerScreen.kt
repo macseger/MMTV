@@ -95,6 +95,8 @@ fun PlayerScreen(
     var seekMessage by remember { mutableStateOf("") }
     
     var accumulatedSeekMs by remember { mutableLongStateOf(0L) }
+    var isLongPressSeeking by remember { mutableStateOf(false) }
+    var lastKeyDownTime by remember { mutableLongStateOf(0L) }
     val scope = rememberCoroutineScope()
     var seekJob by remember { mutableStateOf<Job?>(null) }
     var infoJob by remember { mutableStateOf<Job?>(null) }
@@ -161,7 +163,8 @@ fun PlayerScreen(
     LaunchedEffect(currentPosition, duration) {
         if (isSeries && nextEpisode != null && duration > 0) {
             val remainingSeconds = (duration - currentPosition) / 1000
-            showNextEpisodeButton = remainingSeconds in 1..30
+            // Visa knappen sista minuten (60 sekunder)
+            showNextEpisodeButton = remainingSeconds in 1..60
         } else {
             showNextEpisodeButton = false
         }
@@ -289,7 +292,7 @@ fun PlayerScreen(
         }
     }
 
-    fun performSeek(offsetMs: Long) {
+    fun performSeek(offsetMs: Long, isLongPress: Boolean = false) {
         seekJob?.cancel()
         accumulatedSeekMs += offsetMs
         
@@ -306,16 +309,31 @@ fun PlayerScreen(
         }
         
         showSeekFeedback = true
-        seekJob = scope.launch {
-            delay(800)
+        
+        if (isLongPress) {
+            // Vid långtryck, uppdatera positionen direkt för "mjuk" känsla
             val dur = exoPlayer.duration
             if (dur != C.TIME_UNSET) {
                 val newPos = (exoPlayer.currentPosition + accumulatedSeekMs).coerceIn(0, dur)
                 exoPlayer.seekTo(newPos)
+                accumulatedSeekMs = 0
+            }
+        }
+
+        seekJob = scope.launch {
+            delay(if (isLongPress) 2000 else 800)
+            if (!isLongPress) {
+                val dur = exoPlayer.duration
+                if (dur != C.TIME_UNSET) {
+                    val newPos = (exoPlayer.currentPosition + accumulatedSeekMs).coerceIn(0, dur)
+                    exoPlayer.seekTo(newPos)
+                }
             }
             accumulatedSeekMs = 0
             delay(2500)
-            showSeekFeedback = false
+            if (!isLongPressSeeking) {
+                showSeekFeedback = false
+            }
         }
     }
 
@@ -325,6 +343,12 @@ fun PlayerScreen(
             .background(Color.Black)
             .onKeyEvent { keyEvent ->
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                    val isRepeat = keyEvent.nativeKeyEvent.repeatCount > 0
+                    if (isRepeat) {
+                        lastKeyDownTime = System.currentTimeMillis()
+                        isLongPressSeeking = true
+                    }
+                    
                     when (keyEvent.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_DPAD_UP -> {
                             if (overlayState == OverlayState.NONE) {
@@ -360,7 +384,10 @@ fun PlayerScreen(
                         KeyEvent.KEYCODE_DPAD_LEFT -> {
                             if (overlayState == OverlayState.NONE) {
                                 if (media?.type == MediaType.LIVE) overlayState = OverlayState.CHANNELS
-                                else performSeek(-60000L) // 1 min klick
+                                else {
+                                    if (isRepeat) performSeek(-10000L, true) // Mjukare vid långtryck (10s steg)
+                                    else performSeek(-60000L) // 1 min klick
+                                }
                                 true
                             } else if (overlayState == OverlayState.CHANNELS) {
                                 overlayState = OverlayState.CATEGORIES
@@ -369,7 +396,10 @@ fun PlayerScreen(
                         }
                         KeyEvent.KEYCODE_DPAD_RIGHT -> {
                             if (overlayState == OverlayState.NONE) {
-                                if (media?.type != MediaType.LIVE) performSeek(60000L) // 1 min klick
+                                if (media?.type != MediaType.LIVE) {
+                                    if (isRepeat) performSeek(10000L, true) // Mjukare vid långtryck (10s steg)
+                                    else performSeek(60000L) // 1 min klick
+                                }
                                 else overlayState = OverlayState.SUBTITLES
                                 true
                             } else if (overlayState == OverlayState.CATEGORIES) {
@@ -460,6 +490,18 @@ fun PlayerScreen(
                         }
                         else -> false
                     }
+                } else if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
+                    if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || 
+                        keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                        isLongPressSeeking = false
+                        // Starta timer för att dölja feedback
+                        seekJob?.cancel()
+                        seekJob = scope.launch {
+                            delay(2500)
+                            showSeekFeedback = false
+                        }
+                    }
+                    false
                 } else false
             }
             .focusRequester(mainFocusRequester)
@@ -638,30 +680,30 @@ fun PlayerScreen(
             Button(
                 onClick = { nextEpisode?.let { onPlayNextEpisode(it) } },
                 modifier = Modifier
-                    .height(64.dp)
-                    .width(280.dp)
+                    .height(72.dp)
+                    .width(320.dp)
                     .focusRequester(nextEpisodeButtonFocusRequester)
                     .onFocusChanged { isFocused = it.isFocused },
+                shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isFocused) Color.White else MaterialTheme.colorScheme.primary,
                     contentColor = if (isFocused) Color.Black else Color.White
                 ),
-                shape = RoundedCornerShape(12.dp),
                 elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
             ) {
-                Icon(Icons.Default.PlayArrow, contentDescription = null)
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text("NÄSTA AVSNITT", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                    Text(nextEpisode?.title ?: "", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.SkipNext, null, modifier = Modifier.size(32.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text("SE NÄSTA AVSNITT", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
+                        Text(nextEpisode?.title ?: "", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
             
             LaunchedEffect(showNextEpisodeButton) {
                 if (showNextEpisodeButton) {
-                    // Vi vill inte tvinga fokus direkt om man sitter och tittar, 
-                    // men efter en liten stund kan vi göra det lättare att nå.
-                    delay(5000)
+                    delay(3000)
                     if (showNextEpisodeButton) {
                         nextEpisodeButtonFocusRequester.requestFocus()
                     }

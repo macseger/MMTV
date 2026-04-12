@@ -1,5 +1,7 @@
 package com.example.mmtv.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,6 +19,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -101,6 +104,45 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
                     }
                 )
             }
+
+            item { SectionHeader("Om appen") }
+
+            item {
+                Surface(
+                    modifier = Modifier
+                        .widthIn(max = 600.dp)
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    color = Color.White.copy(alpha = 0.05f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Text(
+                            "Denna applikation är helt gratis, reklamfri och fri att använda för privat bruk.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            "Jag tar dock gärna emot donationer om du uppskattar mitt arbete.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Email, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("marcus.segerljung@gmail.com", style = MaterialTheme.typography.bodySmall, color = Color.White)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Swish: 0790-16 15 14", style = MaterialTheme.typography.bodySmall, color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
         }
 
         if (uiState.isLoading) {
@@ -141,24 +183,47 @@ fun SettingsAction(
     onClick: () -> Unit
 ) {
     var hasFocus by remember { mutableStateOf(false) }
+    
+    val animatedScale by animateFloatAsState(
+        targetValue = if (hasFocus) 1.05f else 1f,
+        label = "scale"
+    )
+    
+    val animatedBgColor by animateColorAsState(
+        targetValue = when {
+            hasFocus && isDestructive -> Color.Red.copy(alpha = 0.25f)
+            hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+            else -> Color.White.copy(alpha = 0.05f)
+        },
+        label = "bgColor"
+    )
+
+    val animatedBorderColor by animateColorAsState(
+        targetValue = when {
+            hasFocus && isDestructive -> Color.Red.copy(alpha = 0.8f)
+            hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+            else -> Color.Transparent
+        },
+        label = "borderColor"
+    )
+
     Surface(
         onClick = onClick,
         modifier = modifier
             .widthIn(max = 600.dp)
             .fillMaxWidth()
             .onFocusChanged { hasFocus = it.isFocused }
-            .clip(RoundedCornerShape(12.dp))
+            .graphicsLayer {
+                scaleX = animatedScale
+                scaleY = animatedScale
+            }
             .padding(vertical = 4.dp),
-        color = if (hasFocus) {
-            if (isDestructive) Color.Red.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.15f)
-        } else Color.Transparent,
-        border = if (hasFocus) {
-            androidx.compose.foundation.BorderStroke(2.dp, if (isDestructive) Color.Red.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.5f))
-        } else null,
+        color = animatedBgColor,
+        border = androidx.compose.foundation.BorderStroke(2.dp, animatedBorderColor),
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -166,15 +231,23 @@ fun SettingsAction(
                 null, 
                 tint = when {
                     isDestructive -> Color.Red
-                    hasFocus -> Color.White
+                    hasFocus -> MaterialTheme.colorScheme.primary
                     else -> Color.Gray
                 }, 
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(28.dp)
             )
-            Spacer(modifier = Modifier.width(20.dp))
+            Spacer(modifier = Modifier.width(24.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = if (isDestructive) Color.Red else Color.White)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Text(
+                    title, 
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), 
+                    color = if (isDestructive) Color.Red else Color.White
+                )
+                Text(
+                    subtitle, 
+                    style = MaterialTheme.typography.bodySmall, 
+                    color = Color.Gray.copy(alpha = 0.8f)
+                )
             }
             if (value != null) {
                 Text(value, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)

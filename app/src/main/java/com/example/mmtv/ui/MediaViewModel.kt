@@ -308,7 +308,12 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         val fullEpg = repository.getEpgForChannel(epgId, channelName)
         if (fullEpg.isNotEmpty()) {
             val finalEpgId = epgId ?: fullEpg.first().epgId ?: channelName ?: "unknown"
+            // Begränsa cachen till 50 kanaler för att spara minne
             withContext(Dispatchers.Main) {
+                if (fullEpgData.size > 50) {
+                    val firstKey = fullEpgData.keys.first()
+                    fullEpgData.remove(firstKey)
+                }
                 fullEpgData[finalEpgId] = fullEpg
             }
             return@withContext fullEpg.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
@@ -326,6 +331,10 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
              if (dbEpg.isNotEmpty()) {
                  val finalEpgId = epgId ?: dbEpg.first().epgId ?: channelName ?: "unknown"
                  withContext(Dispatchers.Main) {
+                    if (fullEpgData.size > 50) {
+                        val firstKey = fullEpgData.keys.first()
+                        fullEpgData.remove(firstKey)
+                    }
                     fullEpgData[finalEpgId] = dbEpg
                  }
                  channelList = dbEpg
@@ -344,6 +353,10 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
             if (dbEpg.isNotEmpty()) {
                 val finalEpgId = epgId ?: dbEpg.first().epgId ?: channelName ?: "unknown"
                 withContext(Dispatchers.Main) {
+                    if (fullEpgData.size > 50) {
+                        val firstKey = fullEpgData.keys.first()
+                        fullEpgData.remove(firstKey)
+                    }
                     fullEpgData[finalEpgId] = dbEpg
                 }
                 epgData = dbEpg
@@ -370,7 +383,9 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
 
     fun addToHistory(media: MediaSource) {
         sessionManager.addToHistory(media)
-        uiState = uiState.copy(history = sessionManager.getHistory())
+        // Uppdatera uiState med den nya historiken från sessionManager
+        val updatedHistory = sessionManager.getHistory()
+        uiState = uiState.copy(history = updatedHistory)
     }
 
     suspend fun getIconForChannel(epgId: String?, name: String?): String? {

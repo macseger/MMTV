@@ -19,16 +19,16 @@ class MmtvPlayer(private val context: Context) {
     private val sessionManager = SessionManager(context)
 
     fun createPlayer(): ExoPlayer {
-        val bufferMs = sessionManager.getBufferSize()
         val loadErrorHandlingPolicy = DefaultLoadErrorHandlingPolicy(3)
         
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                bufferMs, 
-                bufferMs * 3, 
-                1000, 
-                1500  
+                30_000, // Min buffer 30s
+                60_000, // Max buffer 60s
+                2_500,  // Buffer for playback 2.5s
+                5_000   // Buffer for playback after rebuffer 5s
             )
+            .setBackBuffer(30_000, true) // Support back-seeking without redownload
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 

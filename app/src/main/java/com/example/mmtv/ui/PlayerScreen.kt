@@ -1029,6 +1029,10 @@ fun PlayerScreen(
                                         .onFocusChanged {
                                             if (it.isFocused) {
                                                 onCategorySelected(index)
+                                                val cat = categories.getOrNull(index)
+                                                if (cat != null && cat.items.isEmpty()) {
+                                                    viewModel.loadItemsForCategory(MediaType.LIVE, cat.categoryId)
+                                                }
                                                 scope.launch { channelListState.scrollToItem(0) }
                                             }
                                         }

@@ -411,7 +411,11 @@ fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifi
             .fillMaxWidth()
             .padding(horizontal = 12.dp)
             .onFocusChanged { hasFocus = it.isFocused }
-            .clickable { onClick() },
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
         color = backgroundColor,
         shape = RoundedCornerShape(8.dp)
     ) {
@@ -454,7 +458,11 @@ fun TvChannelItem(
         modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { hasFocus = it.isFocused }
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
         color = backgroundColor
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -527,7 +535,11 @@ fun MediaCard(
             .width(124.dp)
             .onFocusChanged { hasFocus = it.isFocused }
             .scale(if (hasFocus) 1.1f else 1.0f)
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Card(

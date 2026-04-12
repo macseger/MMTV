@@ -157,12 +157,16 @@ fun HomeScreen(
                                 color = if (isHeroFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
                                 shape = RoundedCornerShape(12.dp)
                             )
-                            .clickable {
-                                miniPlayer?.stop()
-                                miniPlayer?.release()
-                                miniPlayer = null
-                                lastLiveMedia?.let { onMediaSelected(it) }
-                            }
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {
+                                    miniPlayer?.stop()
+                                    miniPlayer?.release()
+                                    miniPlayer = null
+                                    lastLiveMedia?.let { onMediaSelected(it) }
+                                }
+                            )
                     ) {
                         // MiniPlayer bakgrund
                         if (lastLiveMedia != null) {
@@ -389,7 +393,11 @@ fun SmallActionCard(title: String, icon: ImageVector, modifier: Modifier = Modif
                 color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(12.dp)
             )
-            .clickable { onClick() },
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
         color = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else Color.Transparent
     ) {
         Row(

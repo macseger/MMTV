@@ -38,11 +38,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
+import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
+import com.example.mmtv.player.MmtvPlayer
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun HomeScreen(
     viewModel: MediaViewModel,
@@ -61,6 +70,37 @@ fun HomeScreen(
     val favoriteSeries = favorites.filter { it.type == MediaType.SERIES }
 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val sessionManager = remember { SessionManager(context) }
+
+    // 2. Senaste spelade TV-kanalen för mini-spelaren
+    val lastLiveMedia = remember(history) { history.find { it.type == MediaType.LIVE } }
+    var miniPlayer by remember { mutableStateOf<Player?>(null) }
+
+    DisposableEffect(lastLiveMedia) {
+        if (lastLiveMedia != null) {
+            val mmtvPlayer = MmtvPlayer(context)
+            val player = mmtvPlayer.createPlayer().apply {
+                repeatMode = Player.REPEAT_MODE_ALL
+                playWhenReady = true
+                volume = 0f // Starta ljudlöst på hemskärmen
+                
+                val login = sessionManager.getLogin()
+                if (login != null) {
+                    val (host, user, pass) = login
+                    val streamUrl = "$host/live/$user/$pass/${lastLiveMedia.id}.ts"
+                    setMediaItem(MediaItem.fromUri(streamUrl))
+                    prepare()
+                }
+            }
+            miniPlayer = player
+        }
+        onDispose {
+            miniPlayer?.stop()
+            miniPlayer?.release()
+            miniPlayer = null
+        }
+    }
 
     Box(modifier = Modifier
         .fillMaxSize()
@@ -88,28 +128,88 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 48.dp)
             ) {
-                // Hero Section placeholder (Netflix style)
+                // Hero Section with MiniPlayer
                 item(span = { GridItemSpan(maxLineSpan) }) {
+                    var isHeroFocused by remember { mutableStateOf(false) }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(400.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color.DarkGray)
+                            .background(Color(0xFF1A1A1A))
+                            .onFocusChanged { isHeroFocused = it.isFocused }
+                            .border(
+                                width = if (isHeroFocused) 3.dp else 0.dp,
+                                color = if (isHeroFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable {
+                                lastLiveMedia?.let { onMediaSelected(it) }
+                            }
                     ) {
-                        // In the future, this would be a featured movie/series
+                        // MiniPlayer bakgrund
+                        if (lastLiveMedia != null && miniPlayer != null) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    PlayerView(ctx).apply {
+                                        player = miniPlayer
+                                        useController = false
+                                        resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                        layoutParams = android.view.ViewGroup.LayoutParams(
+                                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                            android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            // Gradient för att texten ska synas bra
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.8f)),
+                                            startY = 300f
+                                        )
+                                    )
+                            )
+                        } else {
+                            // Standard bakgrund om ingen historik finns
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.DarkGray)
+                            )
+                        }
+
+                        // Hero Text
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
                                 .padding(48.dp)
                         ) {
+                            if (lastLiveMedia != null) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        "FORTSÄTT TITTA: ${lastLiveMedia.title}",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                            
                             Text(
                                 "Välkommen till MMTV",
                                 style = MaterialTheme.typography.displayMedium,
                                 fontWeight = FontWeight.Black,
                                 color = Color.White
                             )
-                            Spacer(modifier = Modifier.height(16.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 "Din ultimata TV-upplevelse",
                                 style = MaterialTheme.typography.headlineSmall,

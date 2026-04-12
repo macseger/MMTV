@@ -216,7 +216,11 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
                 val allFavs = withContext(Dispatchers.IO) { mediaDao.getFavorites().map { it.toMediaSource() } }
                 
                 fun List<GroupedMedia>.withFavorites(type: MediaType): List<GroupedMedia> {
-                    val favsForType = allFavs.filter { it.type == type }
+                    var favsForType = allFavs.filter { it.type == type }
+                    // För TV vill vi ha nyaste sist (omvänd kronologisk i DB -> kronologisk här)
+                    if (type == MediaType.LIVE) {
+                        favsForType = favsForType.reversed()
+                    }
                     return if (favsForType.isNotEmpty()) {
                         listOf(GroupedMedia(title = "⭐ FAVORITER", items = favsForType)) + this
                     } else this

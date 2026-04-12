@@ -162,6 +162,15 @@ fun PlayerScreen(
     }
     
     var showNextEpisodeButton by remember { mutableStateOf(false) }
+    
+    val currentPlaybackId = remember(media, viewModel.playingEpisode) {
+        if (isSeries && viewModel.playingEpisode != null) {
+            viewModel.playingEpisode?.id ?: media?.id?.toString() ?: "0"
+        } else {
+            media?.id?.toString() ?: "0"
+        }
+    }
+
     val nextEpisodeButtonFocusRequester = remember { FocusRequester() }
     val favoriteButtonFocusRequester = remember { FocusRequester() }
 
@@ -193,7 +202,7 @@ fun PlayerScreen(
             if (media?.type != MediaType.LIVE && isPlaying) {
                 counter++
                 if (counter >= 30) {
-                    sessionManager.savePlaybackPosition(media?.id.toString(), currentPosition)
+                    sessionManager.savePlaybackPosition(currentPlaybackId, currentPosition)
                     counter = 0
                 }
             }
@@ -212,7 +221,7 @@ fun PlayerScreen(
         val mediaItem = MediaItem.Builder().setUri(url).build()
         exoPlayer.setMediaItem(mediaItem)
         if (media?.type != MediaType.LIVE) {
-            val savedPos = sessionManager.getPlaybackPosition(media?.id.toString())
+            val savedPos = sessionManager.getPlaybackPosition(currentPlaybackId)
             if (savedPos > 0) exoPlayer.seekTo(savedPos)
         }
         exoPlayer.prepare()
@@ -249,9 +258,9 @@ fun PlayerScreen(
                 val currentPos = exoPlayer.currentPosition
                 val duration = exoPlayer.duration
                 if (currentPos > 10000 && (duration == C.TIME_UNSET || currentPos < duration - 5000)) {
-                    sessionManager.savePlaybackPosition(media.id.toString(), currentPos)
+                    sessionManager.savePlaybackPosition(currentPlaybackId, currentPos)
                 } else if (duration != C.TIME_UNSET && currentPos >= duration - 5000) {
-                    sessionManager.clearPlaybackPosition(media.id.toString())
+                    sessionManager.clearPlaybackPosition(currentPlaybackId)
                 }
             }
             // All cleanup should happen here to avoid race conditions and double releases

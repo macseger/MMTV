@@ -56,18 +56,22 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
                     MediaSource(id = it.streamId, title = it.name, icon = it.streamIcon, type = type, epgId = it.epgId)
                         .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
                 }
-                MediaType.MOVIE -> api.getMovies(user, pass).map { 
-                    val addedTs = it.added?.toLongOrNull() ?: parseDateToUnix(it.added)
-                    MediaSource(id = it.streamId, title = it.name, icon = it.streamIcon, type = type, extension = it.containerExtension, rating = it.rating, addedDate = addedTs)
-                        .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
-                        .copy(addedDate = addedTs)
-                }
-                MediaType.SERIES -> api.getSeries(user, pass).map { 
-                    val addedTs = it.lastModified?.toLongOrNull() ?: parseDateToUnix(it.lastModified)
-                    MediaSource(id = it.seriesId, title = it.name, icon = it.cover, type = type, plot = it.plot, rating = it.rating, director = it.director, genre = it.genre, cast = it.cast, addedDate = addedTs)
-                        .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
-                        .copy(addedDate = addedTs)
-                }
+                MediaType.MOVIE -> api.getMovies(user, pass)
+                    .sortedByDescending { it.added?.toLongOrNull() ?: parseDateToUnix(it.added) }
+                    .map { 
+                        val addedTs = it.added?.toLongOrNull() ?: parseDateToUnix(it.added)
+                        MediaSource(id = it.streamId, title = it.name, icon = it.streamIcon, type = type, extension = it.containerExtension, rating = it.rating, addedDate = addedTs)
+                            .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
+                            .copy(addedDate = addedTs)
+                    }
+                MediaType.SERIES -> api.getSeries(user, pass)
+                    .sortedByDescending { it.lastModified?.toLongOrNull() ?: parseDateToUnix(it.lastModified) }
+                    .map { 
+                        val addedTs = it.lastModified?.toLongOrNull() ?: parseDateToUnix(it.lastModified)
+                        MediaSource(id = it.seriesId, title = it.name, icon = it.cover, type = type, plot = it.plot, rating = it.rating, director = it.director, genre = it.genre, cast = it.cast, addedDate = addedTs)
+                            .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
+                            .copy(addedDate = addedTs)
+                    }
             }
 
             if (items.isNotEmpty()) {
@@ -139,7 +143,7 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
                 val title = s.name ?: "Okänd kanal"
                 MediaSource(
                     id = s.streamId,
-                    title = cleanName(title, MediaType.LIVE),
+                    title = title,
                     icon = s.streamIcon,
                     type = MediaType.LIVE,
                     epgId = s.epgId,
@@ -168,20 +172,9 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         result
     }
 
-    private fun cleanName(name: String?, type: MediaType): String? {
-        if (type != MediaType.LIVE || name == null) return name
-        return when {
-            name.startsWith("SE:", ignoreCase = true) -> name.substring(3).trim()
-            name.startsWith("SE :", ignoreCase = true) -> name.substring(4).trim()
-            name.startsWith("SE |", ignoreCase = true) -> name.substring(4).trim()
-            name.startsWith("SE|", ignoreCase = true) -> name.substring(3).trim()
-            else -> name
-        }
-    }
-
     private fun MediaEntity.toMediaSource() = MediaSource(
         id = id,
-        title = cleanName(title, type),
+        title = title, // Behåll originalnamnet från DB
         icon = icon,
         type = type,
         extension = extension,
@@ -197,7 +190,7 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
 
     private fun MediaSource.toEntity(catId: String?, catName: String?) = MediaEntity(
         id = id,
-        title = title ?: "",
+        title = title ?: "", // Spara originalnamnet till DB
         icon = icon,
         type = type,
         categoryId = catId,
@@ -261,35 +254,35 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
             val sortedCategoryMovies = categoryMovies.sortedByDescending { it.added?.toLongOrNull() ?: parseDateToUnix(it.added) }
             val mediaSources = sortedCategoryMovies.map { movie ->
                 val addedTs = movie.added?.toLongOrNull() ?: parseDateToUnix(movie.added)
-                    MediaSource(
-                        id = movie.streamId,
-                        title = movie.name ?: "Okänd film",
-                        icon = movie.streamIcon,
-                        type = MediaType.MOVIE,
-                        extension = movie.containerExtension,
-                        rating = movie.rating,
-                        isFavorite = existingFavorites.contains(movie.streamId),
-                        addedDate = addedTs
-                    )
-                }
-                allEntities.addAll(categoryMovies.mapIndexed { itemIdx, movie ->
-                    val addedTs = movie.added?.toLongOrNull() ?: parseDateToUnix(movie.added)
-                    val media = MediaSource(
-                        id = movie.streamId,
-                        title = movie.name ?: "Okänd film",
-                        icon = movie.streamIcon,
-                        type = MediaType.MOVIE,
-                        extension = movie.containerExtension,
-                        rating = movie.rating,
-                        isFavorite = existingFavorites.contains(movie.streamId),
-                        addedDate = addedTs
-                    )
-                    media.toEntity(category.categoryId, category.categoryName).copy(
-                        categoryOrder = catIdx,
-                        itemOrder = itemIdx,
-                        addedDate = addedTs
-                    )
-                })
+                MediaSource(
+                    id = movie.streamId,
+                    title = movie.name ?: "Okänd film",
+                    icon = movie.streamIcon,
+                    type = MediaType.MOVIE,
+                    extension = movie.containerExtension,
+                    rating = movie.rating,
+                    isFavorite = existingFavorites.contains(movie.streamId),
+                    addedDate = addedTs
+                )
+            }
+            allEntities.addAll(sortedCategoryMovies.mapIndexed { itemIdx, movie ->
+                val addedTs = movie.added?.toLongOrNull() ?: parseDateToUnix(movie.added)
+                val media = MediaSource(
+                    id = movie.streamId,
+                    title = movie.name ?: "Okänd film",
+                    icon = movie.streamIcon,
+                    type = MediaType.MOVIE,
+                    extension = movie.containerExtension,
+                    rating = movie.rating,
+                    isFavorite = existingFavorites.contains(movie.streamId),
+                    addedDate = addedTs
+                )
+                media.toEntity(category.categoryId, category.categoryName).copy(
+                    categoryOrder = catIdx,
+                    itemOrder = itemIdx,
+                    addedDate = addedTs
+                )
+            })
             GroupedMedia(title = category.categoryName ?: "Okänd kategori", items = mediaSources)
         }.filter { it.items.isNotEmpty() }
 
@@ -362,7 +355,7 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
                     addedDate = addedTs
                 )
             }
-            allEntities.addAll(categorySeries.mapIndexed { itemIdx, s ->
+            allEntities.addAll(sortedCategorySeries.mapIndexed { itemIdx, s ->
                 val addedTs = s.lastModified?.toLongOrNull() ?: parseDateToUnix(s.lastModified)
                 val media = MediaSource(
                     id = s.seriesId,

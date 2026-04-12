@@ -3,6 +3,8 @@ package com.example.mmtv.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -224,7 +226,6 @@ fun SettingsAction(
     )
 
     Surface(
-        onClick = onClick,
         modifier = modifier
             .widthIn(max = 600.dp)
             .fillMaxWidth()
@@ -233,6 +234,11 @@ fun SettingsAction(
                 scaleX = animatedScale
                 scaleY = animatedScale
             }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            )
             .padding(vertical = 4.dp),
         color = animatedBgColor,
         border = androidx.compose.foundation.BorderStroke(2.dp, animatedBorderColor),

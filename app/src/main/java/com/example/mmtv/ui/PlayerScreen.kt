@@ -994,22 +994,43 @@ fun PlayerScreen(
         }
 
         // --- MODERN TIVIMATE-STYLE INTEGRATED OVERLAY ---
-        if (overlayState == OverlayState.CHANNELS || overlayState == OverlayState.CATEGORIES) {
+        val isSideOverlayVisible = overlayState == OverlayState.CHANNELS || overlayState == OverlayState.CATEGORIES
+        
+        AnimatedVisibility(
+            visible = isSideOverlayVisible,
+            enter = slideInHorizontally(
+                initialOffsetX = { -it },
+                animationSpec = androidx.compose.animation.core.tween(durationMillis = 400, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = androidx.compose.animation.core.tween(400)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { -it },
+                animationSpec = androidx.compose.animation.core.tween(durationMillis = 400, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = androidx.compose.animation.core.tween(400)),
+            modifier = Modifier.fillMaxSize()
+        ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 // Dimmed background
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(Color.Black.copy(alpha = 0.6f))
-                        .clickable { overlayState = OverlayState.NONE }
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null,
+                            onClick = { overlayState = OverlayState.NONE }
+                        )
                 )
 
                 Row(modifier = Modifier.fillMaxSize()) {
                     // 1. Categories Sidebar (Slide out)
-                    AnimatedVisibility(
-                        visible = overlayState == OverlayState.CATEGORIES,
-                        enter = slideInHorizontally(initialOffsetX = { -it }),
-                        exit = slideOutHorizontally(targetOffsetX = { -it })
+                    // Vi använder AnimatedContent eller liknande för att växla mellan vyer om vi vill, 
+                    // men här behåller vi logiken för att bara visa kategorier när overlayState är CATEGORIES
+                    val showCategories = overlayState == OverlayState.CATEGORIES
+                    
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = showCategories,
+                        enter = slideInHorizontally(initialOffsetX = { -it }) + fadeIn(),
+                        exit = slideOutHorizontally(targetOffsetX = { -it }) + fadeOut()
                     ) {
                         LazyColumn(
                             state = categoryListState,
@@ -1329,7 +1350,11 @@ fun CategoryListItem(title: String, isSelected: Boolean, modifier: Modifier = Mo
             .fillMaxWidth()
             .height(52.dp)
             .onFocusChanged { hasFocus = it.isFocused }
-            .clickable { onClick() }, 
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClick = { onClick() }
+            ), 
         color = backgroundColor
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1369,7 +1394,11 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, epg: EpgListing?, on
             .fillMaxWidth()
             .height(72.dp)
             .onFocusChanged { hasFocus = it.isFocused }
-            .clickable { onClick() },
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClick = { onClick() }
+            ),
         color = backgroundColor
     ) {
         Row(

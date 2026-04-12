@@ -265,9 +265,13 @@ class MainActivity : ComponentActivity() {
                                     }
 
                                     composable("movies") {
+                                        // Om vi är på index 0 (Historik) och det är tomt, hoppa till index 1
+                                        val initialIndex = if (sharedViewModel.lastMovieCategoryIndex == 0 && 
+                                            sharedViewModel.uiState.movies.firstOrNull()?.items?.isEmpty() == true) 1 else sharedViewModel.lastMovieCategoryIndex
+                                            
                                         MediaListScreen(
                                             groupedList = sharedViewModel.uiState.movies,
-                                            initialCategoryIndex = sharedViewModel.lastMovieCategoryIndex,
+                                            initialCategoryIndex = initialIndex,
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastMovieCategoryIndex = index 
                                                 val category = sharedViewModel.uiState.movies.getOrNull(index)
@@ -287,9 +291,13 @@ class MainActivity : ComponentActivity() {
                                     }
 
                                     composable("series") {
+                                        // Om vi är på index 0 (Historik) och det är tomt, hoppa till index 1
+                                        val initialIndex = if (sharedViewModel.lastSeriesCategoryIndex == 0 && 
+                                            sharedViewModel.uiState.series.firstOrNull()?.items?.isEmpty() == true) 1 else sharedViewModel.lastSeriesCategoryIndex
+
                                         MediaListScreen(
                                             groupedList = sharedViewModel.uiState.series,
-                                            initialCategoryIndex = sharedViewModel.lastSeriesCategoryIndex,
+                                            initialCategoryIndex = initialIndex,
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastSeriesCategoryIndex = index 
                                                 val category = sharedViewModel.uiState.series.getOrNull(index)

@@ -78,7 +78,9 @@ class MainActivity : ComponentActivity() {
 
                     // Keep splash screen on until data is loaded
                     splashScreen.setKeepOnScreenCondition {
-                        loginInfo != null && sharedViewModel.uiState.liveStreamsGrouped.isEmpty()
+                        // Only wait if we have login info. 
+                        // Added a timeout-like logic: if isLoading is false and it's still empty, stop waiting.
+                        loginInfo != null && sharedViewModel.uiState.liveStreamsGrouped.isEmpty() && sharedViewModel.uiState.isLoading
                     }
 
                     LaunchedEffect(loginInfo) {
@@ -202,7 +204,6 @@ class MainActivity : ComponentActivity() {
                                                 sharedViewModel.lastLiveCategoryIndex = it
                                                 sharedViewModel.prefetchEpgForCategory(it)
                                             },
-                                            onHideCategory = { title -> sharedViewModel.hideCategory("live", title) },
                                             onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                             onMediaSelected = { media -> 
                                                 sharedViewModel.addToHistory(media)
@@ -222,7 +223,6 @@ class MainActivity : ComponentActivity() {
                                             groupedList = sharedViewModel.uiState.movies,
                                             initialCategoryIndex = sharedViewModel.lastMovieCategoryIndex,
                                             onCategoryChanged = { sharedViewModel.lastMovieCategoryIndex = it },
-                                            onHideCategory = { title -> sharedViewModel.hideCategory("movies", title) },
                                             onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                             onMediaSelected = { media ->
                                                 sharedViewModel.selectedMedia = media
@@ -239,7 +239,6 @@ class MainActivity : ComponentActivity() {
                                             groupedList = sharedViewModel.uiState.series,
                                             initialCategoryIndex = sharedViewModel.lastSeriesCategoryIndex,
                                             onCategoryChanged = { sharedViewModel.lastSeriesCategoryIndex = it },
-                                            onHideCategory = { title -> sharedViewModel.hideCategory("series", title) },
                                             onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                             onMediaSelected = { media ->
                                                 sharedViewModel.selectedMedia = media

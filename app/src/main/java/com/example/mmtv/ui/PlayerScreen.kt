@@ -87,13 +87,6 @@ fun PlayerScreen(
         }
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.stop()
-            exoPlayer.release()
-        }
-    }
-
     var isPlaying by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(false) }
     var overlayState by remember { mutableStateOf(OverlayState.NONE) }
@@ -225,7 +218,6 @@ fun PlayerScreen(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
                 if (playbackState == Player.STATE_ENDED) {
-                    // Backa ur när videon är slut (enligt önskemål)
                     onBackPressed()
                 }
             }
@@ -242,6 +234,8 @@ fun PlayerScreen(
                     sessionManager.clearPlaybackPosition(media.id.toString())
                 }
             }
+            // All cleanup should happen here to avoid race conditions and double releases
+            exoPlayer.stop()
             mmtvPlayerFactory.releasePlayer()
         }
     }
@@ -666,8 +660,11 @@ fun PlayerScreen(
             LaunchedEffect(showNextEpisodeButton) {
                 if (showNextEpisodeButton) {
                     // Vi vill inte tvinga fokus direkt om man sitter och tittar, 
-                    // men om man trycker på en knapp ska man kunna nå den.
-                    // För TV är det bäst att INTE stjäla fokus automatiskt mitt i en scen.
+                    // men efter en liten stund kan vi göra det lättare att nå.
+                    delay(5000)
+                    if (showNextEpisodeButton) {
+                        nextEpisodeButtonFocusRequester.requestFocus()
+                    }
                 }
             }
         }

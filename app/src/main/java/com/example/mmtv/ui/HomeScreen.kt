@@ -76,26 +76,40 @@ fun HomeScreen(
     // 2. Senaste spelade TV-kanalen för mini-spelaren
     val lastLiveMedia = remember(history) { history.find { it.type == MediaType.LIVE } }
     var miniPlayer by remember { mutableStateOf<Player?>(null) }
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
 
-    DisposableEffect(lastLiveMedia) {
-        if (lastLiveMedia != null) {
-            val mmtvPlayer = MmtvPlayer(context)
-            val player = mmtvPlayer.createPlayer().apply {
-                repeatMode = Player.REPEAT_MODE_ALL
-                playWhenReady = true
-                volume = 0f // Starta ljudlöst på hemskärmen
-                
-                val login = sessionManager.getLogin()
-                if (login != null) {
-                    val (host, user, pass) = login
-                    val streamUrl = "$host/live/$user/$pass/${lastLiveMedia.id}.ts"
-                    setMediaItem(MediaItem.fromUri(streamUrl))
-                    prepare()
+    DisposableEffect(lifecycleOwner, lastLiveMedia) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
+                    if (lastLiveMedia != null && miniPlayer == null) {
+                        val player = MmtvPlayer(context).createPlayer().apply {
+                            repeatMode = Player.REPEAT_MODE_ALL
+                            playWhenReady = true
+                            volume = 0f // Starta ljudlöst på hemskärmen
+                            
+                            val login = sessionManager.getLogin()
+                            if (login != null) {
+                                val (host, user, pass) = login
+                                val streamUrl = "$host/live/$user/$pass/${lastLiveMedia.id}.ts"
+                                setMediaItem(MediaItem.fromUri(streamUrl))
+                                prepare()
+                            }
+                        }
+                        miniPlayer = player
+                    }
                 }
+                androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> {
+                    miniPlayer?.stop()
+                    miniPlayer?.release()
+                    miniPlayer = null
+                }
+                else -> {}
             }
-            miniPlayer = player
         }
+        lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
             miniPlayer?.stop()
             miniPlayer?.release()
             miniPlayer = null
@@ -144,22 +158,29 @@ fun HomeScreen(
                                 shape = RoundedCornerShape(12.dp)
                             )
                             .clickable {
+                                miniPlayer?.stop()
+                                miniPlayer?.release()
+                                miniPlayer = null
                                 lastLiveMedia?.let { onMediaSelected(it) }
                             }
                     ) {
                         // MiniPlayer bakgrund
-                        if (lastLiveMedia != null && miniPlayer != null) {
+                        if (lastLiveMedia != null) {
                             AndroidView(
                                 factory = { ctx ->
                                     PlayerView(ctx).apply {
-                                        player = miniPlayer
                                         useController = false
+                                        // Vi låter PlayerView använda standard SurfaceView för prestanda, 
+                                        // men ser till att den inte tar över hela skärmens Z-order.
                                         resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                                         layoutParams = android.view.ViewGroup.LayoutParams(
                                             android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                                             android.view.ViewGroup.LayoutParams.MATCH_PARENT
                                         )
                                     }
+                                },
+                                update = { view ->
+                                    view.player = miniPlayer
                                 },
                                 modifier = Modifier.fillMaxSize()
                             )

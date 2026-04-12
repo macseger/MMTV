@@ -25,7 +25,7 @@ data class MediaUiState(
     val liveCategories: List<GroupedMedia> = emptyList(),
     val movieCategories: List<GroupedMedia> = emptyList(),
     val seriesCategories: List<GroupedMedia> = emptyList(),
-    val isLoading: Boolean = false,
+    val isLoading: Boolean = true,
     val history: List<MediaSource> = emptyList()
 ) {
     // Aliases for MainActivity
@@ -78,15 +78,8 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
             snapshotFlow { searchQuery }.collectLatest { query ->
                 if (query.length >= 2) {
                     try {
-                        val hiddenLive = sessionManager.getHiddenCategories("live")
-                        val hiddenMovies = sessionManager.getHiddenCategories("movies")
-                        val hiddenSeries = sessionManager.getHiddenCategories("series")
-                        val allHidden = hiddenLive + hiddenMovies + hiddenSeries
-
                         val entities = mediaDao.searchMedia("%$query%")
-                        _dbSearchResults.value = entities
-                            .filter { it.categoryName !in allHidden }
-                            .map { it.toMediaSource() }
+                        _dbSearchResults.value = entities.map { it.toMediaSource() }
                     } catch (e: Exception) {
                         _dbSearchResults.value = emptyList()
                     }
@@ -221,9 +214,18 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
                     if (type == MediaType.LIVE) {
                         favsForType = favsForType.reversed()
                     }
-                    return if (favsForType.isNotEmpty()) {
+                    
+                    val listWithFavs = if (favsForType.isNotEmpty()) {
                         listOf(GroupedMedia(title = "⭐ FAVORITER", items = favsForType)) + this
                     } else this
+
+                    // Lägg till historik för filmer och serier (men inte TV)
+                    return if (type != MediaType.LIVE) {
+                        val historyForType = sessionManager.getHistory().filter { it.type == type }
+                        if (historyForType.isNotEmpty()) {
+                            listOf(GroupedMedia(title = "🕒 SENAST SEDDA", items = historyForType)) + listWithFavs
+                        } else listWithFavs
+                    } else listWithFavs
                 }
 
                 uiState = uiState.copy(
@@ -371,27 +373,6 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         uiState = uiState.copy(history = sessionManager.getHistory())
     }
 
-    fun hideCategory(type: String, categoryTitle: String) {
-        sessionManager.hideCategory(type, categoryTitle)
-        
-        // Uppdatera UI omedelbart genom att filtrera bort kategorin från den lokala listan
-        val current = uiState
-        val updatedLive = current.liveCategories.filterNot { it.title == categoryTitle }
-        val updatedMovies = current.movieCategories.filterNot { it.title == categoryTitle }
-        val updatedSeries = current.seriesCategories.filterNot { it.title == categoryTitle }
-        
-        uiState = current.copy(
-            liveCategories = updatedLive,
-            movieCategories = updatedMovies,
-            seriesCategories = updatedSeries
-        )
-        
-        // Uppdatera även sökresultat om något är dolt
-        searchQuery = searchQuery 
-
-        refreshLists()
-    }
-
     suspend fun getIconForChannel(epgId: String?, name: String?): String? {
         return repository.getIconForChannel(epgId, name)
     }
@@ -415,11 +396,6 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
     }
 
     fun refreshDataManually() {
-        refreshLists()
-    }
-
-    fun showAllCategories() {
-        sessionManager.clearHiddenCategories()
         refreshLists()
     }
 

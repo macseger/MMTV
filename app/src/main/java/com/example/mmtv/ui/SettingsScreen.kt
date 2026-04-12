@@ -28,7 +28,6 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
     val loginInfo = sessionManager.getLogin()
     val uiState = viewModel.uiState
     val firstButtonFocusRequester = remember { FocusRequester() }
-    var currentBufferMs by remember { mutableIntStateOf(sessionManager.getBufferSize()) }
 
     LaunchedEffect(Unit) {
         firstButtonFocusRequester.requestFocus()
@@ -55,24 +54,6 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
                 Spacer(modifier = Modifier.height(48.dp))
             }
 
-            item { SectionHeader("Uppspelning") }
-
-            item {
-                val bufferOptions = listOf(1000, 3000, 5000, 10000, 15000)
-                SettingsAction(
-                    title = "Buffertstorlek",
-                    subtitle = "Längre buffert minskar avbrott vid instabilt nät",
-                    icon = Icons.Default.Timer,
-                    value = "${currentBufferMs / 1000} sekunder",
-                    modifier = Modifier.focusRequester(firstButtonFocusRequester),
-                    onClick = {
-                        val nextIndex = (bufferOptions.indexOf(currentBufferMs) + 1) % bufferOptions.size
-                        currentBufferMs = bufferOptions[nextIndex]
-                        sessionManager.setBufferSize(currentBufferMs)
-                    }
-                )
-            }
-
             item { SectionHeader("Innehåll") }
 
             item {
@@ -80,16 +61,8 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
                     title = "Uppdatera bibliotek",
                     subtitle = "Hämta de senaste filmerna, kanalerna & picons",
                     icon = Icons.Default.Refresh,
+                    modifier = Modifier.focusRequester(firstButtonFocusRequester),
                     onClick = { viewModel.refreshDataManually() }
-                )
-            }
-
-            item {
-                SettingsAction(
-                    title = "Visa alla kategorier",
-                    subtitle = "Återställ dolda kanalgrupper",
-                    icon = Icons.Default.Visibility,
-                    onClick = { viewModel.showAllCategories() }
                 )
             }
 
@@ -98,6 +71,7 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
                     title = "Ta bort favoriter",
                     subtitle = "Rensa alla dina sparade favoriter",
                     icon = Icons.Default.DeleteForever,
+                    isDestructive = true,
                     onClick = { viewModel.clearAllFavorites() }
                 )
             }
@@ -107,6 +81,7 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
                     title = "Töm historiken",
                     subtitle = "Rensa listan över senast sedda",
                     icon = Icons.Default.History,
+                    isDestructive = true,
                     onClick = { viewModel.clearHistory() }
                 )
             }
@@ -153,51 +128,6 @@ fun SectionHeader(title: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.widthIn(max = 600.dp).fillMaxWidth().padding(top = 24.dp, bottom = 12.dp, start = 8.dp)
     )
-}
-
-@Composable
-fun SettingsToggle(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    checked: Boolean,
-    focusRequester: FocusRequester = FocusRequester(),
-    onToggle: () -> Unit
-) {
-    var hasFocus by remember { mutableStateOf(false) }
-    Surface(
-        onClick = onToggle,
-        modifier = Modifier
-            .widthIn(max = 600.dp)
-            .fillMaxWidth()
-            .focusRequester(focusRequester)
-            .onFocusChanged { hasFocus = it.isFocused }
-            .clip(RoundedCornerShape(12.dp))
-            .padding(vertical = 4.dp),
-        color = if (hasFocus) Color.White.copy(alpha = 0.15f) else Color.Transparent,
-        border = if (hasFocus) androidx.compose.foundation.BorderStroke(2.dp, Color.White.copy(alpha = 0.5f)) else null,
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, null, tint = if (hasFocus) Color.White else Color.Gray, modifier = Modifier.size(24.dp))
-            Spacer(modifier = Modifier.width(20.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = Color.White)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-            }
-            Switch(
-                checked = checked,
-                onCheckedChange = null,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = MaterialTheme.colorScheme.primary,
-                    checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                )
-            )
-        }
-    }
 }
 
 @Composable

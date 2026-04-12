@@ -59,7 +59,6 @@ fun MediaListScreen(
     onCategoryChanged: (Int) -> Unit = {},
     onMediaSelected: (MediaSource) -> Unit,
     onToggleFavorite: (MediaSource) -> Unit = {},
-    onHideCategory: (String) -> Unit = {},
     epgProvider: suspend (Int, String?) -> EpgListing? = { _, _ -> null },
     nextEpgProvider: suspend (Int, String?) -> EpgListing? = { _, _ -> null },
     onGetIcon: suspend (String?, String?) -> String? = { _, _ -> null },
@@ -105,8 +104,6 @@ fun MediaListScreen(
 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var isSidebarFocused by remember { mutableStateOf(false) }
-
-    var categoryToHide by remember { mutableStateOf<String?>(null) }
 
     Row(modifier = Modifier
         .fillMaxSize()
@@ -170,27 +167,11 @@ fun MediaListScreen(
                                         channelFocusRequesters[firstChannelId]?.requestFocus()
                                         true
                                     } else false
-                                } else if (isCenterKey && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                    val currentTime = System.currentTimeMillis()
-                                    if (currentTime - lastClickTime < doubleClickTimeout) {
-                                        categoryToHide = title
-                                        true
-                                    } else {
-                                        lastClickTime = currentTime
-                                        false
-                                    }
                                 } else false
                             },
                         onClick = { 
                             selectedCategoryIndex = index
                             onCategoryChanged(index)
-                            
-                            val currentTime = System.currentTimeMillis()
-                            if (currentTime - lastClickTime < doubleClickTimeout) {
-                                categoryToHide = title
-                            } else {
-                                lastClickTime = currentTime
-                            }
                         }
                     )
                 }
@@ -327,26 +308,6 @@ fun MediaListScreen(
             },
             dismissButton = {
                 TextButton(onClick = { mediaToShowMenu = null }) { Text("Avbryt") }
-            }
-        )
-    }
-
-    if (categoryToHide != null) {
-        AlertDialog(
-            onDismissRequest = { categoryToHide = null },
-            title = { Text("Dölj kategori", color = MaterialTheme.colorScheme.primary) },
-            text = { Text("Vill du dölja kategorin '$categoryToHide'?", color = Color.White) },
-            containerColor = Color(0xFF121212),
-            confirmButton = {
-                TextButton(
-                    onClick = { 
-                        onHideCategory(categoryToHide!!)
-                        categoryToHide = null 
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
-                ) {
-                    Text("DÖLJ KATEGORI", fontWeight = FontWeight.Bold)
-                }
             }
         )
     }

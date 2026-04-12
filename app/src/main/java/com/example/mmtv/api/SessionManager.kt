@@ -94,54 +94,6 @@ class SessionManager(context: Context) {
         }
     }
 
-    fun saveCategoryOrder(type: String, order: List<String>) {
-        prefs.edit {
-            putString("order_$type", gson.toJson(order))
-        }
-    }
-
-    fun getCategoryOrder(type: String): List<String> {
-        val json = prefs.getString("order_$type", null) ?: return emptyList()
-        return try {
-            gson.fromJson(json, object : TypeToken<List<String>>() {}.type)
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    fun hideCategory(type: String, categoryTitle: String) {
-        val hidden = getHiddenCategories(type).toMutableSet()
-        hidden.add(categoryTitle)
-        prefs.edit {
-            putString("hidden_$type", gson.toJson(hidden))
-        }
-    }
-
-    fun getHiddenCategories(type: String): Set<String> {
-        val json = prefs.getString("hidden_$type", null) ?: return emptySet()
-        return try {
-            gson.fromJson(json, object : TypeToken<Set<String>>() {}.type)
-        } catch (e: Exception) {
-            emptySet()
-        }
-    }
-
-    fun clearHiddenCategories() {
-        prefs.edit {
-            remove("hidden_live")
-            remove("hidden_movies")
-            remove("hidden_series")
-        }
-    }
-
-    fun setTunnelingEnabled(enabled: Boolean) {
-        prefs.edit { putBoolean("tunneling_enabled", enabled) }
-    }
-
-    fun isTunnelingEnabled(): Boolean {
-        return prefs.getBoolean("tunneling_enabled", false)
-    }
-
     fun setBufferSize(ms: Int) {
         prefs.edit { putInt("buffer_size", ms) }
     }

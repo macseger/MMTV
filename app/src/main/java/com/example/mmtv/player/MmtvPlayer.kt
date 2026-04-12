@@ -35,9 +35,6 @@ class MmtvPlayer(private val context: Context) {
         val renderersFactory = DefaultRenderersFactory(context).apply {
             setEnableDecoderFallback(true)
             setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-            if (sessionManager.isTunnelingEnabled()) {
-                setEnableAudioTrackPlaybackParams(true)
-            }
         }
 
         val audioAttributes = AudioAttributes.Builder()
@@ -56,10 +53,6 @@ class MmtvPlayer(private val context: Context) {
             .setSeekForwardIncrementMs(60000)
             .setSeekBackIncrementMs(60000)
             .build()
-
-        if (sessionManager.isTunnelingEnabled()) {
-            player.videoScalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-        }
         
         this.exoPlayer = player
         return player

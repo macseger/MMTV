@@ -16,13 +16,17 @@ import com.example.mmtv.database.EpgEntity
 import com.example.mmtv.database.ChannelEntity
 
 import java.util.zip.GZIPInputStream
+import com.example.mmtv.api.M3uParser
+import com.example.mmtv.api.M3uItem
 
 class MediaRepository(val api: XCodesApi, private val context: Context, private val database: MediaDatabase) {
     private val gson = Gson()
     private val cacheDir = context.cacheDir
     private val epgParser = EpgParser()
+    private val m3uParser = M3uParser()
     private val mediaDao = database.mediaDao()
     private val CACHE_VERSION = "v5"
+    private var cachedM3uMap: Map<Int, M3uItem>? = null
 
     suspend fun getJustCategories(type: MediaType, user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
         val dbCount = mediaDao.getCountByType(type)
@@ -43,8 +47,10 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         mediaDao.getMediaByCategoryId(type, categoryId).map { it.toMediaSource() }
     }
 
-    private suspend fun syncMediaFromApi(type: MediaType, user: String, pass: String) {
+    suspend fun syncMediaFromApi(type: MediaType, user: String, pass: String) {
         try {
+            // Vi försöker först hämta M3U för att få rika picons/beskrivningar om det är första gången
+            // Men vi behåller Xtream för den faktiska strukturen
             val categories = when(type) {
                 MediaType.LIVE -> api.getLiveCategories(user, pass)
                 MediaType.MOVIE -> api.getMovieCategories(user, pass)
@@ -52,10 +58,11 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
             }
             
             val items = when(type) {
-                MediaType.LIVE -> api.getLiveStreams(user, pass).map { 
-                    MediaSource(id = it.streamId, title = it.name, icon = it.streamIcon, type = type, epgId = it.epgId)
-                        .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
-                }
+                MediaType.LIVE -> api.getLiveStreams(user, pass)
+                    .map { 
+                        MediaSource(id = it.streamId, title = it.name, icon = it.streamIcon, type = type, epgId = it.epgId)
+                            .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
+                    }
                 MediaType.MOVIE -> api.getMovies(user, pass)
                     .sortedByDescending { it.added?.toLongOrNull() ?: parseDateToUnix(it.added) }
                     .map { 
@@ -76,18 +83,86 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
 
             if (items.isNotEmpty()) {
                 val existingFavorites = mediaDao.getFavorites().associateBy { it.id }
+                
+                // Berika med M3U-data om det finns lokalt
+                val m3uMap = getLocalM3uMap()
+                
                 val itemsToInsert = items.mapIndexed { index, entity ->
                     val fav = existingFavorites[entity.id]
+                    val m3uData = m3uMap[entity.id]
+                    
                     entity.copy(
                         isFavorite = fav?.isFavorite ?: false,
                         favoriteDate = fav?.favoriteDate ?: 0L,
                         categoryOrder = categories.indexOfFirst { it.categoryId == entity.categoryId }.let { if (it == -1) 999 else it },
-                        itemOrder = index
+                        itemOrder = index,
+                        // Använd M3U ikon/beskrivning om serverns är tom
+                        icon = if (entity.icon.isNullOrEmpty()) m3uData?.logo ?: entity.icon else entity.icon,
+                        plot = if (entity.plot.isNullOrEmpty()) m3uData?.title ?: entity.plot else entity.plot // M3U beskrivning kan vara titeln ibland
                     )
                 }
                 mediaDao.deleteByType(type)
                 mediaDao.insertAll(itemsToInsert)
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private suspend fun getLocalM3uMap(): Map<Int, M3uItem> = withContext(Dispatchers.IO) {
+        cachedM3uMap?.let { return@withContext it }
+        
+        val file = File(cacheDir, "provisioning.m3u")
+        if (!file.exists()) return@withContext emptyMap()
+        
+        try {
+            val map = file.inputStream().use { m3uParser.parse(it) }.associateBy { it.streamId ?: 0 }
+            cachedM3uMap = map
+            map
+        } catch (e: Exception) { 
+            emptyMap() 
+        }
+    }
+
+    suspend fun performInitialProvisioning(user: String, pass: String, onProgress: (String) -> Unit) = withContext(Dispatchers.IO) {
+        onProgress("Laddar ner optimerad metadata...")
+        val m3uFile = File(cacheDir, "provisioning.m3u")
+        try {
+            val response = api.getM3uPlus(user, pass)
+            val body = response
+            val totalBytes = body.contentLength()
+            val totalMb = if (totalBytes > 0) totalBytes / 1024 / 1024 else -1
+            
+            m3uFile.outputStream().use { output ->
+                body.byteStream().use { input -> 
+                    val buffer = ByteArray(64 * 1024)
+                    var bytesRead: Int
+                    var totalRead = 0L
+                    var lastUpdate = 0L
+                    
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        totalRead += bytesRead
+                        
+                        val now = System.currentTimeMillis()
+                        if (now - lastUpdate > 500) {
+                            val currentMb = totalRead / 1024 / 1024
+                            val progressText = if (totalMb > 0) {
+                                "Laddar ner metadata: ${currentMb}MB / ${totalMb}MB..."
+                            } else {
+                                "Laddar ner metadata: ${currentMb}MB..."
+                            }
+                            onProgress(progressText)
+                            lastUpdate = now
+                        }
+                    }
+                }
+            }
+            
+            onProgress("Analyserar ${m3uFile.length() / 1024 / 1024}MB metadata...")
+            // Tvinga parsning här så det är klart till nästa steg
+            getLocalM3uMap()
+            onProgress("Optimering klar!")
         } catch (e: Exception) {
             e.printStackTrace()
         }

@@ -73,6 +73,15 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
 
             item {
                 SettingsAction(
+                    title = "Optimera biblioteket",
+                    subtitle = "Hämta och synka rich-metadata (bilder/beskrivningar)",
+                    icon = Icons.Default.AutoFixHigh,
+                    onClick = { viewModel.performOptimization() }
+                )
+            }
+
+            item {
+                SettingsAction(
                     title = "Ta bort favoriter",
                     subtitle = "Rensa alla dina sparade favoriter",
                     icon = Icons.Default.DeleteForever,

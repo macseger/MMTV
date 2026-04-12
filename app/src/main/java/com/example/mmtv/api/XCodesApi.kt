@@ -68,6 +68,14 @@ interface XCodesApi {
         @Query("password") pass: String
     ): ResponseBody
 
+    @GET("get.php")
+    suspend fun getM3uPlus(
+        @Query("username") user: String,
+        @Query("password") pass: String,
+        @Query("type") type: String = "m3u_plus",
+        @Query("output") output: String = "ts"
+    ): ResponseBody
+
     @GET
     suspend fun getExternalEpg(@retrofit2.http.Url url: String): ResponseBody
 }

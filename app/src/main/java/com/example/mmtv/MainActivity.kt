@@ -42,6 +42,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.work.*
 import com.example.mmtv.repository.DataSyncWorker
 import java.util.concurrent.TimeUnit
@@ -79,11 +81,12 @@ class MainActivity : ComponentActivity() {
                         )
                     )
 
+                    var isProvisioning by remember { mutableStateOf(false) }
+                    var provisioningStatus by remember { mutableStateOf("") }
+
                     // Keep splash screen on until data is loaded
                     splashScreen.setKeepOnScreenCondition {
-                        // Only wait if we have login info. 
-                        // Added a timeout-like logic: if isLoading is false and it's still empty, stop waiting.
-                        loginInfo != null && sharedViewModel.uiState.liveStreamsGrouped.isEmpty() && sharedViewModel.uiState.isLoading
+                        loginInfo != null && sharedViewModel.uiState.liveStreamsGrouped.isEmpty() && sharedViewModel.uiState.isLoading && !isProvisioning
                     }
 
                     LaunchedEffect(loginInfo) {
@@ -183,17 +186,33 @@ class MainActivity : ComponentActivity() {
                                 NavHost(navController = navController, startDestination = startDest) {
                                     // ... composables ...
                                     composable("login") {
-                                        LoginScreen(sharedViewModel) { h, u, p ->
-                                            sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), context, database))
-                                            sharedViewModel.loadData(u, p, h, forceRefresh = true) { success ->
-                                                if (success) {
-                                                    sessionManager.saveLogin(h, u, p)
-                                                    navController.navigate("home") {
-                                                        popUpTo("login") { inclusive = true }
+                                        LoginScreen(
+                                            viewModel = sharedViewModel,
+                                            onLogin = { h, u, p ->
+                                                sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), context, database))
+                                                
+                                                lifecycleScope.launch {
+                                                    // 1. Kontrollera inloggningen först
+                                                    val loginSuccess = sharedViewModel.login(h, u, p)
+                                                    if (!loginSuccess) return@launch
+
+                                                    // 2. Visa den snygga laddskärmen medan vi hämtar grunddata
+                                                    isProvisioning = true
+                                                    provisioningStatus = "Hämtar kategorier och kanaler..."
+                                                    
+                                                    sharedViewModel.loadData(u, p, h, forceRefresh = true) { success ->
+                                                        isProvisioning = false
+                                                        if (success) {
+                                                            navController.navigate("home") {
+                                                                popUpTo("login") { inclusive = true }
+                                                            }
+                                                        }
                                                     }
                                                 }
-                                            }
-                                        }
+                                            },
+                                            isProvisioning = isProvisioning,
+                                            provisioningStatus = provisioningStatus
+                                        )
                                     }
                                     
                                     composable("home") {

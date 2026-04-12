@@ -25,7 +25,12 @@ import androidx.compose.ui.unit.sp
 import com.example.mmtv.R
 
 @Composable
-fun LoginScreen(viewModel: MediaViewModel, onLogin: (String, String, String) -> Unit) {
+fun LoginScreen(viewModel: MediaViewModel, onLogin: (String, String, String) -> Unit, isProvisioning: Boolean = false, provisioningStatus: String = "") {
+    if (isProvisioning) {
+        ProvisioningOverlay(status = provisioningStatus)
+        return
+    }
+
     var host by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -209,6 +214,71 @@ fun LoginScreen(viewModel: MediaViewModel, onLogin: (String, String, String) -> 
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun ProvisioningOverlay(status: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            val infiniteTransition = rememberInfiniteTransition(label = "provisioning")
+            val rotation by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1500, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "rotation"
+            )
+
+            Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(120.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    strokeWidth = 4.dp
+                )
+                Image(
+                    painter = painterResource(id = R.drawable.ic_splash_icon),
+                    contentDescription = null,
+                    modifier = Modifier.size(60.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(32.dp))
+            
+            Text(
+                text = "OPTIMERAR DITT BIBLIOTEK",
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 4.sp
+                ),
+                color = Color.White
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Text(
+                text = status,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.Gray
+            )
+            
+            Spacer(modifier = Modifier.height(48.dp))
+            
+            Text(
+                text = "Detta görs bara vid första inloggningen för att ge dig\nden bästa upplevelsen med picons och metadata.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray.copy(alpha = 0.6f),
+                modifier = Modifier.padding(horizontal = 32.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
         }
     }
 }

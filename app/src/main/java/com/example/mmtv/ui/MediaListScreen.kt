@@ -249,25 +249,10 @@ fun MediaListScreen(
         } else {
             // NETFLIX-STYLE VOD GRID
             Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(bottom = 24.dp)) {
-                    Text(
-                        text = selectedCategory?.title ?: "",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(
-                        text = "${selectedCategory?.items?.size ?: 0} TITLAR",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = Color.Gray
-                    )
-                }
-
                 LazyVerticalGrid(
                     state = gridState,
                     columns = GridCells.Adaptive(minSize = 124.dp),
-                    contentPadding = PaddingValues(bottom = 100.dp),
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp),
                     modifier = Modifier.onKeyEvent {
@@ -532,7 +517,7 @@ fun MediaCard(
 
     Column(
         modifier = modifier
-            .width(124.dp)
+            .width(110.dp)
             .onFocusChanged { hasFocus = it.isFocused }
             .scale(if (hasFocus) 1.1f else 1.0f)
             .clickable(

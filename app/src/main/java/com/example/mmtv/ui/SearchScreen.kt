@@ -93,9 +93,9 @@ fun SearchScreen(
         // Search Results
         if (viewModel.searchQuery.isNotEmpty()) {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 140.dp),
-                horizontalArrangement = Arrangement.spacedBy(24.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
+                columns = GridCells.Adaptive(minSize = 120.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 48.dp)
             ) {

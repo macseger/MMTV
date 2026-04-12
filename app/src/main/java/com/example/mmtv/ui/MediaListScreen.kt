@@ -106,6 +106,8 @@ fun MediaListScreen(
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var isSidebarFocused by remember { mutableStateOf(false) }
 
+    var categoryToHide by remember { mutableStateOf<String?>(null) }
+
     Row(modifier = Modifier
         .fillMaxSize()
         .background(backgroundColor)
@@ -143,6 +145,10 @@ fun MediaListScreen(
                 items(groupedList.size, key = { index -> groupedList[index].title ?: index }) { index ->
                     val title = groupedList.getOrNull(index)?.title ?: "Kategori"
                     val requester = categoryFocusRequesters.getOrPut(index) { FocusRequester() }
+                    
+                    var lastClickTime by remember { mutableLongStateOf(0L) }
+                    val doubleClickTimeout = 500L
+                    
                     CategoryItem(
                         title = title,
                         isSelected = selectedCategoryIndex == index,
@@ -155,17 +161,33 @@ fun MediaListScreen(
                                 }
                             }
                             .onKeyEvent {
+                                val isCenterKey = it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 
+                                                 it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
+                                
                                 if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                                     val firstChannelId = groupedList.getOrNull(index)?.items?.firstOrNull()?.id
                                     if (firstChannelId != null) {
                                         channelFocusRequesters[firstChannelId]?.requestFocus()
                                         true
                                     } else false
+                                } else if (isCenterKey && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                    val currentTime = System.currentTimeMillis()
+                                    if (currentTime - lastClickTime < doubleClickTimeout) {
+                                        categoryToHide = title
+                                    }
+                                    lastClickTime = currentTime
+                                    false
                                 } else false
                             },
                         onClick = { 
                             selectedCategoryIndex = index
                             onCategoryChanged(index)
+                            
+                            val currentTime = System.currentTimeMillis()
+                            if (currentTime - lastClickTime < doubleClickTimeout) {
+                                categoryToHide = title
+                            }
+                            lastClickTime = currentTime
                         }
                     )
                 }
@@ -302,6 +324,26 @@ fun MediaListScreen(
             },
             dismissButton = {
                 TextButton(onClick = { mediaToShowMenu = null }) { Text("Avbryt") }
+            }
+        )
+    }
+
+    if (categoryToHide != null) {
+        AlertDialog(
+            onDismissRequest = { categoryToHide = null },
+            title = { Text("Dölj kategori", color = MaterialTheme.colorScheme.primary) },
+            text = { Text("Vill du dölja kategorin '$categoryToHide'?", color = Color.White) },
+            containerColor = Color(0xFF121212),
+            confirmButton = {
+                Button(onClick = { 
+                    onHideCategory(categoryToHide!!)
+                    categoryToHide = null 
+                }) {
+                    Text("Dölj")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { categoryToHide = null }) { Text("Avbryt") }
             }
         )
     }

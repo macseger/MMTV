@@ -200,6 +200,8 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
                 val series = async { repository.getGroupedSeries(user, pass, forceRefresh) }
 
                 val liveData = live.await()
+                val movieData = movies.await()
+                val seriesData = series.await()
                 
                 // Mappa stream_id till epg_channel_id för snabbare lookup
                 liveData.forEach { group ->
@@ -210,10 +212,20 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
                     }
                 }
 
+                // Hämta favoriter från DB för att bygga favoritkategorier
+                val allFavs = withContext(Dispatchers.IO) { mediaDao.getFavorites().map { it.toMediaSource() } }
+                
+                fun List<GroupedMedia>.withFavorites(type: MediaType): List<GroupedMedia> {
+                    val favsForType = allFavs.filter { it.type == type }
+                    return if (favsForType.isNotEmpty()) {
+                        listOf(GroupedMedia(title = "⭐ FAVORITER", items = favsForType)) + this
+                    } else this
+                }
+
                 uiState = uiState.copy(
-                    liveCategories = liveData,
-                    movieCategories = movies.await(),
-                    seriesCategories = series.await(),
+                    liveCategories = liveData.withFavorites(MediaType.LIVE),
+                    movieCategories = movieData.withFavorites(MediaType.MOVIE),
+                    seriesCategories = seriesData.withFavorites(MediaType.SERIES),
                     isLoading = false,
                     history = sessionManager.getHistory()
                 )

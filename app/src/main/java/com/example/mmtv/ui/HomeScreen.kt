@@ -56,7 +56,7 @@ fun HomeScreen(
     val uiState = viewModel.uiState
     val history = uiState.history
 
-    val favoriteTV = favorites.filter { it.type == MediaType.LIVE }.reversed()
+    val favoriteTV = favorites.filter { it.type == MediaType.LIVE }
     val favoriteMovies = favorites.filter { it.type == MediaType.MOVIE }
     val favoriteSeries = favorites.filter { it.type == MediaType.SERIES }
 
@@ -146,6 +146,7 @@ fun HomeScreen(
                 // 2. Favoriter TV
                 if (favoriteTV.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
+                        // Sortering: De som lades till senast hamnar sist (kronologiskt)
                         MediaRow("FAVORITER TV", favoriteTV, viewModel, isHorizontal = true) { onMediaSelected(it) }
                     }
                 }
@@ -171,8 +172,6 @@ fun HomeScreen(
                     }
                 }
             }
-            // Push everything up by adding a spacer at the bottom
-            Spacer(modifier = Modifier.weight(1f))
         }
 
         if (uiState.isLoading) {

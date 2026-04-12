@@ -157,6 +157,7 @@ fun PlayerScreen(
     
     var showNextEpisodeButton by remember { mutableStateOf(false) }
     val nextEpisodeButtonFocusRequester = remember { FocusRequester() }
+    val favoriteButtonFocusRequester = remember { FocusRequester() }
 
     // Favorit-feedback
     var showFavoriteFeedback by remember { mutableStateOf(false) }
@@ -348,11 +349,17 @@ fun PlayerScreen(
                                     subtitleIconFocusRequester.requestFocus()
                                     true
                                 } else false
+                            } else if (overlayState == OverlayState.QUICK_INFO) {
+                                favoriteButtonFocusRequester.requestFocus()
+                                true
                             } else false
                         }
                         KeyEvent.KEYCODE_DPAD_DOWN -> {
                             if (overlayState == OverlayState.NONE) {
                                 overlayState = OverlayState.SUBTITLES
+                                true
+                            } else if (overlayState == OverlayState.QUICK_INFO) {
+                                favoriteButtonFocusRequester.requestFocus()
                                 true
                             } else false
                         }
@@ -768,13 +775,27 @@ fun PlayerScreen(
                                     favoriteJob = scope.launch { delay(2000); showFavoriteFeedback = false }
                                 },
                                 modifier = Modifier
-                                    .onFocusChanged { isFavFocused = it.isFocused }
-                                    .clip(RoundedCornerShape(12.dp)),
-                                color = if (isFavFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f)
+                                    .focusRequester(favoriteButtonFocusRequester)
+                                    .onFocusChanged { 
+                                        isFavFocused = it.isFocused 
+                                        if (it.isFocused) {
+                                            infoJob?.cancel() // Stoppa auto-hide om vi har fokus
+                                        } else {
+                                            // Starta om auto-hide när vi tappar fokus
+                                            infoJob = scope.launch {
+                                                delay(5000)
+                                                if (overlayState == OverlayState.QUICK_INFO) overlayState = OverlayState.NONE
+                                            }
+                                        }
+                                    }
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .fillMaxWidth(0.4f),
+                                color = if (isFavFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.15f)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Start
                                 ) {
                                     Icon(
                                         imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -782,12 +803,13 @@ fun PlayerScreen(
                                         tint = if (isFavFocused) Color.Black else (if (isFav) Color.Red else Color.White),
                                         modifier = Modifier.size(20.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(modifier = Modifier.width(10.dp))
                                     Text(
-                                        text = if (isFav) "FAVORITMARKERAD" else "LÄGG TILL I FAVORITER",
-                                        style = MaterialTheme.typography.labelLarge,
+                                        text = if (isFav) "TA BORT FRÅN FAVORITER" else "LÄGG TILL I FAVORITER",
+                                        style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 1.sp),
                                         color = if (isFavFocused) Color.Black else Color.White,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
                                     )
                                 }
                             }
@@ -1284,36 +1306,59 @@ fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?) {
         shape = RoundedCornerShape(16.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
     ) {
-        Column(modifier = Modifier.padding(24.dp)) {
-            if (epg != null) {
-                val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
-                val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
-                val duration = ((epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0)) / 60
+        Row(modifier = Modifier.padding(24.dp)) {
+            // Channel Icon in Info Box
+            if (channel != null) {
+                AsyncImage(
+                    model = channel.icon,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.White.copy(alpha = 0.05f))
+                        .padding(8.dp),
+                    contentScale = ContentScale.Fit
+                )
+                Spacer(modifier = Modifier.width(24.dp))
+            }
 
-                Text(
-                    text = epg.title ?: "",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.Black
-                )
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-                    Text(text = "$start - $stop", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(text = "$duration min", color = Color.Gray)
-                    if (channel != null) {
+            Column(modifier = Modifier.weight(1f)) {
+                if (epg != null) {
+                    val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
+                    val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
+                    val duration = ((epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0)) / 60
+
+                    Text(
+                        text = epg.title ?: "",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Black
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
+                        Text(text = "$start - $stop", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                         Spacer(modifier = Modifier.width(16.dp))
-                        Text(text = channel.title ?: "", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                        Text(text = "$duration min", color = Color.Gray)
+                        if (channel != null) {
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(text = channel.title ?: "", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
+                    Text(
+                        text = epg.description ?: "Ingen beskrivning tillgänglig.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.LightGray,
+                        maxLines = 5,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else {
+                    Text(
+                        text = channel?.title ?: "Välj en kanal",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = Color.White,
+                        fontWeight = FontWeight.Black
+                    )
+                    Text("Ingen programinfo tillgänglig", color = Color.Gray)
                 }
-                Text(
-                    text = epg.description ?: "Ingen beskrivning tillgänglig.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = Color.LightGray,
-                    maxLines = 5,
-                    overflow = TextOverflow.Ellipsis
-                )
-            } else {
-                Text("Välj en kanal för att se programinfo", color = Color.Gray)
             }
         }
     }

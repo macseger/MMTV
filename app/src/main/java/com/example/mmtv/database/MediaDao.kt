@@ -70,6 +70,6 @@ interface MediaDao {
 }
 
 data class CategorySimple(
-    val categoryId: String,
-    val categoryName: String
+    val categoryId: String?,
+    val categoryName: String?
 )

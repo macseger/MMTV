@@ -53,6 +53,8 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
     var lastSeriesCategoryIndex by mutableIntStateOf(0)
 
     var selectedMedia by mutableStateOf<MediaSource?>(null)
+    var playingMedia by mutableStateOf<MediaSource?>(null)
+    var playingEpisode by mutableStateOf<Episode?>(null)
     var currentPlaylist by mutableStateOf<List<MediaSource>>(emptyList())
 
     var selectedSeriesInfo by mutableStateOf<SeriesInfoResponse?>(null)
@@ -61,6 +63,9 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
     var searchQuery by mutableStateOf("")
 
     var updateStatus by mutableStateOf<String?>(null)
+        private set
+    
+    var isUpdatingBackground by mutableStateOf(false)
         private set
 
     private val mediaDao = database.mediaDao()
@@ -181,12 +186,13 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
     fun fetchData(user: String, pass: String, forceRefresh: Boolean = false) {
         if (isFetching) return
         isFetching = true
+        isUpdatingBackground = true
         
         viewModelScope.launch {
             uiState = uiState.copy(isLoading = true)
             try {
                 // Hämta EPG asynkront
-                launch { repository.fetchAndStoreEpg(user, pass, forceRefresh) }
+                val epgJob = launch { repository.fetchAndStoreEpg(user, pass, forceRefresh) }
 
                 val live = async { repository.getGroupedLive(user, pass, forceRefresh) }
                 val movies = async { repository.getGroupedMovies(user, pass, forceRefresh) }
@@ -244,8 +250,17 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
                     _favorites.value = favs.map { it.toMediaSource() }
                 }
 
+                // Vänta på att EPG-jobbet också blir klart innan vi säger att vi är helt färdiga
+                epgJob.join()
+                
+                isUpdatingBackground = false
+                updateStatus = "Spellista & EPG uppdaterad!"
+                delay(4000)
+                updateStatus = null
+
             } catch (e: Exception) {
                 uiState = uiState.copy(isLoading = false)
+                isUpdatingBackground = false
             } finally {
                 isFetching = false
             }
@@ -268,24 +283,57 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
             }
             
             withContext(Dispatchers.Main) {
-                refreshLists()
+                // VIKTIGT: Gör en grundare uppdatering istället för full fetchData
+                // för att undvika att UI-tillstånd (som vald kategori) nollställs
+                val allFavs = mediaDao.getFavorites().map { it.toMediaSource() }
+                
+                fun List<GroupedMedia>.updateFavorites(type: MediaType): List<GroupedMedia> {
+                    var favsForType = allFavs.filter { it.type == type }
+                    if (type == MediaType.LIVE) favsForType = favsForType.reversed()
+                    
+                    val filtered = this.filterNot { it.title == "⭐ FAVORITER" }
+                    return if (favsForType.isNotEmpty()) {
+                        listOf(GroupedMedia(title = "⭐ FAVORITER", items = favsForType)) + filtered
+                    } else filtered
+                }
+
+                uiState = uiState.copy(
+                    liveCategories = uiState.liveCategories.updateFavorites(MediaType.LIVE),
+                    movieCategories = uiState.movieCategories.updateFavorites(MediaType.MOVIE),
+                    seriesCategories = uiState.seriesCategories.updateFavorites(MediaType.SERIES)
+                )
             }
         }
     }
 
     fun loadSeriesInfo(seriesId: Int) {
-        if (lastLoadedSeriesId == seriesId) return
+        // Om vi redan har infon för denna serie, ladda inte om (om det inte var ett fel tidigare)
+        if (lastLoadedSeriesId == seriesId && selectedSeriesInfo != null) return
         
-        val creds = sessionManager.getLogin()
-        if (creds == null) return
+        val creds = sessionManager.getLogin() ?: return
 
         viewModelScope.launch {
+            // Rensa om vi byter serie för att undvika att se gamla säsonger
+            if (lastLoadedSeriesId != seriesId) {
+                selectedSeriesInfo = null
+            }
+            
             isDetailsLoading = true
             try {
-                selectedSeriesInfo = repository.getSeriesInfo(creds.second, creds.third, seriesId)
-                lastLoadedSeriesId = seriesId
+                val info = repository.getSeriesInfo(creds.second, creds.third, seriesId)
+                // Kontrollera att vi faktiskt fick någon data
+                if (info.episodes != null && info.episodes.isNotEmpty()) {
+                    selectedSeriesInfo = info
+                    lastLoadedSeriesId = seriesId
+                } else {
+                    // Ibland returnerar API:et framgång men tomt data
+                    selectedSeriesInfo = null
+                    lastLoadedSeriesId = null
+                }
             } catch (e: Exception) {
+                e.printStackTrace()
                 selectedSeriesInfo = null
+                lastLoadedSeriesId = null
             } finally {
                 isDetailsLoading = false
             }
@@ -381,9 +429,13 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
         onComplete?.invoke(true)
     }
 
-    fun addToHistory(media: MediaSource) {
-        sessionManager.addToHistory(media)
-        // Uppdatera uiState med den nya historiken från sessionManager
+    fun addToHistory(media: MediaSource, episode: Episode? = null) {
+        // Om det är en serie, spara avsnittsinfo i historiken om möjligt
+        val mediaToSave = if (media.type == MediaType.SERIES && episode != null) {
+            media.copy(plot = "S${episode.seasonNumber}E${episode.id}: ${episode.title}")
+        } else media
+        
+        sessionManager.addToHistory(mediaToSave)
         val updatedHistory = sessionManager.getHistory()
         uiState = uiState.copy(history = updatedHistory)
     }

@@ -31,6 +31,7 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
     val loginInfo = sessionManager.getLogin()
     val uiState = viewModel.uiState
     val firstButtonFocusRequester = remember { FocusRequester() }
+    var autoPlay by remember { mutableStateOf(sessionManager.getAutoPlayNext()) }
 
     LaunchedEffect(Unit) {
         firstButtonFocusRequester.requestFocus()
@@ -86,6 +87,21 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
                     icon = Icons.Default.History,
                     isDestructive = true,
                     onClick = { viewModel.clearHistory() }
+                )
+            }
+
+            item { SectionHeader("Uppspelning") }
+
+            item {
+                SettingsAction(
+                    title = "Spela nästa avsnitt automatiskt",
+                    subtitle = "Föreslå och starta nästa avsnitt i serier",
+                    icon = if (autoPlay) Icons.Default.PlayCircleFilled else Icons.Default.PlayCircleOutline,
+                    value = if (autoPlay) "PÅ" else "AV",
+                    onClick = {
+                        autoPlay = !autoPlay
+                        sessionManager.setAutoPlayNext(autoPlay)
+                    }
                 )
             }
 

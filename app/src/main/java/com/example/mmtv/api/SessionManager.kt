@@ -102,6 +102,19 @@ class SessionManager(context: Context) {
         return prefs.getInt("buffer_size", 5000)
     }
 
+    fun setAutoPlayNext(enabled: Boolean) {
+        prefs.edit { putBoolean("auto_play_next", enabled) }
+    }
+
+    fun getAutoPlayNext(): Boolean {
+        // Vi sätter standardvärdet till true om inget är sparat
+        if (!prefs.contains("auto_play_next")) {
+            prefs.edit { putBoolean("auto_play_next", true) }
+            return true
+        }
+        return prefs.getBoolean("auto_play_next", true)
+    }
+
     // Historikhantering
     fun addToHistory(media: MediaSource) {
         val history = getHistory().toMutableList()

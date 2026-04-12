@@ -4,18 +4,21 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -30,7 +33,6 @@ import com.example.mmtv.repository.MediaRepository
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.example.mmtv.ui.*
 import com.example.mmtv.ui.theme.MMTVTheme
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
@@ -164,8 +166,9 @@ class MainActivity : ComponentActivity() {
                             },
                             containerColor = Color.Black
                         ) { paddingValues ->
-                            Box(modifier = Modifier.padding(paddingValues)) {
+                            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
                                 NavHost(navController = navController, startDestination = startDest) {
+                                    // ... composables ...
                                     composable("login") {
                                         LoginScreen(sharedViewModel) { h, u, p ->
                                             sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), context, database))
@@ -265,19 +268,16 @@ class MainActivity : ComponentActivity() {
                                                     playMedia(navController, m, sessionManager, sharedViewModel, emptyList(), resume)
                                                 },
                                                 onPlayEpisode = { ep, resume ->
-                                                    sharedViewModel.addToHistory(media)
+                                                    sharedViewModel.addToHistory(media, ep)
                                                     sessionManager.getLogin()?.let { login ->
                                                         val (h, u, p) = login
                                                         val streamUrl = "${h}/series/${u}/${p}/${ep.id}.${ep.containerExtension ?: "mp4"}"
                                                         val encodedUrl = URLEncoder.encode(streamUrl, StandardCharsets.UTF_8.toString())
                                                         
-                                                        sharedViewModel.selectedMedia = MediaSource(
-                                                            id = ep.id?.toIntOrNull() ?: 0,
-                                                            title = ep.title ?: "Avsnitt",
-                                                            icon = media.icon,
-                                                            type = MediaType.SERIES,
-                                                            addedDate = 0L
-                                                        )
+                                                        // VIKTIGT: Vi sparar vilket avsnitt som spelas i ViewModel
+                                                        // men vi låter selectedMedia vara kvar som serien så att
+                                                        // DetailsScreen inte tappar bort sig vid bakåtnavigering.
+                                                        sharedViewModel.playingEpisode = ep
                                                         
                                                         if (!resume) {
                                                             sessionManager.clearPlaybackPosition(ep.id ?: "0")
@@ -342,10 +342,8 @@ class MainActivity : ComponentActivity() {
                                                     val streamUrl = "${h}/series/${u}/${p}/${ep.id}.${ep.containerExtension ?: "mp4"}"
                                                     val encodedUrl = URLEncoder.encode(streamUrl, StandardCharsets.UTF_8.toString())
                                                     
-                                                    sharedViewModel.selectedMedia = sharedViewModel.selectedMedia?.copy(
-                                                        id = ep.id?.toIntOrNull() ?: 0,
-                                                        title = ep.title ?: "Avsnitt"
-                                                    )
+                                                    // Behåll selectedMedia (Serien), men uppdatera spelade avsnittet
+                                                    sharedViewModel.playingEpisode = ep
                                                     
                                                     sessionManager.clearPlaybackPosition(ep.id ?: "0")
                                                     
@@ -356,6 +354,41 @@ class MainActivity : ComponentActivity() {
                                             },
                                             viewModel = sharedViewModel
                                         )
+                                    }
+                                }
+                                
+                                // Overlay for background updates
+                                AnimatedVisibility(
+                                    visible = sharedViewModel.updateStatus != null,
+                                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                                    modifier = Modifier
+                                        .align(Alignment.BottomStart)
+                                        .padding(16.dp)
+                                ) {
+                                    Surface(
+                                        color = Color.Black.copy(alpha = 0.8f),
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                                        modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                text = sharedViewModel.updateStatus ?: "",
+                                                color = Color.White,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                     }
                                 }
                             }

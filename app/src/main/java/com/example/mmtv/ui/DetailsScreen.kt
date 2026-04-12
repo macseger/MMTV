@@ -52,15 +52,30 @@ fun DetailsScreen(
 
     LaunchedEffect(media.id) {
         if (isSeries) {
+            // Nollställ vald säsong och hämta ny info
+            selectedSeason = null 
             viewModel.loadSeriesInfo(media.id)
         }
     }
     
     // Sätt första säsongen som vald när data laddats
     LaunchedEffect(seriesInfo) {
-        if (selectedSeason == null && seriesInfo?.episodes?.isNotEmpty() == true) {
-            // Sortera numeriskt för att hitta första säsongen korrekt
-            selectedSeason = seriesInfo.episodes.keys.sortedBy { it.toIntOrNull() ?: 999 }.firstOrNull()
+        if (selectedSeason == null && seriesInfo?.episodes != null && seriesInfo.episodes.isNotEmpty()) {
+            val firstSeason = seriesInfo.episodes.keys.sortedBy { it.toIntOrNull() ?: 999 }.firstOrNull()
+            if (firstSeason != null) {
+                selectedSeason = firstSeason
+            }
+        }
+    }
+    
+    // NYTT: Hantera bakåtnavigering från spelaren
+    // Om vi kommer tillbaka och seriesInfo redan finns, se till att selectedSeason är satt
+    LaunchedEffect(seriesInfo) {
+        if (isSeries && seriesInfo != null && selectedSeason == null) {
+            val keys = seriesInfo.episodes?.keys?.sortedBy { it.toIntOrNull() ?: 999 }
+            if (!keys.isNullOrEmpty()) {
+                selectedSeason = keys.first()
+            }
         }
     }
 
@@ -208,12 +223,16 @@ fun DetailsScreen(
                         ) {
                             // Vi försöker använda 'seasons' listan för ordning och namn, annars 'episodes' nycklar
                             val seasonList = if (seriesInfo.seasons != null && seriesInfo.seasons.isNotEmpty()) {
-                                seriesInfo.seasons.sortedBy { it.seasonNumber }.map { it.seasonNumber.toString() to (it.name ?: "Säsong ${it.seasonNumber}") }
+                                seriesInfo.seasons
+                                    .sortedBy { it.seasonNumber }
+                                    .map { it.seasonNumber.toString() to (it.name ?: "Säsong ${it.seasonNumber}") }
                             } else {
-                                seriesInfo.episodes.keys.sortedBy { it.toIntOrNull() ?: 999 }.map { it to "Säsong $it" }
+                                seriesInfo.episodes.keys
+                                    .sortedBy { it.toIntOrNull() ?: 999 }
+                                    .map { it to "Säsong $it" }
                             }
 
-                            items(seasonList, key = { it.first }) { (seasonKey, seasonName) ->
+                            items(seasonList, key = { it.first + it.second }) { (seasonKey, seasonName) ->
                                 SeasonTab(
                                     title = seasonName.uppercase(),
                                     isSelected = selectedSeason == seasonKey,

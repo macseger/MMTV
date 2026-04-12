@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -133,17 +134,27 @@ fun PlayerScreen(
     var availableSubtitles by remember { mutableStateOf<List<Tracks.Group>>(emptyList()) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
+    var isUserInteracting by remember { mutableStateOf(false) }
+    var interactionJob by remember { mutableStateOf<Job?>(null) }
     
     // För "Spela nästa avsnitt"
     val isSeries = media?.type == MediaType.SERIES
-    val nextEpisode = remember(media, viewModel.selectedSeriesInfo) {
-        if (!isSeries || media == null || viewModel.selectedSeriesInfo?.episodes == null) null
-        else {
+    val nextEpisode = remember(media, viewModel.selectedSeriesInfo, viewModel.playingEpisode) {
+        if (!isSeries || media == null || viewModel.selectedSeriesInfo?.episodes == null) {
+            null
+        } else {
             val episodesMap = viewModel.selectedSeriesInfo!!.episodes!!
-            val allEpisodes = episodesMap.keys.sortedBy { it.toIntOrNull() ?: 0 }
-                .flatMap { episodesMap[it] ?: emptyList() }
             
-            val currentIndex = allEpisodes.indexOfFirst { it.id == media.id.toString() }
+            // Vi vill ha en platt lista på alla avsnitt i rätt ordning (säsong för säsong)
+            val allEpisodes = episodesMap.keys
+                .sortedBy { it.toIntOrNull() ?: 0 }
+                .flatMap { seasonKey ->
+                    episodesMap[seasonKey]?.sortedBy { it.id?.toIntOrNull() ?: 0 } ?: emptyList()
+                }
+            
+            val currentId = viewModel.playingEpisode?.id ?: media.id.toString()
+            val currentIndex = allEpisodes.indexOfFirst { it.id == currentId }
+
             if (currentIndex != -1 && currentIndex < allEpisodes.size - 1) {
                 allEpisodes[currentIndex + 1]
             } else null
@@ -163,8 +174,10 @@ fun PlayerScreen(
     LaunchedEffect(currentPosition, duration) {
         if (isSeries && nextEpisode != null && duration > 0) {
             val remainingSeconds = (duration - currentPosition) / 1000
-            // Visa knappen sista minuten (60 sekunder)
-            showNextEpisodeButton = remainingSeconds in 1..60
+            // Visa knappen sista 120 sekunderna ända till slutet
+            // Vi kollar inte sessionManager.getAutoPlayNext() här för att visa KNAPPEN, 
+            // men vi kan lägga till logik för automatisk uppspelning om vi vill.
+            showNextEpisodeButton = remainingSeconds in 0..120
         } else {
             showNextEpisodeButton = false
         }
@@ -221,7 +234,11 @@ fun PlayerScreen(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
                 if (playbackState == Player.STATE_ENDED) {
-                    onBackPressed()
+                    if (isSeries && nextEpisode != null && sessionManager.getAutoPlayNext()) {
+                        onPlayNextEpisode(nextEpisode)
+                    } else {
+                        onBackPressed()
+                    }
                 }
             }
         }
@@ -294,6 +311,8 @@ fun PlayerScreen(
 
     fun performSeek(offsetMs: Long, isLongPress: Boolean = false) {
         seekJob?.cancel()
+        interactionJob?.cancel()
+        isUserInteracting = true
         accumulatedSeekMs += offsetMs
         
         val totalSecs = (Math.abs(accumulatedSeekMs) / 1000).toInt()
@@ -321,7 +340,8 @@ fun PlayerScreen(
         }
 
         seekJob = scope.launch {
-            delay(if (isLongPress) 2000 else 800)
+            delay(if (isLongPress) 2000 else 1200) // Vänta på att användaren slutat trycka
+            
             if (!isLongPress) {
                 val dur = exoPlayer.duration
                 if (dur != C.TIME_UNSET) {
@@ -329,9 +349,15 @@ fun PlayerScreen(
                     exoPlayer.seekTo(newPos)
                 }
             }
-            accumulatedSeekMs = 0
-            delay(2500)
-            if (!isLongPressSeeking) {
+            // NOLLSTÄLL ALLTID efter utförd sökning eller timeout, även om dur == UNSET
+            accumulatedSeekMs = 0 
+            
+            // Vänta lite innan vi tillåter att feedbacken döljs
+            delay(2000)
+            isUserInteracting = false
+            
+            delay(3000)
+            if (!isLongPressSeeking && !isUserInteracting) {
                 showSeekFeedback = false
             }
         }
@@ -386,7 +412,7 @@ fun PlayerScreen(
                                 if (media?.type == MediaType.LIVE) overlayState = OverlayState.CHANNELS
                                 else {
                                     if (isRepeat) performSeek(-10000L, true) // Mjukare vid långtryck (10s steg)
-                                    else performSeek(-60000L) // 1 min klick
+                                    else performSeek(-10000L) // 10 sek per klick istället för 1 min för bättre precision
                                 }
                                 true
                             } else if (overlayState == OverlayState.CHANNELS) {
@@ -398,7 +424,7 @@ fun PlayerScreen(
                             if (overlayState == OverlayState.NONE) {
                                 if (media?.type != MediaType.LIVE) {
                                     if (isRepeat) performSeek(10000L, true) // Mjukare vid långtryck (10s steg)
-                                    else performSeek(60000L) // 1 min klick
+                                    else performSeek(10000L) // 10 sek per klick
                                 }
                                 else overlayState = OverlayState.SUBTITLES
                                 true
@@ -411,7 +437,7 @@ fun PlayerScreen(
                             } else false
                         }
                         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                            if (showNextEpisodeButton && nextEpisode != null) {
+                            if (showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE) {
                                 onPlayNextEpisode(nextEpisode)
                                 true
                             } else if (overlayState == OverlayState.NONE) {
@@ -669,42 +695,100 @@ fun PlayerScreen(
             }
         }
 
-        // --- NEXT EPISODE BUTTON ---
+        // --- NEXT EPISODE BUTTON (MODERN OVERLAY) ---
         AnimatedVisibility(
-            visible = showNextEpisodeButton && nextEpisode != null,
+            visible = showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE,
             enter = fadeIn() + slideInHorizontally(initialOffsetX = { it }),
             exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it }),
-            modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 120.dp, end = 48.dp)
+            modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 48.dp, end = 48.dp)
         ) {
             var isFocused by remember { mutableStateOf(false) }
-            Button(
-                onClick = { nextEpisode?.let { onPlayNextEpisode(it) } },
+            Surface(
+                onClick = { 
+                    nextEpisode?.let { 
+                        showNextEpisodeButton = false
+                        onPlayNextEpisode(it) 
+                    } 
+                },
                 modifier = Modifier
-                    .height(72.dp)
-                    .width(320.dp)
+                    .width(360.dp)
+                    .height(110.dp)
                     .focusRequester(nextEpisodeButtonFocusRequester)
                     .onFocusChanged { isFocused = it.isFocused },
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isFocused) Color.White else MaterialTheme.colorScheme.primary,
-                    contentColor = if (isFocused) Color.Black else Color.White
-                ),
-                elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp)
+                shape = RoundedCornerShape(16.dp),
+                color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.85f),
+                contentColor = if (isFocused) Color.Black else Color.White,
+                border = if (isFocused) null else androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                tonalElevation = 12.dp
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.SkipNext, null, modifier = Modifier.size(32.dp))
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text("SE NÄSTA AVSNITT", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
-                        Text(nextEpisode?.title ?: "", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Miniatyr/Ikon för serien
+                    Box(modifier = Modifier.size(86.dp).clip(RoundedCornerShape(8.dp))) {
+                        AsyncImage(
+                            model = media?.icon,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        Box(
+                            modifier = Modifier.fillMaxSize().background(
+                                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))
+                                )
+                            )
+                        )
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp).align(Alignment.Center)
+                        )
                     }
+                    
+                    Spacer(modifier = Modifier.width(16.dp))
+                    
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "SE NÄSTA AVSNITT",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = 1.2.sp
+                            ),
+                            color = if (isFocused) Color.Black.copy(alpha = 0.7f) else MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = nextEpisode?.title ?: "Nästa avsnitt",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        
+                        val remainingSecs = ((duration - currentPosition) / 1000).coerceAtLeast(0)
+                        Text(
+                            text = "Avslutas om $remainingSecs s",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isFocused) Color.Black.copy(alpha = 0.5f) else Color.Gray
+                        )
+                    }
+                    
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.NavigateNext,
+                        contentDescription = null,
+                        modifier = Modifier.size(32.dp),
+                        tint = if (isFocused) Color.Black else MaterialTheme.colorScheme.primary
+                    )
                 }
             }
             
             LaunchedEffect(showNextEpisodeButton) {
                 if (showNextEpisodeButton) {
-                    delay(3000)
-                    if (showNextEpisodeButton) {
+                    delay(2500)
+                    if (showNextEpisodeButton && overlayState == OverlayState.NONE) {
                         nextEpisodeButtonFocusRequester.requestFocus()
                     }
                 }

@@ -31,7 +31,6 @@ import com.example.mmtv.api.SessionManager
 @Composable
 fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, onLogout: () -> Unit) {
     val loginInfo = sessionManager.getLogin()
-    val uiState = viewModel.uiState
     val firstButtonFocusRequester = remember { FocusRequester() }
     var autoPlay by remember { mutableStateOf(sessionManager.getAutoPlayNext()) }
 
@@ -163,20 +162,8 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
             }
         }
 
-        if (uiState.isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.7f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                    Row(modifier = Modifier.padding(32.dp), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                        Spacer(modifier = Modifier.width(24.dp))
-                        Text("Uppdaterar spellista...", style = MaterialTheme.typography.titleMedium)
-                    }
-                }
-            }
-        }
+        // Vi har tagit bort den stora isLoading-boxen härifrån för att undvika dubbla meddelanden.
+        // Status visas nu enhetligt via status-pillret uppe till höger som hanteras centralt.
     }
 }
 

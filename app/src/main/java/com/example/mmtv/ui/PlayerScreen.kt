@@ -419,6 +419,12 @@ fun PlayerScreen(
                                 }
                                 overlayState = OverlayState.EPG_INFO
                                 true
+                            } else if (overlayState == OverlayState.NONE) {
+                                // Mittenklick i TV-läge när ingen overlay syns -> Visa QUICK_INFO (som nu har favorit-knapp)
+                                if (media != null) {
+                                    overlayState = OverlayState.QUICK_INFO
+                                    true
+                                } else false
                             } else false
                         }
                         KeyEvent.KEYCODE_PROG_RED, 183 -> { // 183 är ofta röd knapp på Android TV
@@ -745,6 +751,46 @@ fun PlayerScreen(
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = Color.Gray
                             )
+                        }
+
+                        // Favorite Toggle in Quick Info
+                        if (media != null) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            val isFav = favorites.any { it.id == media.id }
+                            var isFavFocused by remember { mutableStateOf(false) }
+
+                            Surface(
+                                onClick = {
+                                    viewModel.toggleFavorite(media)
+                                    favoriteMessage = if (isFav) "Borttagen från favoriter" else "Tillagd i favoriter"
+                                    showFavoriteFeedback = true
+                                    favoriteJob?.cancel()
+                                    favoriteJob = scope.launch { delay(2000); showFavoriteFeedback = false }
+                                },
+                                modifier = Modifier
+                                    .onFocusChanged { isFavFocused = it.isFocused }
+                                    .clip(RoundedCornerShape(12.dp)),
+                                color = if (isFavFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                        contentDescription = null,
+                                        tint = if (isFavFocused) Color.Black else (if (isFav) Color.Red else Color.White),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = if (isFav) "FAVORITMARKERAD" else "LÄGG TILL I FAVORITER",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = if (isFavFocused) Color.Black else Color.White,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                     

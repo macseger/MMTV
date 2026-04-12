@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -87,9 +88,12 @@ class MainActivity : ComponentActivity() {
                         // Empty black screen while splash is showing
                         Box(modifier = Modifier.fillMaxSize().background(Color.Black))
                     } else {
-                        val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
                         val currentRoute = navBackStackEntry?.destination?.route
                         val showTopBar = currentRoute != "login" && currentRoute != "player/{url}" && currentRoute != "details"
+
+                        val topBarHomeFocusRequester = remember { FocusRequester() }
+                        val topBarLiveFocusRequester = remember { FocusRequester() }
 
                         Scaffold(
                             topBar = {
@@ -103,7 +107,9 @@ class MainActivity : ComponentActivity() {
                                             }
                                         },
                                         searchQuery = sharedViewModel.searchQuery,
-                                        onSearchQueryChange = { sharedViewModel.searchQuery = it }
+                                        onSearchQueryChange = { sharedViewModel.searchQuery = it },
+                                        homeFocusRequester = topBarHomeFocusRequester,
+                                        liveTvFocusRequester = topBarLiveFocusRequester
                                     )
                                 }
                             },
@@ -141,7 +147,8 @@ class MainActivity : ComponentActivity() {
                                                     sharedViewModel.selectedMedia = media
                                                     navController.navigate("details")
                                                 }
-                                            }
+                                            },
+                                            topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }
 
@@ -164,7 +171,8 @@ class MainActivity : ComponentActivity() {
                                             epgProvider = { id, name -> sharedViewModel.getEpgForId(id, name) },
                                             nextEpgProvider = { id, name -> sharedViewModel.getNextEpgForId(id, name) },
                                             onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
-                                            onBackPressed = { navController.popBackStack() }
+                                            onBackPressed = { navController.popBackStack() },
+                                            topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }
 
@@ -180,7 +188,8 @@ class MainActivity : ComponentActivity() {
                                                 navController.navigate("details")
                                             },
                                             onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
-                                            onBackPressed = { navController.popBackStack() }
+                                            onBackPressed = { navController.popBackStack() },
+                                            topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }
 
@@ -196,7 +205,8 @@ class MainActivity : ComponentActivity() {
                                                 navController.navigate("details")
                                             },
                                             onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
-                                            onBackPressed = { navController.popBackStack() }
+                                            onBackPressed = { navController.popBackStack() },
+                                            topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }
 

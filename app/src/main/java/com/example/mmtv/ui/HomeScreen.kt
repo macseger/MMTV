@@ -47,7 +47,8 @@ import com.example.mmtv.model.MediaType
 fun HomeScreen(
     viewModel: MediaViewModel,
     onNavigate: (String) -> Unit,
-    onMediaSelected: (MediaSource) -> Unit
+    onMediaSelected: (MediaSource) -> Unit,
+    topBarFocusRequester: FocusRequester? = null
 ) {
     val dbSearchResults by viewModel.dbSearchResults.collectAsState()
     val recentlyAdded by viewModel.recentlyAdded.collectAsState()
@@ -59,7 +60,23 @@ fun HomeScreen(
     val favoriteMovies = favorites.filter { it.type == MediaType.MOVIE }
     val favoriteSeries = favorites.filter { it.type == MediaType.SERIES }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
+    Box(modifier = Modifier
+        .fillMaxSize()
+        .background(Color.Black)
+        .onKeyEvent { 
+            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                if (topBarFocusRequester != null) {
+                    topBarFocusRequester.requestFocus()
+                    true
+                } else {
+                    focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up)
+                    true
+                }
+            } else false
+        }
+    ) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally

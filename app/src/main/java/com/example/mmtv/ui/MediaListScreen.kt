@@ -65,7 +65,8 @@ fun MediaListScreen(
     onGetIcon: suspend (String?, String?) -> String? = { _, _ -> null },
     onItemFocused: (Int) -> Unit = {},
     backgroundColor: Color = Color.Black,
-    onBackPressed: (() -> Unit)? = null
+    onBackPressed: (() -> Unit)? = null,
+    topBarFocusRequester: FocusRequester? = null
 ) {
     var selectedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
     val selectedCategory = groupedList.getOrNull(selectedCategoryIndex)
@@ -116,7 +117,11 @@ fun MediaListScreen(
                     true
                 } else {
                     // Från sidebar, gå till TopBar istället för att stänga skärmen
-                    focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up)
+                    if (topBarFocusRequester != null) {
+                        topBarFocusRequester.requestFocus()
+                    } else {
+                        focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up)
+                    }
                     true
                 }
             } else false
@@ -493,7 +498,9 @@ fun MediaCard(
     var hasFocus by remember { mutableStateOf(false) }
     
     val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon) {
-        if (value.isNullOrEmpty() && onGetIcon != null) value = onGetIcon(media.epgId, media.title)
+        if (value.isNullOrEmpty() && onGetIcon != null) {
+            value = onGetIcon(media.epgId, media.title)
+        }
     }
 
     Column(
@@ -507,7 +514,7 @@ fun MediaCard(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .aspectRatio(0.67f) // 2:3 Netflix Ratio
+                .aspectRatio(0.67f)
                 .border(
                     width = if (hasFocus) 3.dp else 0.dp,
                     color = if (hasFocus) Color.White else Color.Transparent,
@@ -522,6 +529,7 @@ fun MediaCard(
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
+                    loading = { Box(Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) },
                     error = { ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = true) }
                 )
                 
@@ -535,23 +543,25 @@ fun MediaCard(
             }
         }
         
-        if (hasFocus) {
-            Column(
-                modifier = Modifier
-                    .padding(top = 12.dp)
-                    .fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = media.title ?: "",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
-                    fontWeight = FontWeight.Black,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
-                )
-                
+        Column(
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = media.title ?: "",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontWeight = if (hasFocus) FontWeight.Bold else FontWeight.Normal,
+                    fontSize = 11.sp
+                ),
+                color = if (hasFocus) Color.White else Color.Gray,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.Center
+            )
+            
+            if (hasFocus) {
                 Row(
                     modifier = Modifier.padding(top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,

@@ -27,7 +27,9 @@ fun TopBar(
     onNavigate: (String) -> Unit,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    homeFocusRequester: FocusRequester? = null,
+    liveTvFocusRequester: FocusRequester? = null
 ) {
     var focusedItem by remember { mutableStateOf<String?>(null) }
     
@@ -70,11 +72,21 @@ fun TopBar(
                     focusedItem = "search"
                     onNavigate("search")
                 }
-                TopBarItem("HEM", Icons.Default.Home, focusedItem == "home") {
+                TopBarItem(
+                    title = "HEM", 
+                    icon = Icons.Default.Home, 
+                    isFocusedManually = focusedItem == "home",
+                    modifier = if (homeFocusRequester != null) Modifier.focusRequester(homeFocusRequester) else Modifier
+                ) {
                     focusedItem = "home"
                     onNavigate("home")
                 }
-                TopBarItem("LIVE TV", Icons.Default.LiveTv, focusedItem == "live") {
+                TopBarItem(
+                    title = "LIVE TV", 
+                    icon = Icons.Default.LiveTv, 
+                    isFocusedManually = focusedItem == "live",
+                    modifier = if (liveTvFocusRequester != null) Modifier.focusRequester(liveTvFocusRequester) else Modifier
+                ) {
                     focusedItem = "live"
                     onNavigate("live")
                 }
@@ -102,13 +114,14 @@ private fun TopBarItem(
     title: String,
     icon: ImageVector,
     isFocusedManually: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f)
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .onFocusChanged { isFocused = it.isFocused }
             .scale(if (isFocused) 1.1f else 1.0f)
             .clickable(

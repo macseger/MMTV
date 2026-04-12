@@ -55,6 +55,8 @@ fun SearchScreen(
                 modifier = Modifier.size(32.dp)
             )
             Spacer(modifier = Modifier.width(16.dp))
+            val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+
             BasicTextField(
                 value = viewModel.searchQuery,
                 onValueChange = { viewModel.searchQuery = it },
@@ -65,6 +67,15 @@ fun SearchScreen(
                     .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 textStyle = MaterialTheme.typography.headlineSmall.copy(color = Color.White),
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                ),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                    onSearch = {
+                        keyboardController?.hide()
+                    }
+                ),
                 cursorBrush = Brush.verticalGradient(listOf(Color.White, Color.White)),
                 decorationBox = { innerTextField ->
                     if (viewModel.searchQuery.isEmpty()) {

@@ -788,14 +788,16 @@ fun PlayerScreen(
                                             }
                                         }
                                     }
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .fillMaxWidth(0.4f),
-                                color = if (isFavFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.15f)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .width(280.dp)
+                                    .height(44.dp),
+                                color = if (isFavFocused) Color(0xFFFFD700) else Color.Transparent,
+                                border = if (isFavFocused) null else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                                    modifier = Modifier.padding(horizontal = 16.dp),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Start
+                                    horizontalArrangement = Arrangement.Center
                                 ) {
                                     Icon(
                                         imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -803,7 +805,7 @@ fun PlayerScreen(
                                         tint = if (isFavFocused) Color.Black else (if (isFav) Color.Red else Color.White),
                                         modifier = Modifier.size(20.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Spacer(modifier = Modifier.width(12.dp))
                                     Text(
                                         text = if (isFav) "TA BORT FRÅN FAVORITER" else "LÄGG TILL I FAVORITER",
                                         style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 1.sp),

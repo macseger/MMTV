@@ -1,8 +1,10 @@
 package com.example.mmtv.ui
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -11,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
@@ -157,17 +160,55 @@ fun LoginScreen(viewModel: MediaViewModel, onLogin: (String, String, String) -> 
             }
         }
 
-        // HÖGER SIDA: Stor logga (som syns även när tangentbordet är uppe)
+        // HÖGER SIDA: Stor logga med animerad tidslinje
         Column(
             modifier = Modifier.weight(1f),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Image(
-                painter = painterResource(id = R.drawable.ic_splash_icon),
-                contentDescription = "MMTV Logo",
-                modifier = Modifier.size(280.dp).alpha(0.6f)
-            )
+            Box(contentAlignment = Alignment.BottomCenter) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_splash_icon),
+                    contentDescription = "MMTV Logo",
+                    modifier = Modifier.size(280.dp).alpha(0.8f)
+                )
+                
+                // Animerad "tidslinje" under loggan
+                val infiniteTransition = rememberInfiniteTransition(label = "loader")
+                val progress by infiniteTransition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(2000, easing = LinearEasing),
+                        repeatMode = RepeatMode.Restart
+                    ),
+                    label = "progress"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .padding(bottom = 40.dp) // Justera så den hamnar på den blå linjen
+                        .width(200.dp)
+                        .height(3.dp)
+                        .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(2.dp))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(progress)
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0f),
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0f)
+                                    )
+                                ),
+                                RoundedCornerShape(2.dp)
+                            )
+                    )
+                }
+            }
         }
     }
 }

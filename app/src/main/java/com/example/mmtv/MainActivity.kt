@@ -8,12 +8,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -28,6 +30,12 @@ import com.example.mmtv.repository.MediaRepository
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.example.mmtv.ui.*
 import com.example.mmtv.ui.theme.MMTVTheme
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.KeyEventType
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -88,14 +96,47 @@ class MainActivity : ComponentActivity() {
                         // Empty black screen while splash is showing
                         Box(modifier = Modifier.fillMaxSize().background(Color.Black))
                     } else {
-                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                        val navBackStackEntry by navController.currentBackStackEntryAsState()
                         val currentRoute = navBackStackEntry?.destination?.route
                         val showTopBar = currentRoute != "login" && currentRoute != "player/{url}" && currentRoute != "details"
 
                         val topBarHomeFocusRequester = remember { FocusRequester() }
                         val topBarLiveFocusRequester = remember { FocusRequester() }
 
+                        var showExitDialog by remember { mutableStateOf(false) }
+
+                        if (showExitDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showExitDialog = false },
+                                title = { Text("AVSLUTA MMTV", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black) },
+                                text = { Text("Vill du verkligen avsluta?", color = Color.White, style = MaterialTheme.typography.bodyLarge) },
+                                containerColor = Color(0xFF1A1A1A),
+                                shape = RoundedCornerShape(16.dp),
+                                confirmButton = {
+                                    Button(
+                                        onClick = { (context as? android.app.Activity)?.finish() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.8f))
+                                    ) {
+                                        Text("AVSLUTA", color = Color.White, fontWeight = FontWeight.Bold)
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showExitDialog = false }) {
+                                        Text("AVBRYT", color = Color.Gray)
+                                    }
+                                }
+                            )
+                        }
+
                         Scaffold(
+                            modifier = Modifier.onKeyEvent { 
+                                if (it.key == Key.Back && it.type == KeyEventType.KeyDown) {
+                                    if (currentRoute == "home" || currentRoute == "login") {
+                                        showExitDialog = true
+                                        true
+                                    } else false
+                                } else false
+                            },
                             topBar = {
                                 if (showTopBar) {
                                     TopBar(

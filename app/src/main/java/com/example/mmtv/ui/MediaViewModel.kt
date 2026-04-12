@@ -369,6 +369,22 @@ class MediaViewModel(private var repository: MediaRepository, private val sessio
 
     fun hideCategory(type: String, categoryTitle: String) {
         sessionManager.hideCategory(type, categoryTitle)
+        
+        // Uppdatera UI omedelbart genom att filtrera bort kategorin från den lokala listan
+        val current = uiState
+        val updatedLive = current.liveCategories.filterNot { it.title == categoryTitle }
+        val updatedMovies = current.movieCategories.filterNot { it.title == categoryTitle }
+        val updatedSeries = current.seriesCategories.filterNot { it.title == categoryTitle }
+        
+        uiState = current.copy(
+            liveCategories = updatedLive,
+            movieCategories = updatedMovies,
+            seriesCategories = updatedSeries
+        )
+        
+        // Uppdatera även sökresultat om något är dolt
+        searchQuery = searchQuery 
+
         refreshLists()
     }
 

@@ -174,9 +174,11 @@ fun MediaListScreen(
                                     val currentTime = System.currentTimeMillis()
                                     if (currentTime - lastClickTime < doubleClickTimeout) {
                                         categoryToHide = title
+                                        true
+                                    } else {
+                                        lastClickTime = currentTime
+                                        false
                                     }
-                                    lastClickTime = currentTime
-                                    false
                                 } else false
                             },
                         onClick = { 
@@ -186,8 +188,9 @@ fun MediaListScreen(
                             val currentTime = System.currentTimeMillis()
                             if (currentTime - lastClickTime < doubleClickTimeout) {
                                 categoryToHide = title
+                            } else {
+                                lastClickTime = currentTime
                             }
-                            lastClickTime = currentTime
                         }
                     )
                 }
@@ -335,15 +338,15 @@ fun MediaListScreen(
             text = { Text("Vill du dölja kategorin '$categoryToHide'?", color = Color.White) },
             containerColor = Color(0xFF121212),
             confirmButton = {
-                Button(onClick = { 
-                    onHideCategory(categoryToHide!!)
-                    categoryToHide = null 
-                }) {
-                    Text("Dölj")
+                TextButton(
+                    onClick = { 
+                        onHideCategory(categoryToHide!!)
+                        categoryToHide = null 
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)
+                ) {
+                    Text("DÖLJ KATEGORI", fontWeight = FontWeight.Bold)
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { categoryToHide = null }) { Text("Avbryt") }
             }
         )
     }

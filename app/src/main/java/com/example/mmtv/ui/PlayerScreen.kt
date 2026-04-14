@@ -39,6 +39,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
@@ -152,6 +153,10 @@ fun PlayerScreen(
     var duration by remember { mutableLongStateOf(0L) }
     var isUserInteracting by remember { mutableStateOf(false) }
     var interactionJob by remember { mutableStateOf<Job?>(null) }
+
+    // Technical info states
+    var videoFormat by remember { mutableStateOf<Format?>(null) }
+    var audioFormat by remember { mutableStateOf<Format?>(null) }
     
     // För "Spela nästa avsnitt"
     val isSeries = media?.type == MediaType.SERIES
@@ -262,12 +267,22 @@ fun PlayerScreen(
         val listener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) {
                 availableSubtitles = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+                videoFormat = exoPlayer.videoFormat
+                audioFormat = exoPlayer.audioFormat
             }
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+                if (playing) {
+                    videoFormat = exoPlayer.videoFormat
+                    audioFormat = exoPlayer.audioFormat
+                }
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
+                if (playbackState == Player.STATE_READY) {
+                    videoFormat = exoPlayer.videoFormat
+                    audioFormat = exoPlayer.audioFormat
+                }
                 if (playbackState == Player.STATE_ENDED) {
                     if (isSeries && nextEpisode != null && sessionManager.getAutoPlayNext()) {
                         onPlayNextEpisode(nextEpisode)
@@ -982,13 +997,31 @@ fun PlayerScreen(
                             }
                         }
                         
-                        // Technical Tags (Mockup for now)
+                        // Technical Tags
+                        val resolution = when {
+                            videoFormat == null || videoFormat!!.height <= 0 -> ""
+                            videoFormat!!.height >= 2160 -> "4K"
+                            videoFormat!!.height >= 1080 -> "FHD"
+                            videoFormat!!.height >= 720 -> "HD"
+                            else -> "SD"
+                        }
+                        val fps = if (videoFormat != null && videoFormat!!.frameRate > 0) "${videoFormat!!.frameRate.toInt()}FPS" else ""
+                        val audio = if (audioFormat != null && audioFormat!!.channelCount > 0) {
+                            if (audioFormat!!.channelCount >= 6) "5.1" else "2.0"
+                        } else ""
+
                         Row(modifier = Modifier.padding(start = 16.dp)) {
-                            TechnicalTag("FHD")
-                            Spacer(modifier = Modifier.width(4.dp))
-                            TechnicalTag("50FPS")
-                            Spacer(modifier = Modifier.width(4.dp))
-                            TechnicalTag("2.0")
+                            if (resolution.isNotEmpty()) {
+                                TechnicalTag(resolution)
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            if (fps.isNotEmpty()) {
+                                TechnicalTag(fps)
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            if (audio.isNotEmpty()) {
+                                TechnicalTag(audio)
+                            }
                         }
                     }
                 }

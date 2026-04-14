@@ -122,6 +122,7 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
         cast = cast,
         epgId = epgId,
         isFavorite = isFavorite,
+        favoriteDate = favoriteDate,
         addedDate = addedDate
     )
 
@@ -182,8 +183,7 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
                 val allFavs = withContext(Dispatchers.IO) { mediaDao.getFavorites().map { it.toMediaSource() } }
                 
                 fun List<GroupedMedia>.withFavoritesAndHistory(type: MediaType): List<GroupedMedia> {
-                    var favsForType = allFavs.filter { it.type == type }
-                    if (type == MediaType.LIVE) favsForType = favsForType.reversed()
+                    val favsForType = allFavs.filter { it.type == type }.sortedByDescending { it.favoriteDate }
                     
                     var result = if (favsForType.isNotEmpty()) {
                         listOf(GroupedMedia(title = "⭐ FAVORITER", items = favsForType)) + this
@@ -204,8 +204,7 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
 
                 withContext(Dispatchers.Main) {
                     fun List<GroupedMedia>.updateFavoritesAndHistory(type: MediaType): List<GroupedMedia> {
-                        var favsForType = allFavs.filter { it.type == type }
-                        if (type == MediaType.LIVE) favsForType = favsForType.reversed()
+                        val favsForType = allFavs.filter { it.type == type }.sortedByDescending { it.favoriteDate }
                         val historyForType = sessionManager.getHistory().filter { it.type == type }
                         val filtered = this.filterNot { it.title == "⭐ FAVORITER" || it.title == "🕒 HISTORIK" }
                         var result = filtered
@@ -300,8 +299,7 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
             withContext(Dispatchers.Main) {
                 val allFavs = mediaDao.getFavorites().map { it.toMediaSource() }
                 fun List<GroupedMedia>.updateFavoritesAndHistory(type: MediaType): List<GroupedMedia> {
-                    var favsForType = allFavs.filter { it.type == type }
-                    if (type == MediaType.LIVE) favsForType = favsForType.reversed()
+                    val favsForType = allFavs.filter { it.type == type }.sortedByDescending { it.favoriteDate }
                     val historyForType = sessionManager.getHistory().filter { it.type == type }
                     val filtered = this.filterNot { it.title == "⭐ FAVORITER" || it.title == "🕒 HISTORIK" }
                     var result = filtered

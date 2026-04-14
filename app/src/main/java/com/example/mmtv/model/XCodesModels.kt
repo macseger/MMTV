@@ -123,6 +123,7 @@ data class MediaSource(
     val genre: String? = null,
     val cast: String? = null,
     val isFavorite: Boolean = false,
+    val favoriteDate: Long = 0L,
     val addedDate: Long = 0L
 )
 

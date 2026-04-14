@@ -260,6 +260,7 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         cast = cast,
         epgId = epgId,
         isFavorite = isFavorite,
+        favoriteDate = favoriteDate,
         addedDate = addedDate
     )
 
@@ -278,6 +279,7 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         cast = cast,
         epgId = epgId,
         isFavorite = isFavorite,
+        favoriteDate = favoriteDate,
         addedDate = addedDate
     )
 

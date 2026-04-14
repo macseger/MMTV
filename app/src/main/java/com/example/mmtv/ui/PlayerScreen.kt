@@ -34,6 +34,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
@@ -176,8 +177,13 @@ fun PlayerScreen(
         }
     }
 
+    val tvGuideFocusRequester = remember { FocusRequester() }
+    val historyFocusRequester = remember { FocusRequester() }
+    val recentChannelsFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val nextEpisodeButtonFocusRequester = remember { FocusRequester() }
     val favoriteButtonFocusRequester = remember { FocusRequester() }
+
+    var selectedActionIndex by remember { mutableIntStateOf(-1) } // -1: none, 0: TV Guide, 1: History, 2+: Recent Channels
 
     // Favorit-feedback
     var showFavoriteFeedback by remember { mutableStateOf(false) }
@@ -218,6 +224,11 @@ fun PlayerScreen(
     LaunchedEffect(url) {
         focusManager.clearFocus()
         
+        // Add to history if it's a live stream
+        if (media != null) {
+            viewModel.addToHistory(media)
+        }
+
         // Synka kategorin i bakgrunden så att vi hamnar rätt när vi backar ut
         if (media?.type == MediaType.LIVE) {
             viewModel.setLiveCategoryByMediaId(media.id)
@@ -309,8 +320,13 @@ fun PlayerScreen(
             OverlayState.QUICK_INFO -> {
                 infoJob?.cancel()
                 infoJob = scope.launch {
-                    delay(5000)
+                    delay(8000)
                     if (overlayState == OverlayState.QUICK_INFO) overlayState = OverlayState.NONE
+                }
+                // Focus the first action button by default or stay on current
+                scope.launch {
+                    delay(100)
+                    tvGuideFocusRequester.safeFocus()
                 }
             }
             OverlayState.SUBTITLES -> {
@@ -414,7 +430,7 @@ fun PlayerScreen(
                                     } else false
                                 }
                                 OverlayState.QUICK_INFO -> {
-                                    favoriteButtonFocusRequester.safeFocus()
+                                    // Move focus up from action row to nothing or hidden elements
                                     true
                                 }
                                 else -> false
@@ -427,7 +443,7 @@ fun PlayerScreen(
                                     true
                                 }
                                 OverlayState.QUICK_INFO -> {
-                                    favoriteButtonFocusRequester.safeFocus()
+                                    // Already at the bottom action row
                                     true
                                 }
                                 else -> false
@@ -504,6 +520,10 @@ fun PlayerScreen(
                                         true
                                     }
                                     OverlayState.QUICK_INFO -> {
+                                        // Let the focused button handle it if any, 
+                                        // otherwise if we are here it means root got it.
+                                        // But Surface onClick should have consumed it if focused.
+                                        // So we only get here if focus is NOT on a button.
                                         if (media != null) scope.launch { viewModel.getFullEpgForId(media.id) }
                                         overlayState = OverlayState.EPG_INFO
                                         true
@@ -823,7 +843,7 @@ fun PlayerScreen(
             }
         }
 
-        // --- QUICK INFO OVERLAY (BOTTOM) ---
+        // --- QUICK INFO OVERLAY (ZAP BANNER) ---
         AnimatedVisibility(
             visible = overlayState == OverlayState.QUICK_INFO && media != null,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -833,189 +853,197 @@ fun PlayerScreen(
             val epg = produceState<EpgListing?>(initialValue = null, key1 = media?.id) {
                 value = viewModel.getEpgForId(media?.id ?: 0)
             }.value
-            val nextEpg = produceState<EpgListing?>(initialValue = null, key1 = media?.id) {
-                value = viewModel.getNextEpgForId(media?.id ?: 0)
-            }.value
-            val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
             
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(24.dp),
-                color = Color.Black.copy(alpha = 0.9f),
-                shape = RoundedCornerShape(20.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
+            val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
+            val dateFormatter = remember { DateTimeFormatter.ofPattern("EEE d MMM").withLocale(Locale("sv", "SE")).withZone(ZoneId.systemDefault()) }
+            val history = viewModel.uiState.history.filter { it.type == MediaType.LIVE }.take(10)
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
             ) {
+                // Top Info Bar
                 Row(
-                    modifier = Modifier.padding(24.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = media?.title ?: "",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Black,
-                            color = Color.White
-                        )
-                        
-                        if (epg != null) {
-                            val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
-                            val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
-                            
-                            Text(
-                                text = epg.title ?: "",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "$start - $stop",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.LightGray
-                                )
-                                
-                                val now = System.currentTimeMillis() / 1000
-                                val remainingMin = ((epg.stopTimestamp ?: 0) - now) / 60
-                                if (remainingMin > 0) {
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        text = "($remainingMin min kvar)",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                                    )
-                                }
-                            }
-                            
-                            val now = System.currentTimeMillis() / 1000
-                            val progress = (now - (epg.startTimestamp ?: 0)).toFloat() / ((epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0)).toFloat()
-                            if (progress in 0f..1f) {
-                                LinearProgressIndicator(
-                                    progress = { progress },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 12.dp)
-                                        .height(6.dp)
-                                        .clip(CircleShape),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    trackColor = Color.White.copy(alpha = 0.1f)
-                                )
-                            }
-                        } else {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "Ingen programinfo tillgänglig",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = Color.Gray
-                            )
-                        }
-
-                        // Favorite Toggle in Quick Info
-                        if (media != null) {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            val isFav = favorites.any { it.id == media.id }
-                            var isFavFocused by remember { mutableStateOf(false) }
-
-                            Surface(
-                                onClick = {
-                                    viewModel.toggleFavorite(media)
-                                    favoriteMessage = if (isFav) "Borttagen från favoriter" else "Tillagd i favoriter"
-                                    showFavoriteFeedback = true
-                                    favoriteJob?.cancel()
-                                    favoriteJob = scope.launch { delay(2000); showFavoriteFeedback = false }
-                                },
-                                modifier = Modifier
-                                    .focusRequester(favoriteButtonFocusRequester)
-                                    .onFocusChanged { 
-                                        isFavFocused = it.isFocused 
-                                        if (it.isFocused) {
-                                            infoJob?.cancel() // Stoppa auto-hide om vi har fokus
-                                        } else {
-                                            // Starta om auto-hide när vi tappar fokus
-                                            infoJob = scope.launch {
-                                                delay(5000)
-                                                if (overlayState == OverlayState.QUICK_INFO) overlayState = OverlayState.NONE
-                                            }
-                                        }
-                                    }
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .width(280.dp)
-                                    .height(44.dp),
-                                color = if (isFavFocused) Color(0xFFFFD700) else Color.Transparent,
-                                border = if (isFavFocused) null else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f)),
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                        contentDescription = null,
-                                        tint = if (isFavFocused) Color.Black else (if (isFav) Color.Red else Color.White),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        text = if (isFav) "TA BORT FRÅN FAVORITER" else "LÄGG TILL I FAVORITER",
-                                        style = MaterialTheme.typography.labelLarge.copy(letterSpacing = 1.sp),
-                                        color = if (isFavFocused) Color.Black else Color.White,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    val categoryName = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title ?: ""
+                    Text(
+                        text = categoryName.uppercase(),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontWeight = FontWeight.Bold
+                    )
                     
-                    if (nextEpg != null) {
-                        Spacer(modifier = Modifier.width(32.dp))
-                        Box(
+                    Text(
+                        text = "${dateFormatter.format(Instant.now())}  ${timeFormatter.format(Instant.now())}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // Main Program Banner
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    color = Color.Black.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AsyncImage(
+                            model = media?.icon,
+                            contentDescription = null,
                             modifier = Modifier
-                                .width(1.dp)
-                                .height(80.dp)
-                                .background(Color.White.copy(alpha = 0.1f))
+                                .size(70.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.White.copy(alpha = 0.05f))
+                                .padding(8.dp),
+                            contentScale = ContentScale.Fit
                         )
-                        Spacer(modifier = Modifier.width(32.dp))
                         
-                        Column(modifier = Modifier.width(300.dp)) {
-                            val nextStart = timeFormatter.format(Instant.ofEpochSecond(nextEpg.startTimestamp ?: 0))
-                            val now = System.currentTimeMillis() / 1000
-                            val untilNextMin = ((nextEpg.startTimestamp ?: 0) - now) / 60
-                            
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "NÄSTA",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = Color.Gray,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = nextStart,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = media?.title ?: "",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White.copy(alpha = 0.7f)
+                            )
                             
                             Text(
-                                text = nextEpg.title ?: "",
+                                text = epg?.title ?: "Ingen information",
                                 style = MaterialTheme.typography.headlineSmall,
                                 color = Color.White,
+                                fontWeight = FontWeight.Black,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                             
-                            if (untilNextMin > 0) {
-                                Text(
-                                    text = "Börjar om $untilNextMin min",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.LightGray
-                                )
+                            if (epg != null) {
+                                val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
+                                val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
+                                val now = System.currentTimeMillis() / 1000
+                                val duration = (epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0)
+                                val elapsed = now - (epg.startTimestamp ?: 0)
+                                val remaining = (epg.stopTimestamp ?: 0) - now
+                                
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "$start - $stop",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.LightGray
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Box(modifier = Modifier.width(1.dp).height(12.dp).background(Color.Gray))
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = "${remaining / 60} min kvar",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                
+                                val progress = if (duration > 0) elapsed.toFloat() / duration.toFloat() else 0f
+                                if (progress in 0f..1f) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.White.copy(alpha = 0.1f))
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth(progress)
+                                                .fillMaxHeight()
+                                                .background(MaterialTheme.colorScheme.primary)
+                                        )
+                                    }
+                                }
                             }
                         }
+                        
+                        // Technical Tags (Mockup for now)
+                        Row(modifier = Modifier.padding(start = 16.dp)) {
+                            TechnicalTag("FHD")
+                            Spacer(modifier = Modifier.width(4.dp))
+                            TechnicalTag("50FPS")
+                            Spacer(modifier = Modifier.width(4.dp))
+                            TechnicalTag("2.0")
+                        }
+                    }
+                }
+
+                // Action Row
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ActionButton(
+                        icon = Icons.Default.Menu,
+                        label = "TV-guide",
+                        focusRequester = tvGuideFocusRequester,
+                        onFocus = { infoJob?.cancel() },
+                        onBlur = { 
+                            infoJob = scope.launch {
+                                delay(8000)
+                                if (overlayState == OverlayState.QUICK_INFO) overlayState = OverlayState.NONE
+                            }
+                        },
+                        onClick = {
+                            if (media != null) scope.launch { viewModel.getFullEpgForId(media.id) }
+                            overlayState = OverlayState.EPG_INFO
+                        }
+                    )
+                    
+                    val isFav = media?.let { m -> favorites.any { it.id == m.id } } ?: false
+                    ActionButton(
+                        icon = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        label = "Favorit",
+                        focusRequester = favoriteButtonFocusRequester,
+                        onFocus = { infoJob?.cancel() },
+                        onBlur = { 
+                            infoJob = scope.launch {
+                                delay(8000)
+                                if (overlayState == OverlayState.QUICK_INFO) overlayState = OverlayState.NONE
+                            }
+                        },
+                        onClick = {
+                            media?.let { viewModel.toggleFavorite(it) }
+                        }
+                    )
+
+                    // Recent Channels
+                    history.forEachIndexed { index, historyItem ->
+                        RecentChannelButton(
+                            item = historyItem,
+                            focusRequester = recentChannelsFocusRequesters.getOrPut(historyItem.id) { FocusRequester() },
+                            onFocus = { infoJob?.cancel() },
+                            onBlur = { 
+                                infoJob = scope.launch {
+                                    delay(8000)
+                                    if (overlayState == OverlayState.QUICK_INFO) overlayState = OverlayState.NONE
+                                }
+                            },
+                            onClick = {
+                                overlayState = OverlayState.NONE
+                                onMediaSelected(historyItem)
+                            }
+                        )
                     }
                 }
             }
@@ -1347,6 +1375,116 @@ fun PlayerScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun TechnicalTag(text: String) {
+    Surface(
+        color = Color.White.copy(alpha = 0.15f),
+        shape = RoundedCornerShape(4.dp)
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White.copy(alpha = 0.8f),
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+fun ActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    focusRequester: FocusRequester,
+    onFocus: () -> Unit,
+    onBlur: () -> Unit,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .width(140.dp)
+            .height(80.dp)
+            .focusRequester(focusRequester)
+            .onFocusChanged { 
+                isFocused = it.isFocused
+                if (it.isFocused) onFocus() else onBlur()
+            },
+        color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.5f),
+        contentColor = if (isFocused) Color.Black else Color.White,
+        shape = RoundedCornerShape(8.dp),
+        border = if (isFocused) null else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(text = label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun RecentChannelButton(
+    item: MediaSource,
+    focusRequester: FocusRequester,
+    onFocus: () -> Unit,
+    onBlur: () -> Unit,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .width(120.dp)
+            .height(80.dp)
+            .focusRequester(focusRequester)
+            .onFocusChanged { 
+                isFocused = it.isFocused
+                if (it.isFocused) onFocus() else onBlur()
+            },
+        color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.5f),
+        contentColor = if (isFocused) Color.Black else Color.White,
+        shape = RoundedCornerShape(8.dp),
+        border = if (isFocused) null else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = item.icon,
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .alpha(if (isFocused) 0.3f else 0.6f)
+                    .padding(12.dp),
+                contentScale = ContentScale.Fit
+            )
+            
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(4.dp),
+                verticalArrangement = Arrangement.Bottom,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = item.title ?: "",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
             }
         }
     }

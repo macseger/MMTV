@@ -103,6 +103,16 @@ fun PlayerScreen(
     var seekJob by remember { mutableStateOf<Job?>(null) }
     var infoJob by remember { mutableStateOf<Job?>(null) }
 
+    val resetAutoHideTimer = {
+        infoJob?.cancel()
+        infoJob = scope.launch {
+            delay(8000)
+            if (overlayState == OverlayState.QUICK_INFO) {
+                overlayState = OverlayState.NONE
+            }
+        }
+    }
+
     var lastCenterClickTime by remember { mutableLongStateOf(0L) }
     val doubleClickTimeout = 650L
 
@@ -318,11 +328,7 @@ fun PlayerScreen(
                 }
             }
             OverlayState.QUICK_INFO -> {
-                infoJob?.cancel()
-                infoJob = scope.launch {
-                    delay(8000)
-                    if (overlayState == OverlayState.QUICK_INFO) overlayState = OverlayState.NONE
-                }
+                resetAutoHideTimer()
                 // Focus the first action button by default or stay on current
                 scope.launch {
                     delay(100)
@@ -406,6 +412,7 @@ fun PlayerScreen(
             .background(Color.Black)
             .onKeyEvent { keyEvent ->
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                    if (overlayState == OverlayState.QUICK_INFO) resetAutoHideTimer()
                     val isRepeat = keyEvent.nativeKeyEvent.repeatCount > 0
                     if (isRepeat) {
                         lastKeyDownTime = System.currentTimeMillis()
@@ -998,12 +1005,7 @@ fun PlayerScreen(
                         label = "TV-guide",
                         focusRequester = tvGuideFocusRequester,
                         onFocus = { infoJob?.cancel() },
-                        onBlur = { 
-                            infoJob = scope.launch {
-                                delay(8000)
-                                if (overlayState == OverlayState.QUICK_INFO) overlayState = OverlayState.NONE
-                            }
-                        },
+                        onBlur = { resetAutoHideTimer() },
                         onClick = {
                             if (media != null) scope.launch { viewModel.getFullEpgForId(media.id) }
                             overlayState = OverlayState.EPG_INFO
@@ -1016,12 +1018,7 @@ fun PlayerScreen(
                         label = "Favorit",
                         focusRequester = favoriteButtonFocusRequester,
                         onFocus = { infoJob?.cancel() },
-                        onBlur = { 
-                            infoJob = scope.launch {
-                                delay(8000)
-                                if (overlayState == OverlayState.QUICK_INFO) overlayState = OverlayState.NONE
-                            }
-                        },
+                        onBlur = { resetAutoHideTimer() },
                         onClick = {
                             media?.let { viewModel.toggleFavorite(it) }
                         }
@@ -1033,12 +1030,7 @@ fun PlayerScreen(
                             item = historyItem,
                             focusRequester = recentChannelsFocusRequesters.getOrPut(historyItem.id) { FocusRequester() },
                             onFocus = { infoJob?.cancel() },
-                            onBlur = { 
-                                infoJob = scope.launch {
-                                    delay(8000)
-                                    if (overlayState == OverlayState.QUICK_INFO) overlayState = OverlayState.NONE
-                                }
-                            },
+                            onBlur = { resetAutoHideTimer() },
                             onClick = {
                                 overlayState = OverlayState.NONE
                                 onMediaSelected(historyItem)
@@ -1096,7 +1088,7 @@ fun PlayerScreen(
                                 .background(Color.Black.copy(alpha = 0.95f))
                                 .padding(vertical = 16.dp)
                         ) {
-                            itemsIndexed(categories) { index, category ->
+                            itemsIndexed(categories, key = { index, category -> category.categoryId ?: "cat_$index" }) { index, category ->
                                 val isSelected = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title == category.title
                                 CategoryListItem(
                                     title = category.title ?: "",
@@ -1146,16 +1138,11 @@ fun PlayerScreen(
                             state = channelListState,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            itemsIndexed(playlist) { index, item ->
+                            itemsIndexed(playlist, key = { _, item -> item.id }) { index, item ->
                                 ChannelListItem(
                                     item = item,
                                     isSelected = item.id == media?.id,
-                                    epg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
-                                        value = viewModel.getEpgForId(item.id)
-                                    }.value,
-                                    nextEpg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
-                                        value = viewModel.getNextEpgForId(item.id)
-                                    }.value,
+                                    viewModel = viewModel,
                                     modifier = Modifier
                                         .focusRequester(channelFocusRequesters.getOrPut(item.id) { FocusRequester() })
                                         .onFocusChanged { if (it.isFocused) focusedChannel = item }
@@ -1206,7 +1193,7 @@ fun PlayerScreen(
                                     modifier = Modifier.padding(bottom = 12.dp)
                                 )
                                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                                    itemsIndexed(upcomingEpg) { idx, epg ->
+                                    itemsIndexed(upcomingEpg, key = { _, epg -> "${epg.id}_${epg.startTimestamp}" }) { idx, epg ->
                                         MiniProgramGuideItem(
                                             epg = epg,
                                             isCurrent = idx == 0 && (epg.startTimestamp ?: 0) <= now
@@ -1290,7 +1277,7 @@ fun PlayerScreen(
                                 modifier = Modifier
                                     .fillMaxSize()
                             ) {
-                                itemsIndexed(futureEpg) { index, epg ->
+                                itemsIndexed(futureEpg, key = { _, epg -> "${epg.id}_${epg.startTimestamp}" }) { index, epg ->
                                     var isItemFocused by remember { mutableStateOf(false) }
                                     val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
                                     val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
@@ -1365,7 +1352,7 @@ fun PlayerScreen(
                                     overlayState = OverlayState.NONE
                                 })
                             }
-                            itemsIndexed(availableSubtitles) { index, group ->
+                            itemsIndexed(availableSubtitles, key = { index, _ -> index }) { index, group ->
                                 val trackName = group.getTrackFormat(0).language ?: "Spår ${index + 1}"
                                 SubtitleOptionItem(label = trackName.uppercase(), isSelected = exoPlayer.currentTracks.isTypeSelected(C.TRACK_TYPE_TEXT) && group.isSelected, modifier = Modifier.focusRequester(subtitleFocusRequesters.getOrPut(index + 1) { FocusRequester() }), onClick = {
                                     exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0)).setDisabledTrackTypes(emptySet()).build()
@@ -1543,10 +1530,18 @@ fun CategoryListItem(title: String, isSelected: Boolean, modifier: Modifier = Mo
 }
 
 @Composable
-fun ChannelListItem(item: MediaSource, isSelected: Boolean, epg: EpgListing?, onClick: () -> Unit, modifier: Modifier = Modifier, nextEpg: EpgListing? = null) {
+fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaViewModel, onClick: () -> Unit, modifier: Modifier = Modifier) {
     var hasFocus by remember { mutableStateOf(false) }
     val formatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
+    val epg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
+        value = viewModel.getEpgForId(item.id)
+    }.value
+    
+    val nextEpg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
+        value = viewModel.getNextEpgForId(item.id)
+    }.value
+
     val backgroundColor by animateColorAsState(
         targetValue = when {
             hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)

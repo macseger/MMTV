@@ -336,6 +336,10 @@ fun PlayerScreen(
                     val index = playlist.indexOfFirst { it.id == media?.id }.coerceAtLeast(0)
                     channelListState.scrollToItem(index)
                     delay(150)
+                    // Ensure focusedChannel matches the current media when opening the list
+                    if (media != null) {
+                        focusedChannel = media
+                    }
                     channelFocusRequesters[playlist.getOrNull(index)?.id ?: -1]?.safeFocus()
                 }
             }

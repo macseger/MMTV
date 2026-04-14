@@ -110,6 +110,11 @@ fun PlayerScreen(
     val subtitleListState = rememberLazyListState()
     val epgListState = rememberLazyListState()
     
+    // Helper for safe focus
+    fun FocusRequester.safeFocus() {
+        runCatching { this.requestFocus() }
+    }
+
     val mainFocusRequester = remember { FocusRequester() }
     val epgFocusRequester = remember { FocusRequester() }
     val subtitleIconFocusRequester = remember { FocusRequester() }
@@ -287,15 +292,19 @@ fun PlayerScreen(
         when (overlayState) {
             OverlayState.CATEGORIES -> {
                 val currentCategoryIndex = viewModel.lastLiveCategoryIndex.coerceAtLeast(0)
-                categoryListState.scrollToItem(currentCategoryIndex)
-                delay(100)
-                categoryFocusRequesters[currentCategoryIndex]?.requestFocus()
+                if (categories.isNotEmpty()) {
+                    categoryListState.scrollToItem(currentCategoryIndex)
+                    delay(150) // Ökad delay för stabilitet
+                    categoryFocusRequesters[currentCategoryIndex]?.safeFocus()
+                }
             }
             OverlayState.CHANNELS -> {
-                val index = playlist.indexOfFirst { it.id == media?.id }.coerceAtLeast(0)
-                channelListState.scrollToItem(index)
-                delay(100)
-                channelFocusRequesters[playlist.getOrNull(index)?.id ?: -1]?.requestFocus()
+                if (playlist.isNotEmpty()) {
+                    val index = playlist.indexOfFirst { it.id == media?.id }.coerceAtLeast(0)
+                    channelListState.scrollToItem(index)
+                    delay(150)
+                    channelFocusRequesters[playlist.getOrNull(index)?.id ?: -1]?.safeFocus()
+                }
             }
             OverlayState.QUICK_INFO -> {
                 infoJob?.cancel()
@@ -305,16 +314,19 @@ fun PlayerScreen(
                 }
             }
             OverlayState.SUBTITLES -> {
-                delay(50)
-                subtitleFocusRequesters[0]?.requestFocus()
+                delay(100)
+                subtitleFocusRequesters[0]?.safeFocus()
             }
             OverlayState.EPG_INFO -> {
-                delay(50)
+                delay(100)
                 if (media != null && viewModel.getFullEpgForId(media.id).isNotEmpty()) {
-                    epgFocusRequester.requestFocus()
+                    epgFocusRequester.safeFocus()
                 }
             }
-            else -> { mainFocusRequester.requestFocus() }
+            else -> { 
+                delay(50)
+                mainFocusRequester.safeFocus() 
+            }
         }
     }
 
@@ -386,112 +398,119 @@ fun PlayerScreen(
                     
                     when (keyEvent.nativeKeyEvent.keyCode) {
                         KeyEvent.KEYCODE_DPAD_UP -> {
-                            if (overlayState == OverlayState.NONE) {
-                                if (showNextEpisodeButton) {
-                                    nextEpisodeButtonFocusRequester.requestFocus()
-                                    true
-                                } else if (media?.type != MediaType.LIVE) {
-                                    if (!showSeekFeedback) {
-                                        showSeekFeedback = true
-                                        seekJob?.cancel()
-                                        seekJob = scope.launch {
-                                            delay(5000)
-                                            showSeekFeedback = false
+                            when (overlayState) {
+                                OverlayState.NONE -> {
+                                    if (showNextEpisodeButton) {
+                                        nextEpisodeButtonFocusRequester.safeFocus()
+                                        true
+                                    } else if (media?.type != MediaType.LIVE) {
+                                        if (!showSeekFeedback) {
+                                            showSeekFeedback = true
+                                            seekJob?.cancel()
+                                            seekJob = scope.launch { delay(5000); showSeekFeedback = false }
                                         }
-                                    }
-                                    subtitleIconFocusRequester.requestFocus()
+                                        subtitleIconFocusRequester.safeFocus()
+                                        true
+                                    } else false
+                                }
+                                OverlayState.QUICK_INFO -> {
+                                    favoriteButtonFocusRequester.safeFocus()
                                     true
-                                } else false
-                            } else if (overlayState == OverlayState.QUICK_INFO) {
-                                favoriteButtonFocusRequester.requestFocus()
-                                true
-                            } else false
+                                }
+                                else -> false
+                            }
                         }
                         KeyEvent.KEYCODE_DPAD_DOWN -> {
-                            if (overlayState == OverlayState.NONE) {
-                                overlayState = OverlayState.SUBTITLES
-                                true
-                            } else if (overlayState == OverlayState.QUICK_INFO) {
-                                favoriteButtonFocusRequester.requestFocus()
-                                true
-                            } else false
+                            when (overlayState) {
+                                OverlayState.NONE -> {
+                                    overlayState = OverlayState.SUBTITLES
+                                    true
+                                }
+                                OverlayState.QUICK_INFO -> {
+                                    favoriteButtonFocusRequester.safeFocus()
+                                    true
+                                }
+                                else -> false
+                            }
                         }
                         KeyEvent.KEYCODE_DPAD_LEFT -> {
-                            if (overlayState == OverlayState.NONE) {
-                                if (media?.type == MediaType.LIVE) overlayState = OverlayState.CHANNELS
-                                else {
-                                    if (isRepeat) performSeek(-10000L, true) // Mjukare vid långtryck (10s steg)
-                                    else performSeek(-10000L) // 10 sek per klick istället för 1 min för bättre precision
+                            when (overlayState) {
+                                OverlayState.NONE -> {
+                                    if (media?.type == MediaType.LIVE) {
+                                        overlayState = OverlayState.CHANNELS
+                                    } else {
+                                        if (isRepeat) performSeek(-10000L, true)
+                                        else performSeek(-10000L)
+                                    }
+                                    true
                                 }
-                                true
-                            } else if (overlayState == OverlayState.CHANNELS) {
-                                overlayState = OverlayState.CATEGORIES
-                                true
-                            } else false
+                                OverlayState.CHANNELS -> {
+                                    overlayState = OverlayState.CATEGORIES
+                                    true
+                                }
+                                else -> false
+                            }
                         }
                         KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                            if (overlayState == OverlayState.NONE) {
-                                if (media?.type != MediaType.LIVE) {
-                                    if (isRepeat) performSeek(10000L, true) // Mjukare vid långtryck (10s steg)
-                                    else performSeek(10000L) // 10 sek per klick
+                            when (overlayState) {
+                                OverlayState.NONE -> {
+                                    if (media?.type != MediaType.LIVE) {
+                                        if (isRepeat) performSeek(10000L, true)
+                                        else performSeek(10000L)
+                                    } else {
+                                        overlayState = OverlayState.SUBTITLES
+                                    }
+                                    true
                                 }
-                                else overlayState = OverlayState.SUBTITLES
-                                true
-                            } else if (overlayState == OverlayState.CATEGORIES) {
-                                overlayState = OverlayState.CHANNELS
-                                true
-                            } else if (overlayState == OverlayState.CHANNELS) {
-                                overlayState = OverlayState.NONE
-                                true
-                            } else false
+                                OverlayState.CATEGORIES -> {
+                                    overlayState = OverlayState.CHANNELS
+                                    true
+                                }
+                                OverlayState.CHANNELS -> {
+                                    overlayState = OverlayState.NONE
+                                    true
+                                }
+                                else -> false
+                            }
                         }
                         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                             if (showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE) {
                                 onPlayNextEpisode(nextEpisode)
                                 true
-                            } else if (overlayState == OverlayState.NONE) {
-                                if (media?.type == MediaType.LIVE) {
-                                    val currentTime = System.currentTimeMillis()
-                                    if (currentTime - lastCenterClickTime < doubleClickTimeout) {
-                                        if (media != null) {
-                                            scope.launch { viewModel.getFullEpgForId(media.id) }
+                            } else {
+                                when (overlayState) {
+                                    OverlayState.NONE -> {
+                                        if (media?.type == MediaType.LIVE) {
+                                            val currentTime = System.currentTimeMillis()
+                                            if (currentTime - lastCenterClickTime < doubleClickTimeout) {
+                                                if (media != null) scope.launch { viewModel.getFullEpgForId(media.id) }
+                                                overlayState = OverlayState.EPG_INFO
+                                            } else {
+                                                overlayState = OverlayState.QUICK_INFO
+                                            }
+                                            lastCenterClickTime = currentTime
+                                        } else {
+                                            if (exoPlayer.isPlaying) {
+                                                exoPlayer.pause()
+                                                isPlaying = false
+                                            } else {
+                                                exoPlayer.play()
+                                                isPlaying = true
+                                            }
+                                            showSeekFeedback = true
+                                            seekJob?.cancel()
+                                            seekJob = scope.launch { delay(3000); showSeekFeedback = false }
                                         }
+                                        true
+                                    }
+                                    OverlayState.QUICK_INFO -> {
+                                        if (media != null) scope.launch { viewModel.getFullEpgForId(media.id) }
                                         overlayState = OverlayState.EPG_INFO
-                                    } else {
-                                        overlayState = OverlayState.QUICK_INFO
+                                        true
                                     }
-                                    lastCenterClickTime = currentTime
-                                } else {
-                                    // För VOD, toggla Play/Pause
-                                    if (exoPlayer.isPlaying) {
-                                        exoPlayer.pause()
-                                        isPlaying = false
-                                    } else {
-                                        exoPlayer.play()
-                                        isPlaying = true
-                                    }
-                                    // Visa tidsstapeln kort vid paus/play
-                                    showSeekFeedback = true
-                                    seekJob?.cancel()
-                                    seekJob = scope.launch {
-                                        delay(3000)
-                                        showSeekFeedback = false
-                                    }
+                                    else -> false
                                 }
-                                true
-                            } else if (overlayState == OverlayState.QUICK_INFO) {
-                                if (media != null) {
-                                    scope.launch { viewModel.getFullEpgForId(media.id) }
-                                }
-                                overlayState = OverlayState.EPG_INFO
-                                true
-                            } else if (overlayState == OverlayState.NONE) {
-                                // Mittenklick i TV-läge när ingen overlay syns -> Visa QUICK_INFO (som nu har favorit-knapp)
-                                if (media != null) {
-                                    overlayState = OverlayState.QUICK_INFO
-                                    true
-                                } else false
-                            } else false
+                            }
                         }
                         KeyEvent.KEYCODE_PROG_RED, 183 -> { // 183 är ofta röd knapp på Android TV
                             if (media != null) {

@@ -27,6 +27,7 @@ fun TopBar(
     onNavigate: (String) -> Unit,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
+    onLiveTvClick: () -> Unit = { onNavigate("live") },
     modifier: Modifier = Modifier,
     homeFocusRequester: FocusRequester? = null,
     liveTvFocusRequester: FocusRequester? = null
@@ -88,7 +89,7 @@ fun TopBar(
                     modifier = if (liveTvFocusRequester != null) Modifier.focusRequester(liveTvFocusRequester) else Modifier
                 ) {
                     focusedItem = "live"
-                    onNavigate("live")
+                    onLiveTvClick()
                 }
                 TopBarItem("FILMER", Icons.Default.Movie, focusedItem == "movies") {
                     focusedItem = "movies"

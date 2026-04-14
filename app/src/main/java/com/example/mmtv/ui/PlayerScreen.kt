@@ -272,17 +272,14 @@ fun PlayerScreen(
             }
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
-                if (playing) {
-                    videoFormat = exoPlayer.videoFormat
-                    audioFormat = exoPlayer.audioFormat
-                }
+                videoFormat = exoPlayer.videoFormat
+                audioFormat = exoPlayer.audioFormat
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
-                if (playbackState == Player.STATE_READY) {
-                    videoFormat = exoPlayer.videoFormat
-                    audioFormat = exoPlayer.audioFormat
-                }
+                videoFormat = exoPlayer.videoFormat
+                audioFormat = exoPlayer.audioFormat
+                
                 if (playbackState == Player.STATE_ENDED) {
                     if (isSeries && nextEpisode != null && sessionManager.getAutoPlayNext()) {
                         onPlayNextEpisode(nextEpisode)
@@ -872,8 +869,12 @@ fun PlayerScreen(
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            val epg = produceState<EpgListing?>(initialValue = null, key1 = media?.id) {
-                value = viewModel.getEpgForId(media?.id ?: 0)
+            val epg = produceState<EpgListing?>(initialValue = null, media?.id, overlayState) {
+                if (media != null && media.type == MediaType.LIVE) {
+                    value = viewModel.getEpgForId(media.id, media.title, media.epgId)
+                } else {
+                    value = null
+                }
             }.value
             
             val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
@@ -1005,7 +1006,8 @@ fun PlayerScreen(
                             videoFormat!!.height >= 720 -> "HD"
                             else -> "SD"
                         }
-                        val fps = if (videoFormat != null && videoFormat!!.frameRate > 0) "${videoFormat!!.frameRate.toInt()}FPS" else ""
+                        val fpsVal = videoFormat?.frameRate ?: 0f
+                        val fps = if (fpsVal > 0) "${fpsVal.toInt()}FPS" else ""
                         val audio = if (audioFormat != null && audioFormat!!.channelCount > 0) {
                             if (audioFormat!!.channelCount >= 6) "5.1" else "2.0"
                         } else ""

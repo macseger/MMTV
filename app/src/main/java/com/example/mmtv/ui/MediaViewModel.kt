@@ -348,65 +348,65 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
         }
     }
 
-    suspend fun getEpgForId(streamId: Int, channelName: String? = null): EpgListing? = withContext(Dispatchers.IO) {
-        val epgId = channelToEpgMap[streamId]
+    suspend fun getEpgForId(streamId: Int, channelName: String? = null, epgId: String? = null): EpgListing? = withContext(Dispatchers.IO) {
+        val finalEpgId = epgId ?: channelToEpgMap[streamId]
         val now = System.currentTimeMillis() / 1000
-        if (epgId != null) {
-            val cached = fullEpgData[epgId]
+        if (finalEpgId != null) {
+            val cached = fullEpgData[finalEpgId]
             if (cached != null) {
                 return@withContext cached.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
             }
         }
-        val fullEpg = _repository.getEpgForChannel(epgId, channelName)
+        val fullEpg = _repository.getEpgForChannel(finalEpgId, channelName)
         if (fullEpg.isNotEmpty()) {
-            val finalEpgId = epgId ?: fullEpg.first().epgId ?: channelName ?: "unknown"
+            val actualEpgId = finalEpgId ?: fullEpg.first().epgId ?: channelName ?: "unknown"
             withContext(Dispatchers.Main) {
                 if (fullEpgData.size > 50) {
                     val firstKey = fullEpgData.keys.first()
                     fullEpgData.remove(firstKey)
                 }
-                fullEpgData[finalEpgId] = fullEpg
+                fullEpgData[actualEpgId] = fullEpg
             }
             return@withContext fullEpg.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
         }
         null
     }
 
-    suspend fun getFullEpgForId(streamId: Int, channelName: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {
-        val epgId = channelToEpgMap[streamId]
-        if (epgId != null) {
-            val cached = fullEpgData[epgId]
+    suspend fun getFullEpgForId(streamId: Int, channelName: String? = null, epgId: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {
+        val finalEpgId = epgId ?: channelToEpgMap[streamId]
+        if (finalEpgId != null) {
+            val cached = fullEpgData[finalEpgId]
             if (cached != null) return@withContext cached
         }
         
-        val fullEpg = _repository.getEpgForChannel(epgId, channelName)
+        val fullEpg = _repository.getEpgForChannel(finalEpgId, channelName)
         if (fullEpg.isNotEmpty()) {
-            val finalEpgId = epgId ?: fullEpg.first().epgId ?: channelName ?: "unknown"
+            val actualEpgId = finalEpgId ?: fullEpg.first().epgId ?: channelName ?: "unknown"
             withContext(Dispatchers.Main) {
                 if (fullEpgData.size > 50) {
                     val firstKey = fullEpgData.keys.first()
                     fullEpgData.remove(firstKey)
                 }
-                fullEpgData[finalEpgId] = fullEpg
+                fullEpgData[actualEpgId] = fullEpg
             }
         }
         fullEpg
     }
 
-    suspend fun getNextEpgForId(streamId: Int, channelName: String? = null): EpgListing? = withContext(Dispatchers.IO) {
-        val epgId = channelToEpgMap[streamId]
+    suspend fun getNextEpgForId(streamId: Int, channelName: String? = null, epgId: String? = null): EpgListing? = withContext(Dispatchers.IO) {
+        val finalEpgId = epgId ?: channelToEpgMap[streamId]
         val now = System.currentTimeMillis() / 1000
-        var channelList = epgId?.let { fullEpgData[it] }
+        var channelList = finalEpgId?.let { fullEpgData[it] }
         if (channelList == null) {
-             val dbEpg = _repository.getEpgForChannel(epgId, channelName)
+             val dbEpg = _repository.getEpgForChannel(finalEpgId, channelName)
              if (dbEpg.isNotEmpty()) {
-                 val finalEpgId = epgId ?: dbEpg.first().epgId ?: channelName ?: "unknown"
+                 val actualEpgId = finalEpgId ?: dbEpg.first().epgId ?: channelName ?: "unknown"
                  withContext(Dispatchers.Main) {
                     if (fullEpgData.size > 50) {
                         val firstKey = fullEpgData.keys.first()
                         fullEpgData.remove(firstKey)
                     }
-                    fullEpgData[finalEpgId] = dbEpg
+                    fullEpgData[actualEpgId] = dbEpg
                  }
                  channelList = dbEpg
              }

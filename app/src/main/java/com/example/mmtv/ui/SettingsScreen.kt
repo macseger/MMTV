@@ -3,7 +3,6 @@ package com.example.mmtv.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,23 +15,44 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.mmtv.api.SessionManager
+import com.example.mmtv.R
 
 @Composable
-fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, onLogout: () -> Unit) {
-    val loginInfo = sessionManager.getLogin()
+fun SettingsScreen(
+    username: String,
+    host: String,
+    autoPlayEnabled: Boolean,
+    isUpdating: Boolean,
+    onLogout: () -> Unit,
+    onRefreshLibrary: () -> Unit,
+    onOptimizeLibrary: () -> Unit,
+    onClearFavorites: () -> Unit,
+    onClearHistory: () -> Unit,
+    onToggleAutoPlay: (Boolean) -> Unit
+) {
     val firstButtonFocusRequester = remember { FocusRequester() }
-    var autoPlay by remember { mutableStateOf(sessionManager.getAutoPlayNext()) }
+    
+    var showConfirmDialog by remember { mutableStateOf(false) }
+    var confirmTitle by remember { mutableIntStateOf(0) }
+    var confirmMessage by remember { mutableIntStateOf(0) }
+    var onConfirmAction by remember { mutableStateOf({}) }
+
+    fun requestConfirm(titleRes: Int, messageRes: Int, action: () -> Unit) {
+        confirmTitle = titleRes
+        confirmMessage = messageRes
+        onConfirmAction = action
+        showConfirmDialog = true
+    }
 
     LaunchedEffect(Unit) {
         firstButtonFocusRequester.requestFocus()
@@ -49,7 +69,7 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
         ) {
             item {
                 Text(
-                    "INSTÄLLNINGAR",
+                    stringResource(R.string.settings_title),
                     style = MaterialTheme.typography.headlineMedium.copy(
                         fontWeight = FontWeight.ExtraLight,
                         letterSpacing = 8.sp
@@ -59,79 +79,91 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
                 Spacer(modifier = Modifier.height(48.dp))
             }
 
-            item { SectionHeader("Innehåll") }
+            item { SectionHeader(stringResource(R.string.section_content)) }
 
             item {
                 SettingsAction(
-                    title = "Uppdatera bibliotek",
-                    subtitle = "Hämta de senaste filmerna, kanalerna & picons",
+                    title = stringResource(R.string.refresh_library),
+                    subtitle = stringResource(R.string.refresh_library_sub),
                     icon = Icons.Default.Refresh,
                     modifier = Modifier.focusRequester(firstButtonFocusRequester),
-                    onClick = { viewModel.refreshDataManually() }
+                    onClick = onRefreshLibrary
                 )
             }
 
             item {
                 SettingsAction(
-                    title = "Optimera biblioteket",
-                    subtitle = "Hämta och synka rich-metadata (bilder/beskrivningar)",
+                    title = stringResource(R.string.optimize_library),
+                    subtitle = stringResource(R.string.optimize_library_sub),
                     icon = Icons.Default.AutoFixHigh,
-                    onClick = { viewModel.performOptimization() }
+                    isLoading = isUpdating,
+                    onClick = onOptimizeLibrary
                 )
             }
 
             item {
                 SettingsAction(
-                    title = "Ta bort favoriter",
-                    subtitle = "Rensa alla dina sparade favoriter",
+                    title = stringResource(R.string.delete_favorites),
+                    subtitle = stringResource(R.string.delete_favorites_sub),
                     icon = Icons.Default.DeleteForever,
                     isDestructive = true,
-                    onClick = { viewModel.clearAllFavorites() }
-                )
-            }
-
-            item {
-                SettingsAction(
-                    title = "Töm historiken",
-                    subtitle = "Rensa listan över senast sedda",
-                    icon = Icons.Default.History,
-                    isDestructive = true,
-                    onClick = { viewModel.clearHistory() }
-                )
-            }
-
-            item { SectionHeader("Uppspelning") }
-
-            item {
-                SettingsAction(
-                    title = "Spela nästa avsnitt automatiskt",
-                    subtitle = "Föreslå och starta nästa avsnitt i serier",
-                    icon = if (autoPlay) Icons.Default.PlayCircleFilled else Icons.Default.PlayCircleOutline,
-                    value = if (autoPlay) "PÅ" else "AV",
                     onClick = {
-                        autoPlay = !autoPlay
-                        sessionManager.setAutoPlayNext(autoPlay)
+                        requestConfirm(
+                            R.string.confirm_title,
+                            R.string.confirm_delete_favorites,
+                            onClearFavorites
+                        )
                     }
                 )
             }
 
-            item { SectionHeader("System") }
+            item {
+                SettingsAction(
+                    title = stringResource(R.string.clear_history),
+                    subtitle = stringResource(R.string.clear_history_sub),
+                    icon = Icons.Default.History,
+                    isDestructive = true,
+                    onClick = {
+                        requestConfirm(
+                            R.string.confirm_title,
+                            R.string.confirm_clear_history,
+                            onClearHistory
+                        )
+                    }
+                )
+            }
+
+            item { SectionHeader(stringResource(R.string.section_playback)) }
 
             item {
-                val username = loginInfo?.second ?: "Okänd"
                 SettingsAction(
-                    title = "Logga ut $username",
-                    subtitle = "Byt användare eller server (${loginInfo?.first ?: ""})",
+                    title = stringResource(R.string.autoplay_next),
+                    subtitle = stringResource(R.string.autoplay_next_sub),
+                    icon = if (autoPlayEnabled) Icons.Default.PlayCircleFilled else Icons.Default.PlayCircleOutline,
+                    value = if (autoPlayEnabled) stringResource(R.string.on) else stringResource(R.string.off),
+                    onClick = { onToggleAutoPlay(!autoPlayEnabled) }
+                )
+            }
+
+            item { SectionHeader(stringResource(R.string.section_system)) }
+
+            item {
+                SettingsAction(
+                    title = stringResource(R.string.logout_user, username),
+                    subtitle = stringResource(R.string.logout_sub, host),
                     icon = Icons.AutoMirrored.Filled.Logout,
                     isDestructive = true,
                     onClick = {
-                        sessionManager.logout()
-                        onLogout()
+                        requestConfirm(
+                            R.string.confirm_title,
+                            R.string.confirm_logout,
+                            onLogout
+                        )
                     }
                 )
             }
 
-            item { SectionHeader("Om appen") }
+            item { SectionHeader(stringResource(R.string.section_about)) }
 
             item {
                 Surface(
@@ -144,13 +176,13 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Text(
-                            "Denna applikation är helt gratis, reklamfri och fri att använda för privat bruk.",
+                            stringResource(R.string.about_text),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color.White
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            "Jag tar dock gärna emot donationer om du uppskattar mitt arbete.",
+                            stringResource(R.string.donation_text),
                             style = MaterialTheme.typography.bodySmall,
                             color = Color.Gray
                         )
@@ -164,15 +196,50 @@ fun SettingsScreen(sessionManager: SessionManager, viewModel: MediaViewModel, on
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Favorite, null, tint = Color.Red, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Swish: 0790-16 15 14", style = MaterialTheme.typography.bodySmall, color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.swish_prefix) + "0790-16 15 14", style = MaterialTheme.typography.bodySmall, color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
         }
 
-        // Vi har tagit bort den stora isLoading-boxen härifrån för att undvika dubbla meddelanden.
-        // Status visas nu enhetligt via status-pillret uppe till höger som hanteras centralt.
+        if (showConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showConfirmDialog = false },
+                title = { Text(stringResource(confirmTitle), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Black) },
+                text = { Text(stringResource(confirmMessage), color = Color.White, style = MaterialTheme.typography.bodyLarge) },
+                containerColor = Color(0xFF1A1A1A),
+                shape = RoundedCornerShape(16.dp),
+                confirmButton = {
+                    var isFocused by remember { mutableStateOf(false) }
+                    Button(
+                        onClick = {
+                            onConfirmAction()
+                            showConfirmDialog = false
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isFocused) Color.Red else Color.Gray.copy(alpha = 0.2f),
+                            contentColor = if (isFocused) Color.White else Color.LightGray
+                        ),
+                        modifier = Modifier.onFocusChanged { isFocused = it.isFocused }
+                    ) {
+                        Text(stringResource(R.string.confirm_yes), fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    var isFocused by remember { mutableStateOf(false) }
+                    TextButton(
+                        onClick = { showConfirmDialog = false },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.Gray
+                        ),
+                        modifier = Modifier.onFocusChanged { isFocused = it.isFocused }
+                    ) {
+                        Text(stringResource(R.string.confirm_no), fontWeight = FontWeight.Bold)
+                    }
+                }
+            )
+        }
     }
 }
 
@@ -194,6 +261,7 @@ fun SettingsAction(
     icon: ImageVector,
     value: String? = null,
     isDestructive: Boolean = false,
+    isLoading: Boolean = false,
     onClick: () -> Unit
 ) {
     var hasFocus by remember { mutableStateOf(false) }
@@ -222,6 +290,7 @@ fun SettingsAction(
     )
 
     Surface(
+        onClick = onClick,
         modifier = modifier
             .widthIn(max = 600.dp)
             .fillMaxWidth()
@@ -230,11 +299,6 @@ fun SettingsAction(
                 scaleX = animatedScale
                 scaleY = animatedScale
             }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            )
             .padding(vertical = 4.dp),
         color = animatedBgColor,
         border = androidx.compose.foundation.BorderStroke(2.dp, animatedBorderColor),
@@ -244,16 +308,26 @@ fun SettingsAction(
             modifier = Modifier.padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                icon, 
-                null, 
-                tint = when {
-                    isDestructive -> Color.Red
-                    hasFocus -> MaterialTheme.colorScheme.primary
-                    else -> Color.Gray
-                }, 
-                modifier = Modifier.size(28.dp)
-            )
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(28.dp)) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    Icon(
+                        icon, 
+                        null, 
+                        tint = when {
+                            isDestructive -> Color.Red
+                            hasFocus -> MaterialTheme.colorScheme.primary
+                            else -> Color.Gray
+                        }, 
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
             Spacer(modifier = Modifier.width(24.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(

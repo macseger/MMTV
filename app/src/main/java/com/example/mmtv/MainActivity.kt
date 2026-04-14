@@ -350,11 +350,29 @@ class MainActivity : ComponentActivity() {
                                     }
 
                                     composable("settings") {
-                                        SettingsScreen(sessionManager, sharedViewModel) {
-                                            navController.navigate("login") {
-                                                popUpTo("login") { inclusive = true }
+                                        val loginInfo = sessionManager.getLogin()
+                                        var autoPlayEnabled by remember { mutableStateOf(sessionManager.getAutoPlayNext()) }
+                                        
+                                        SettingsScreen(
+                                            username = loginInfo?.second ?: "Okänd",
+                                            host = loginInfo?.first ?: "",
+                                            autoPlayEnabled = autoPlayEnabled,
+                                            isUpdating = sharedViewModel.isUpdatingBackground,
+                                            onLogout = {
+                                                sharedViewModel.logout()
+                                                navController.navigate("login") {
+                                                    popUpTo("login") { inclusive = true }
+                                                }
+                                            },
+                                            onRefreshLibrary = { sharedViewModel.refreshDataManually() },
+                                            onOptimizeLibrary = { sharedViewModel.performOptimization() },
+                                            onClearFavorites = { sharedViewModel.clearAllFavorites() },
+                                            onClearHistory = { sharedViewModel.clearHistory() },
+                                            onToggleAutoPlay = { enabled ->
+                                                autoPlayEnabled = enabled
+                                                sessionManager.setAutoPlayNext(enabled)
                                             }
-                                        }
+                                        )
                                     }
                                     
                                     composable("search") {

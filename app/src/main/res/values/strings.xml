@@ -1,3 +1,36 @@
 <resources>
     <string name="app_name">MMTV</string>
+    <string name="settings_title">INSTÄLLNINGAR</string>
+    <string name="section_content">Innehåll</string>
+    <string name="section_playback">Uppspelning</string>
+    <string name="section_system">System</string>
+    <string name="section_about">Om appen</string>
+
+    <string name="refresh_library">Uppdatera bibliotek</string>
+    <string name="refresh_library_sub">Hämta de senaste filmerna, kanalerna &amp; picons</string>
+    <string name="optimize_library">Optimera biblioteket</string>
+    <string name="optimize_library_sub">Hämta och synka rich-metadata (bilder/beskrivningar)</string>
+    <string name="delete_favorites">Ta bort favoriter</string>
+    <string name="delete_favorites_sub">Rensa alla dina sparade favoriter</string>
+    <string name="clear_history">Töm historiken</string>
+    <string name="clear_history_sub">Rensa listan över senast sedda</string>
+
+    <string name="autoplay_next">Spela nästa avsnitt automatiskt</string>
+    <string name="autoplay_next_sub">Föreslå och starta nästa avsnitt i serier</string>
+    <string name="on">PÅ</string>
+    <string name="off">AV</string>
+
+    <string name="logout_user">Logga ut %1$s</string>
+    <string name="logout_sub">Byt användare eller server (%1$s)</string>
+
+    <string name="about_text">Denna applikation är helt gratis, reklamfri och fri att använda för privat bruk.</string>
+    <string name="donation_text">Jag tar dock gärna emot donationer om du uppskattar mitt arbete.</string>
+    <string name="swish_prefix">Swish: </string>
+
+    <string name="confirm_title">Är du säker?</string>
+    <string name="confirm_delete_favorites">Vill du verkligen ta bort alla dina favoriter? Detta går inte att ångra.</string>
+    <string name="confirm_clear_history">Vill du verkligen tömma din historik?</string>
+    <string name="confirm_logout">Vill du logga ut från appen?</string>
+    <string name="confirm_yes">Ja, fortsätt</string>
+    <string name="confirm_no">Avbryt</string>
 </resources>

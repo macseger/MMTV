@@ -112,7 +112,8 @@ fun SearchScreen(
                     MediaCard(
                         media = media,
                         onClick = { onMediaSelected(media) },
-                        onToggleFavorite = { viewModel.toggleFavorite(media) }
+                        onToggleFavorite = { viewModel.toggleFavorite(media) },
+                        onGetIcon = { id, name -> viewModel.getIconForChannel(id, name) }
                     )
                 }
             }

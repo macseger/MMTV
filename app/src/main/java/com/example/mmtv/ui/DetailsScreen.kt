@@ -26,11 +26,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.Episode
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
+import kotlinx.coroutines.launch
 
 @Composable
 fun DetailsScreen(
@@ -80,11 +81,18 @@ fun DetailsScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        AsyncImage(
-            model = media.icon,
+        val bgIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon) {
+            if (value.isNullOrEmpty()) {
+                value = viewModel.repository.getIconForChannel(media.id.toString(), media.title)
+            }
+        }
+        
+        SubcomposeAsyncImage(
+            model = bgIcon,
             contentDescription = null,
             modifier = Modifier.fillMaxSize().alpha(0.2f),
-            contentScale = ContentScale.Crop
+            contentScale = ContentScale.Crop,
+            error = { Box(Modifier.fillMaxSize().background(Color.Black)) }
         )
         
         Box(modifier = Modifier.fillMaxSize().background(
@@ -104,11 +112,13 @@ fun DetailsScreen(
                         modifier = Modifier.width(260.dp).aspectRatio(0.7f),
                         elevation = CardDefaults.cardElevation(16.dp)
                     ) {
-                        AsyncImage(
-                            model = media.icon,
+                        SubcomposeAsyncImage(
+                            model = bgIcon,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Crop,
+                            loading = { Box(Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) },
+                            error = { ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = !isSeries) }
                         )
                     }
 
@@ -361,11 +371,12 @@ fun EpisodeItem(episode: Episode, onClick: () -> Unit) {
                     modifier = Modifier.size(width = 120.dp, height = 68.dp),
                     shape = MaterialTheme.shapes.small
                 ) {
-                    AsyncImage(
+                    SubcomposeAsyncImage(
                         model = episode.info?.icon,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        error = { Box(Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) }
                     )
                 }
                 Spacer(modifier = Modifier.width(16.dp))

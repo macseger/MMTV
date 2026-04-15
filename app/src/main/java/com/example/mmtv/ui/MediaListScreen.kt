@@ -242,7 +242,11 @@ fun MediaListScreen(
                             value = nextEpgProvider(media.id, media.title)
                         }.value
                         
-                        LiveDetailPane(media = media, currentEpg = currentEpg, nextEpg = nextEpg)
+                        val displayIcon = produceState<String?>(initialValue = media.icon, key1 = media.id) {
+                            value = onGetIcon(media.id, media.title)
+                        }.value
+                        
+                        LiveDetailPane(media = media, currentEpg = currentEpg, nextEpg = nextEpg, displayIcon = displayIcon)
                     }
                 }
             }
@@ -312,19 +316,20 @@ fun MediaListScreen(
 }
 
 @Composable
-fun LiveDetailPane(media: MediaSource, currentEpg: EpgListing?, nextEpg: EpgListing?) {
+fun LiveDetailPane(media: MediaSource, currentEpg: EpgListing?, nextEpg: EpgListing?, displayIcon: String? = null) {
     val formatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
     Column(modifier = Modifier.fillMaxSize()) {
-        AsyncImage(
-            model = media.icon,
+        SubcomposeAsyncImage(
+            model = displayIcon ?: media.icon,
             contentDescription = null,
             modifier = Modifier
                 .height(120.dp)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color.White.copy(alpha = 0.05f)),
-            contentScale = ContentScale.Fit
+            contentScale = ContentScale.Fit,
+            error = { ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize()) }
         )
         
         Spacer(modifier = Modifier.height(24.dp))
@@ -551,7 +556,13 @@ fun MediaCard(
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                     loading = { Box(Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) },
-                    error = { ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = true) }
+                    error = { 
+                        ChannelPlaceholder(
+                            media.title ?: "?", 
+                            Modifier.fillMaxSize(), 
+                            isMovie = media.type == MediaType.MOVIE || media.type == MediaType.SERIES
+                        ) 
+                    }
                 )
                 
                 if (media.isFavorite) {

@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -356,9 +357,11 @@ fun PlayerScreen(
                 subtitleFocusRequesters[0]?.safeFocus()
             }
             OverlayState.EPG_INFO -> {
-                delay(100)
-                if (media != null && viewModel.getFullEpgForId(media.id, media.title).isNotEmpty()) {
-                    epgFocusRequester.safeFocus()
+                if (media != null) {
+                    val currentEpg = viewModel.getFullEpgForId(media.id, media.title)
+                    if (currentEpg.isNotEmpty()) {
+                        // Vi väntar inte med delay(100) utan låter UI reagera på listan
+                    }
                 }
             }
             else -> { 
@@ -798,11 +801,12 @@ fun PlayerScreen(
                 ) {
                     // Miniatyr/Ikon för serien
                     Box(modifier = Modifier.size(86.dp).clip(RoundedCornerShape(8.dp))) {
-                        AsyncImage(
+                        SubcomposeAsyncImage(
                             model = media?.icon,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Crop,
+                            error = { Icon(Icons.Default.Movie, null, tint = Color.Gray, modifier = Modifier.padding(16.dp)) }
                         )
                         Box(
                             modifier = Modifier.fillMaxSize().background(
@@ -927,7 +931,7 @@ fun PlayerScreen(
                         modifier = Modifier.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        AsyncImage(
+                        SubcomposeAsyncImage(
                             model = media?.icon,
                             contentDescription = null,
                             modifier = Modifier
@@ -935,7 +939,8 @@ fun PlayerScreen(
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(Color.White.copy(alpha = 0.05f))
                                 .padding(8.dp),
-                            contentScale = ContentScale.Fit
+                            contentScale = ContentScale.Fit,
+                            error = { Icon(Icons.Default.Tv, null, tint = Color.Gray) }
                         )
                         
                         Spacer(modifier = Modifier.width(16.dp))
@@ -1257,6 +1262,13 @@ fun PlayerScreen(
                 value = viewModel.getIconForChannel(media.id, media.title)
             }.value
 
+            LaunchedEffect(fullEpg) {
+                if (fullEpg.isNotEmpty()) {
+                    delay(100)
+                    epgFocusRequester.safeFocus()
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1280,13 +1292,14 @@ fun PlayerScreen(
                 ) {
                     Column(modifier = Modifier.padding(24.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            AsyncImage(
+                            SubcomposeAsyncImage(
                                 model = ImageRequest.Builder(LocalContext.current)
                                     .data(piconUrl)
                                     .crossfade(true)
                                     .build(),
                                 contentDescription = null,
-                                modifier = Modifier.size(50.dp).clip(MaterialTheme.shapes.small)
+                                modifier = Modifier.size(50.dp).clip(MaterialTheme.shapes.small),
+                                error = { Icon(Icons.Default.Tv, null, tint = Color.Gray) }
                             )
                             Spacer(modifier = Modifier.width(16.dp))
                             Column {
@@ -1303,20 +1316,12 @@ fun PlayerScreen(
                         
                         if (fullEpg.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
-                                Text("Laddar programinfo...", color = Color.Gray) 
+                                CircularProgressIndicator()
                             }
                         } else {
                             val now = System.currentTimeMillis() / 1000
                             // Filtrera bort program som redan har slutat för att göra listan mer relevant
                             val futureEpg = remember(fullEpg) { fullEpg.filter { (it.stopTimestamp ?: 0) > now } }
-                            
-                            LaunchedEffect(futureEpg) {
-                                if (futureEpg.isNotEmpty()) {
-                                    epgListState.scrollToItem(0)
-                                    delay(100)
-                                    epgFocusRequester.requestFocus()
-                                }
-                            }
                             
                             LazyColumn(
                                 state = epgListState,
@@ -1616,7 +1621,7 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                 value = viewModel.getIconForChannel(item.id, item.title)
             }.value
 
-            AsyncImage(
+            SubcomposeAsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(piconUrl)
                     .crossfade(true)
@@ -1624,7 +1629,7 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                 contentDescription = null,
                 modifier = Modifier.size(56.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
                 contentScale = ContentScale.Fit,
-                error = painterResource(id = android.R.drawable.ic_menu_report_image)
+                error = { Icon(Icons.Default.Tv, null, tint = Color.Gray) }
             )
             
             Spacer(modifier = Modifier.width(16.dp))
@@ -1683,7 +1688,7 @@ fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: M
         Row(modifier = Modifier.padding(24.dp)) {
             // Channel Icon in Info Box
             if (channel != null) {
-                AsyncImage(
+                SubcomposeAsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(piconUrl ?: epg?.icon)
                         .crossfade(true)
@@ -1694,7 +1699,8 @@ fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: M
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color.White.copy(alpha = 0.05f))
                         .padding(8.dp),
-                    contentScale = ContentScale.Fit
+                    contentScale = ContentScale.Fit,
+                    error = { Icon(Icons.Default.Tv, null, tint = Color.Gray, modifier = Modifier.size(40.dp)) }
                 )
                 Spacer(modifier = Modifier.width(24.dp))
             }

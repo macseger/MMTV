@@ -20,6 +20,17 @@ class MediaRepository(
     private val gson = Gson()
     private val cacheDir = context.cacheDir
     private val epgParser = EpgParser()
+    private var piconFileCache: Set<String>? = null
+
+    private fun getPiconFileCache(): Set<String> {
+        val cache = piconFileCache
+        if (cache != null) return cache
+        
+        val piconsDir = File(context.filesDir, "picons")
+        val files = piconsDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
+        piconFileCache = files
+        return files
+    }
 
     suspend fun getLiveCategories(user: String, pass: String, forceRefresh: Boolean = false): List<Category> {
         return getCachedOrFetch("live_categories", { api.getLiveCategories(user, pass) }, object : TypeToken<List<Category>>() {}, forceRefresh)
@@ -222,8 +233,13 @@ class MediaRepository(
                 return@withContext
             }
 
-            // Om mappen redan finns och inte är tom, kan vi välja att hoppa över (valfritt)
-            // Men vi kör den ändå för att säkerstäverställa att nya ikoner kommer med
+            // Om mappen redan finns och inte är tom, hoppa över extraktion för snabbare start
+            val lastExtractionFile = File(piconsDir, ".last_extracted")
+            if (piconsDir.exists() && piconsDir.list()?.isNotEmpty() == true && lastExtractionFile.exists()) {
+                android.util.Log.d("Picons", "Ikoner redan extraherade, hoppar över.")
+                return@withContext
+            }
+
             if (!piconsDir.exists()) piconsDir.mkdirs()
 
             android.util.Log.d("Picons", "Börjar extrahera ikoner...")
@@ -246,6 +262,8 @@ class MediaRepository(
                         entry = zipInput.nextEntry
                     }
                     android.util.Log.d("Picons", "Extraherade $count ikoner.")
+                    lastExtractionFile.createNewFile() // Markera att vi är klara
+                    piconFileCache = null // Rensa cachen så den läses om nästa gång
                 }
             }
         } catch (e: Exception) {
@@ -501,24 +519,18 @@ class MediaRepository(
     }
 
     suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
-        val piconsDir = File(context.filesDir, "picons")
-        if (!piconsDir.exists()) return@withContext null
+        val piconFiles = getPiconFileCache()
+        if (piconFiles.isEmpty()) return@withContext null
 
-        val piconFiles = piconsDir.listFiles() ?: arrayOf<File>()
+        val piconsDir = File(context.filesDir, "picons")
         
-        fun findLocalPicon(search: String): String? {
-            // Rensa söksträngen på allt utom bokstäver och siffror
-            val target = search.lowercase().replace(Regex("[^a-z0-9]"), "")
+        fun findLocalPicon(target: String): String? {
             if (target.isEmpty()) return null
             
-            return piconFiles.find { file ->
-                // Rensa filnamnet på samma sätt
-                val fileName = file.nameWithoutExtension.lowercase().replace(Regex("[^a-z0-9]"), "")
-                // Matcha om filnamnet är exakt samma eller slutar med målet (för att hantera ev. prefix)
-                val isMatch = fileName == target || fileName.endsWith(target)
-                if (isMatch) return@find true
-                false
-            }?.let { "file://${it.absolutePath}" }
+            return piconFiles.find { fileName ->
+                val cleanFileName = fileName.substringBeforeLast(".").lowercase().replace(Regex("[^a-z0-9]"), "")
+                cleanFileName == target || cleanFileName.endsWith(target)
+            }?.let { "file://${File(piconsDir, it).absolutePath}" }
         }
 
         // 1. Kolla lokalt via kanalnamn

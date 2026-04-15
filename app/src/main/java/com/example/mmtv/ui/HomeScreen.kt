@@ -261,7 +261,7 @@ fun HomeScreen(
                                 contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
                             ) {
                                 items(history.take(15)) { item ->
-                                    HistoryCard(item) { onMediaSelected(item) }
+                                    HistoryCard(item, viewModel) { onMediaSelected(item) }
                                 }
                             }
                         }
@@ -365,6 +365,7 @@ fun MediaRow(
                 if (isHorizontal) {
                     HistoryCard(
                         media = item,
+                        viewModel = viewModel,
                         onToggleFavorite = { viewModel.toggleFavorite(item) },
                         onClick = { onMediaClick(item) }
                     )
@@ -372,7 +373,8 @@ fun MediaRow(
                     MediaCard(
                         media = item,
                         onClick = { onMediaClick(item) },
-                        onToggleFavorite = { viewModel.toggleFavorite(item) }
+                        onToggleFavorite = { viewModel.toggleFavorite(item) },
+                        onGetIcon = { id, name -> viewModel.getIconForChannel(id, name) }
                     )
                 }
             }
@@ -415,12 +417,19 @@ fun SmallActionCard(title: String, icon: ImageVector, modifier: Modifier = Modif
 @Composable
 fun HistoryCard(
     media: MediaSource, 
+    viewModel: MediaViewModel,
     onToggleFavorite: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var pressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
+    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon) {
+        if (value.isNullOrEmpty()) {
+            value = viewModel.repository.getIconForChannel(media.id.toString(), media.title)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -480,9 +489,9 @@ fun HistoryCard(
         ) {
             Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) {
                 val isMovie = media.type == MediaType.MOVIE || media.type == MediaType.SERIES
-                if (!media.icon.isNullOrEmpty()) {
+                if (!displayIcon.isNullOrEmpty()) {
                     SubcomposeAsyncImage(
-                        model = media.icon,
+                        model = displayIcon,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop,

@@ -169,13 +169,22 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
         viewModelScope.launch {
             uiState = uiState.copy(isLoading = true)
             try {
-                // 1. Synka biblioteket (kanaler, filmer, serier) till databasen
-                withContext(Dispatchers.IO) {
-                    _repository.syncLibrary(user, pass)
+                // 1. Synka biblioteket endast om det är forceRefresh eller om databasen är tom
+                val isDbEmpty = withContext(Dispatchers.IO) { 
+                    mediaDao.getCountByType(MediaType.LIVE) == 0 
+                }
+                
+                if (forceRefresh || isDbEmpty) {
+                    updateStatus = "Synkar bibliotek..."
+                    withContext(Dispatchers.IO) {
+                        _repository.syncLibrary(user, pass)
+                    }
                 }
 
-                // 2. Hämta EPG parallellt
-                val epgJob = launch { _repository.fetchAndStoreEpg(user, pass, forceRefresh) }
+                // 2. Starta EPG-uppdatering i bakgrunden (behöver inte blockera UI-laddning av kategorier)
+                val epgJob = launch { 
+                    _repository.fetchAndStoreEpg(user, pass, forceRefresh) 
+                }
 
                 // 3. Ladda kategorierna från den nyss uppdaterade databasen
                 val liveCats = async { _repository.getJustCategories(MediaType.LIVE, user, pass, forceRefresh) }

@@ -325,16 +325,20 @@ class MediaRepository(
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // 3. Hantera den Svenska EPG:n (iptv-epg.org)
+        // 3. Hantera den Svenska EPG:n (epgshare01)
         if (useExternalSwedish) {
             val shouldDownloadSwedish = forceRefresh || !swedishXmlFile.exists() || (now - swedishXmlFile.lastModified() > twentyFourHours)
             if (shouldDownloadSwedish) {
                 try {
-                    val url = "https://iptv-epg.org/files/epg-se.xml"
+                    val url = "https://epgshare01.online/epgshare01/epg_ripper_SE1.xml.gz"
                     val responseBody = api.getExternalEpg(url)
-                    swedishXmlFile.outputStream().use { output ->
-                        responseBody.byteStream().use { input -> input.copyTo(output) }
+                    
+                    GZIPInputStream(responseBody.byteStream()).use { gzipInput ->
+                        swedishXmlFile.outputStream().use { output ->
+                            gzipInput.copyTo(output)
+                        }
                     }
+
                     if (swedishXmlFile.exists()) {
                         parseAndStore(swedishXmlFile, false)
                     }
@@ -442,13 +446,8 @@ class MediaRepository(
         }
 
         if (channelName != null) {
-            val cleanName = cleanChannelName(channelName)
-            val nameNoSpaces = cleanName.lowercase()
-                .replace(" ", "")
-                .replace(".", "")
-                .replace("-", "")
-            
-            val fuzzyMatch = mediaDao.findEpgByFuzzyName(cleanName, nameNoSpaces, now, endLimit)
+            val searchName = getSearchName(channelName)
+            val fuzzyMatch = mediaDao.findEpgByFuzzyName(channelName, searchName, now, endLimit)
             if (fuzzyMatch.isNotEmpty()) {
                 return@withContext fuzzyMatch.map { it.toEpgListing() }
             }
@@ -458,27 +457,24 @@ class MediaRepository(
     }
 
     suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
-        // 1. Försök matcha picon via EPG-ID (t.ex. "SVT1.se" -> "svt1")
+        // 1. Försök matcha picon via EPG-ID
         if (epgId != null) {
             val cleanEpgId = epgId.lowercase()
-                .substringBefore(".") // Ta bort .se, .com osv
+                .substringBefore(".")
                 .replace(Regex("[^a-z0-9]"), "")
             
             val githubPicon = mediaDao.getPiconByName(cleanEpgId)
             if (githubPicon != null) return@withContext githubPicon.url
         }
 
-        // 2. Försök matcha via det rena kanalnamnet
+        // 2. Försök matcha via det tvättade kanalnamnet (utan HD/FHD för matchning)
         if (channelName != null) {
-            val cleanName = cleanChannelName(channelName)
-                .lowercase()
-                .replace(Regex("[^a-z0-9]"), "")
-            
-            val githubPicon = mediaDao.getPiconByName(cleanName)
+            val searchName = getSearchName(channelName)
+            val githubPicon = mediaDao.getPiconByName(searchName)
             if (githubPicon != null) return@withContext githubPicon.url
         }
 
-        // 3. Fallback till serverns ikon via EPG-ID
+        // 3. Fallback till serverns ikon
         if (epgId != null) {
             val icon = mediaDao.getIconByEpgId(epgId)
             if (icon != null) return@withContext icon
@@ -491,7 +487,7 @@ class MediaRepository(
         var cleaned = name
             .replace(Regex("\\(.*?\\)"), "")
             .replace(Regex("\\[.*?\\]"), "")
-            .replace(Regex("(?i)(\\d{3,4}p|H265|HEVC|HD|FHD|UHD|4K|SD|Sverige|Sweden)"), "")
+            // Vi tar INTE bort HD/FHD/4K här längre för visningens skull
             .replace("|", "")
             .replace(".", " ")
 
@@ -500,6 +496,12 @@ class MediaRepository(
         cleaned = cleaned.replace(prefixRegex, "")
 
         return cleaned.trim()
+    }
+
+    private fun getSearchName(name: String): String {
+        return name.lowercase()
+            .replace(Regex("(?i)(HD|FHD|UHD|4K|SD|H265|HEVC)"), "")
+            .replace(Regex("[^a-z0-9]"), "")
     }
 
     private fun EpgEntity.toEpgListing() = EpgListing(

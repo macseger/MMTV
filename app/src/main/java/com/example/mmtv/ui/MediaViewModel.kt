@@ -443,6 +443,25 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
         }
     }
 
+    fun refreshEpgOnly() {
+        val login = sessionManager.getLogin() ?: return
+        viewModelScope.launch {
+            isUpdatingBackground = true
+            updateStatus = "Uppdaterar EPG..."
+            try {
+                _repository.fetchAndStoreEpg(login.second, login.third, forceRefresh = true)
+                fullEpgData.clear()
+                updateStatus = "EPG Uppdaterad!"
+            } catch (e: Exception) {
+                updateStatus = "Fel vid EPG-uppdatering"
+            } finally {
+                delay(3000)
+                updateStatus = null
+                isUpdatingBackground = false
+            }
+        }
+    }
+
     fun clearHistory() {
         sessionManager.clearHistory()
         uiState = uiState.copy(history = emptyList())

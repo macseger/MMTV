@@ -366,11 +366,13 @@ class MainActivity : ComponentActivity() {
                                     composable("settings") {
                                         val loginInfo = sessionManager.getLogin()
                                         var autoPlayEnabled by remember { mutableStateOf(sessionManager.getAutoPlayNext()) }
+                                        var useExternalEpg by remember { mutableStateOf(sessionManager.getUseExternalSwedishEpg()) }
                                         
                                         SettingsScreen(
                                             username = loginInfo?.second ?: "Okänd",
                                             host = loginInfo?.first ?: "",
                                             autoPlayEnabled = autoPlayEnabled,
+                                            useExternalEpg = useExternalEpg,
                                             isUpdating = sharedViewModel.isUpdatingBackground,
                                             onLogout = {
                                                 sharedViewModel.logout()
@@ -379,12 +381,17 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             },
                                             onRefreshLibrary = { sharedViewModel.refreshDataManually() },
+                                            onRefreshEpg = { sharedViewModel.refreshEpgOnly() },
                                             onOptimizeLibrary = { sharedViewModel.performOptimization() },
                                             onClearFavorites = { sharedViewModel.clearAllFavorites() },
                                             onClearHistory = { sharedViewModel.clearHistory() },
                                             onToggleAutoPlay = { enabled ->
                                                 autoPlayEnabled = enabled
                                                 sessionManager.setAutoPlayNext(enabled)
+                                            },
+                                            onToggleExternalEpg = { enabled ->
+                                                useExternalEpg = enabled
+                                                sessionManager.setUseExternalSwedishEpg(enabled)
                                             }
                                         )
                                     }

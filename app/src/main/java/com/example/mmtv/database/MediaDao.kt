@@ -67,6 +67,19 @@ interface MediaDao {
 
     @Query("DELETE FROM epg_listings")
     suspend fun clearEpg()
+
+    // Picon Operations
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPicons(picons: List<PiconEntity>)
+
+    @Query("SELECT * FROM picons WHERE name = :name LIMIT 1")
+    suspend fun getPiconByName(name: String): PiconEntity?
+
+    @Query("SELECT * FROM picons")
+    suspend fun getAllPicons(): List<PiconEntity>
+
+    @Query("DELETE FROM picons")
+    suspend fun clearPicons()
 }
 
 data class CategorySimple(

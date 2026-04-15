@@ -470,12 +470,14 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
     suspend fun fetchAndStoreEpg(user: String, pass: String, forceRefresh: Boolean = false) = withContext(Dispatchers.IO) {
         val xmlFile = File(cacheDir, "full_epg.xml")
         val externalXmlFile = File(cacheDir, "external_epg.xml")
+        val swedishXmlFile = File(cacheDir, "swedish_epg.xml")
         val now = System.currentTimeMillis()
         val twentyFourHours = 24 * 60 * 60 * 1000L
         
         val dbCount = mediaDao.getEpgCount()
+        val useExternalSwedish = com.example.mmtv.api.SessionManager(context).getUseExternalSwedishEpg()
 
-        // 1. Hantera Serverns EPG
+        // 1. Hantera Serverns EPG (Hoppa över om vi bara vill ha svenska externa, eller kör som backup)
         val shouldDownloadServer = forceRefresh || !xmlFile.exists() || (now - xmlFile.lastModified() > twentyFourHours)
         if (shouldDownloadServer || dbCount == 0) {
             try {
@@ -498,7 +500,6 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
                 val url = "https://epgshare01.online/epgshare01/epg_ripper_SE1.xml.gz"
                 val responseBody = api.getExternalEpg(url)
                 
-                // Packa upp GZIP och spara som XML
                 GZIPInputStream(responseBody.byteStream()).use { gzipInput ->
                     externalXmlFile.outputStream().use { output ->
                         gzipInput.copyTo(output)
@@ -506,10 +507,63 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
                 }
                 
                 if (externalXmlFile.exists()) {
-                    // Vi rensar INTE databasen här, vi bara fyller på (isClearFirst = false)
                     parseAndStore(externalXmlFile, false)
                 }
             } catch (e: Exception) { e.printStackTrace() }
+        }
+
+        // 3. Hantera den NYA Svenska EPG:n (iptv-epg.org)
+        if (useExternalSwedish) {
+            val shouldDownloadSwedish = forceRefresh || !swedishXmlFile.exists() || (now - swedishXmlFile.lastModified() > twentyFourHours)
+            if (shouldDownloadSwedish) {
+                try {
+                    val url = "https://iptv-epg.org/files/epg-se.xml"
+                    val responseBody = api.getExternalEpg(url) // Vi kan återanvända getExternalEpg för vanliga XML-filer också
+                    swedishXmlFile.outputStream().use { output ->
+                        responseBody.byteStream().use { input -> input.copyTo(output) }
+                    }
+                    if (swedishXmlFile.exists()) {
+                        // Vi fyller på (isClearFirst = false) så att vi har både serverns och denna
+                        parseAndStore(swedishXmlFile, false)
+                    }
+                } catch (e: Exception) { e.printStackTrace() }
+            }
+        }
+
+        // 4. Hantera Picons från GitHub
+        syncPiconsFromGithub(forceRefresh)
+    }
+
+    private suspend fun syncPiconsFromGithub(forceRefresh: Boolean) = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        val sevenDays = 7 * 24 * 60 * 60 * 1000L
+        
+        // Hämta bara om det är tomt eller tvingat
+        if (!forceRefresh && mediaDao.getAllPicons().isNotEmpty()) return@withContext
+
+        try {
+            val githubUrl = "https://api.github.com/repos/tv-logo/tv-logos/contents/countries/nordic/sweden"
+            val files = api.getGithubFiles(githubUrl)
+            
+            val piconEntities = files.filter { it.name.endsWith(".png", true) || it.name.endsWith(".jpg", true) }.map { file ->
+                // Vi mappar namnet (t.ex. "SVT1.png") till en renad version "svt1"
+                val cleanName = file.name.substringBeforeLast(".")
+                    .lowercase()
+                    .replace(" ", "")
+                    .replace("-", "")
+                    .replace("_", "")
+                
+                com.example.mmtv.database.PiconEntity(
+                    name = cleanName,
+                    url = file.downloadUrl ?: ""
+                )
+            }
+            
+            if (piconEntities.isNotEmpty()) {
+                mediaDao.insertPicons(piconEntities)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -599,13 +653,34 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
     }
 
     suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
-        // 1. Kolla exakt EPG ID
+        // 1. Kolla om vi har en matchande picon från GitHub först (Högsta kvalitet)
+        if (channelName != null) {
+            val cleanName = channelName
+                .replace(Regex("\\(.*?\\)"), "")
+                .replace(Regex("\\[.*?\\]"), "")
+                .replace("HD", "", ignoreCase = true)
+                .replace("FHD", "", ignoreCase = true)
+                .replace("4K", "", ignoreCase = true)
+                .replace("SD", "", ignoreCase = true)
+                .replace("Sverige", "", ignoreCase = true)
+                .replace("|", "")
+                .trim()
+                .lowercase()
+                .replace(" ", "")
+                .replace("-", "")
+                .replace("_", "")
+            
+            val githubPicon = mediaDao.getPiconByName(cleanName)
+            if (githubPicon != null) return@withContext githubPicon.url
+        }
+
+        // 2. Kolla exakt EPG ID
         if (epgId != null) {
             val icon = mediaDao.getIconByEpgId(epgId)
             if (icon != null) return@withContext icon
         }
         
-        // 2. Kolla fuzzy på namnet
+        // 3. Kolla fuzzy på namnet i EPG databasen
         if (channelName != null) {
             val cleanName = channelName
                 .replace(Regex("\\(.*?\\)"), "")

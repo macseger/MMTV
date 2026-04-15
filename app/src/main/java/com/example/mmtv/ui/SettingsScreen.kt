@@ -32,13 +32,16 @@ fun SettingsScreen(
     username: String,
     host: String,
     autoPlayEnabled: Boolean,
+    useExternalEpg: Boolean,
     isUpdating: Boolean,
     onLogout: () -> Unit,
     onRefreshLibrary: () -> Unit,
+    onRefreshEpg: () -> Unit,
     onOptimizeLibrary: () -> Unit,
     onClearFavorites: () -> Unit,
     onClearHistory: () -> Unit,
-    onToggleAutoPlay: (Boolean) -> Unit
+    onToggleAutoPlay: (Boolean) -> Unit,
+    onToggleExternalEpg: (Boolean) -> Unit
 ) {
     val firstButtonFocusRequester = remember { FocusRequester() }
     
@@ -88,6 +91,25 @@ fun SettingsScreen(
                     icon = Icons.Default.Refresh,
                     modifier = Modifier.focusRequester(firstButtonFocusRequester),
                     onClick = onRefreshLibrary
+                )
+            }
+
+            item {
+                SettingsAction(
+                    title = stringResource(R.string.refresh_epg),
+                    subtitle = stringResource(R.string.refresh_epg_sub),
+                    icon = Icons.Default.DateRange,
+                    onClick = onRefreshEpg
+                )
+            }
+
+            item {
+                SettingsAction(
+                    title = stringResource(R.string.external_se_epg),
+                    subtitle = stringResource(R.string.external_se_epg_sub),
+                    icon = Icons.Default.Language,
+                    value = if (useExternalEpg) stringResource(R.string.on) else stringResource(R.string.off),
+                    onClick = { onToggleExternalEpg(!useExternalEpg) }
                 )
             }
 

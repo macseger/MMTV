@@ -78,4 +78,7 @@ interface XCodesApi {
 
     @GET
     suspend fun getExternalEpg(@retrofit2.http.Url url: String): ResponseBody
+
+    @GET
+    suspend fun getGithubFiles(@retrofit2.http.Url url: String): List<GithubFile>
 }

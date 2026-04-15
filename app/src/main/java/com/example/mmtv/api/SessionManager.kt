@@ -115,6 +115,14 @@ class SessionManager(context: Context) {
         return prefs.getBoolean("auto_play_next", true)
     }
 
+    fun setUseExternalSwedishEpg(enabled: Boolean) {
+        prefs.edit { putBoolean("use_external_se_epg", enabled) }
+    }
+
+    fun getUseExternalSwedishEpg(): Boolean {
+        return prefs.getBoolean("use_external_se_epg", false)
+    }
+
     // Historikhantering
     fun addToHistory(media: MediaSource) {
         val history = getHistory().toMutableList()

@@ -6,6 +6,7 @@ import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.example.mmtv.model.MediaSource
+import com.example.mmtv.model.Episode
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
@@ -124,10 +125,16 @@ class SessionManager(context: Context) {
     }
 
     // Historikhantering
-    fun addToHistory(media: MediaSource) {
+    fun addToHistory(media: MediaSource, episode: Episode? = null) {
         val history = getHistory().toMutableList()
-        history.removeAll { it.id == media.id && it.type == media.type }
-        history.add(0, media)
+        // If it's an episode, we might want to store it differently, 
+        // but for now let's just use the media as before or a slightly modified version
+        val item = if (episode != null) {
+            media.copy(title = "${media.title} - ${episode.title}") 
+        } else media
+
+        history.removeAll { it.id == item.id && it.type == item.type }
+        history.add(0, item)
         if (history.size > 50) history.removeAt(history.size - 1)
         prefs.edit {
             putString("watch_history", gson.toJson(history))

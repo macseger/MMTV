@@ -148,13 +148,13 @@ class MediaRepository(
     }
 
     suspend fun getMediaForCategory(type: MediaType, categoryId: String): List<MediaSource> = withContext(Dispatchers.IO) {
-        val entities = if (type == MediaType.LIVE) {
-            mediaDao.getMediaByCategoryId(type, categoryId)
+        val entities = mediaDao.getMediaByCategoryId(type, categoryId)
+        if (type == MediaType.LIVE) {
+            entities.map { it.toMediaSource() }
         } else {
-            // Sortera VOD efter nyaste först
-            mediaDao.getMediaByCategoryId(type, categoryId).sortedByDescending { it.addedDate }
+            // Sortera ALLTID VOD efter addedDate (nyaste först)
+            entities.sortedByDescending { it.addedDate }.map { it.toMediaSource() }
         }
-        entities.map { it.toMediaSource() }
     }
 
     private fun MediaEntity.toMediaSource() = MediaSource(
@@ -208,6 +208,36 @@ class MediaRepository(
     suspend fun searchMedia(query: String): List<MediaEntity> = withContext(Dispatchers.IO) {
         if (query.length < 2) return@withContext emptyList()
         mediaDao.searchMedia("%$query%")
+    }
+
+    suspend fun extractPiconsIfNeeded() = withContext(Dispatchers.IO) {
+        val piconsDir = File(context.filesDir, "picons")
+        val zipFileInAssets = "picons.zip"
+        
+        try {
+            val assets = context.assets.list("") ?: emptyArray()
+            if (!assets.contains(zipFileInAssets)) return@withContext
+
+            if (!piconsDir.exists()) piconsDir.mkdirs()
+
+            context.assets.open(zipFileInAssets).use { inputStream ->
+                java.util.zip.ZipInputStream(inputStream).use { zipInput ->
+                    var entry = zipInput.nextEntry
+                    while (entry != null) {
+                        if (!entry.isDirectory) {
+                            val outFile = File(piconsDir, entry.name.lowercase())
+                            outFile.outputStream().use { output ->
+                                zipInput.copyTo(output)
+                            }
+                        }
+                        zipInput.closeEntry()
+                        entry = zipInput.nextEntry
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     suspend fun syncLibrary(user: String, pass: String) = withContext(Dispatchers.IO) {
@@ -457,7 +487,35 @@ class MediaRepository(
     }
 
     suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
-        // 1. Försök matcha picon via EPG-ID
+        val piconsDir = File(context.filesDir, "picons")
+        if (!piconsDir.exists()) return@withContext null
+
+        val piconFiles = piconsDir.listFiles() ?: arrayOf<File>()
+        
+        fun findLocalPicon(search: String): String? {
+            val target = search.lowercase().replace(Regex("[^a-z0-9]"), "")
+            return piconFiles.find { file ->
+                val fileName = file.nameWithoutExtension.lowercase().replace(Regex("[^a-z0-9]"), "")
+                // Kolla om filnamnet innehåller söksträngen (t.ex. "001svt1" innehåller "svt1")
+                fileName.endsWith(target) || fileName == target
+            }?.absolutePath
+        }
+
+        // 1. Kolla lokalt via kanalnamn
+        if (channelName != null) {
+            val searchName = getSearchName(channelName)
+            val found = findLocalPicon(searchName)
+            if (found != null) return@withContext found
+        }
+
+        // 2. Kolla lokalt via EPG-ID
+        if (epgId != null) {
+            val cleanEpgId = epgId.lowercase().substringBefore(".").replace(Regex("[^a-z0-9]"), "")
+            val found = findLocalPicon(cleanEpgId)
+            if (found != null) return@withContext found
+        }
+
+        // 3. Fallback till GitHub Picons
         if (epgId != null) {
             val cleanEpgId = epgId.lowercase()
                 .substringBefore(".")
@@ -467,14 +525,14 @@ class MediaRepository(
             if (githubPicon != null) return@withContext githubPicon.url
         }
 
-        // 2. Försök matcha via det tvättade kanalnamnet (utan HD/FHD för matchning)
         if (channelName != null) {
             val searchName = getSearchName(channelName)
             val githubPicon = mediaDao.getPiconByName(searchName)
             if (githubPicon != null) return@withContext githubPicon.url
         }
 
-        // 3. Fallback till serverns ikon
+
+        // 4. Sista utväg: Serverns egen ikon
         if (epgId != null) {
             val icon = mediaDao.getIconByEpgId(epgId)
             if (icon != null) return@withContext icon
@@ -517,18 +575,21 @@ class MediaRepository(
     )
 
     private fun parseDateToUnix(dateStr: String?): Long {
-        if (dateStr == null) return 0L
-        return try {
-            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
-            sdf.parse(dateStr)?.time?.div(1000) ?: 0L
-        } catch (e: Exception) {
+        if (dateStr.isNullOrBlank()) return 0L
+        val formats = listOf(
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd",
+            "yyyyMMddHHmmss"
+        )
+        for (format in formats) {
             try {
-                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-                sdf.parse(dateStr)?.time?.div(1000) ?: 0L
-            } catch (e2: Exception) {
-                0L
-            }
+                val sdf = java.text.SimpleDateFormat(format, java.util.Locale.US)
+                val date = sdf.parse(dateStr)
+                if (date != null) return date.time / 1000L
+            } catch (e: Exception) {}
         }
+        return dateStr.toLongOrNull() ?: 0L
     }
 
     private suspend fun <T> getCachedOrFetch(

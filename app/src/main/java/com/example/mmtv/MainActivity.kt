@@ -94,7 +94,7 @@ class MainActivity : ComponentActivity() {
                             val (h, u, p) = loginInfo
                             sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), database.mediaDao(), context))
                             if (sharedViewModel.uiState.liveStreamsGrouped.isEmpty()) {
-                                sharedViewModel.loadData(u, p, forceRefresh = false)
+                                sharedViewModel.fetchData(u, p, forceRefresh = false)
                             }
                             scheduleDataSync(context)
                         }
@@ -214,8 +214,8 @@ class MainActivity : ComponentActivity() {
                                                     isProvisioning = true
                                                     provisioningStatus = "Hämtar kategorier..."
                                                     
-                                                    sharedViewModel.loadData(u, p, forceRefresh = true) { success ->
-                                                        // EPG laddas i bakgrunden i loadData, men vi väntar på kategorierna för att släppa in användaren
+                                                    sharedViewModel.fetchData(u, p, forceRefresh = true) { success ->
+                                                        // EPG laddas i bakgrunden i fetchData, men vi väntar på kategorierna för att släppa in användaren
                                                         isProvisioning = false
                                                         if (success) {
                                                             navController.navigate("home") {
@@ -272,7 +272,7 @@ class MainActivity : ComponentActivity() {
                                             },
                                             epgProvider = { id, name -> sharedViewModel.getEpgForId(id, name) },
                                             nextEpgProvider = { id, name -> sharedViewModel.getNextEpgForId(id, name) },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id?.toIntOrNull() ?: 0, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
@@ -298,7 +298,7 @@ class MainActivity : ComponentActivity() {
                                                 sharedViewModel.selectedMedia = media
                                                 navController.navigate("details")
                                             },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id?.toIntOrNull() ?: 0, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
@@ -324,7 +324,7 @@ class MainActivity : ComponentActivity() {
                                                 sharedViewModel.selectedMedia = media
                                                 navController.navigate("details")
                                             },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id?.toIntOrNull() ?: 0, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )

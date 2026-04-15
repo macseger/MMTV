@@ -357,7 +357,7 @@ fun PlayerScreen(
             }
             OverlayState.EPG_INFO -> {
                 delay(100)
-                if (media != null && viewModel.getFullEpgForId(media.id).isNotEmpty()) {
+                if (media != null && viewModel.getFullEpgForId(media.id, media.title).isNotEmpty()) {
                     epgFocusRequester.safeFocus()
                 }
             }
@@ -522,7 +522,7 @@ fun PlayerScreen(
                                         if (media?.type == MediaType.LIVE) {
                                             val currentTime = System.currentTimeMillis()
                                             if (currentTime - lastCenterClickTime < doubleClickTimeout) {
-                                                if (media != null) scope.launch { viewModel.getFullEpgForId(media.id) }
+                                                if (media != null) scope.launch { viewModel.getFullEpgForId(media.id, media.title) }
                                                 overlayState = OverlayState.EPG_INFO
                                             } else {
                                                 overlayState = OverlayState.QUICK_INFO
@@ -547,7 +547,7 @@ fun PlayerScreen(
                                         // otherwise if we are here it means root got it.
                                         // But Surface onClick should have consumed it if focused.
                                         // So we only get here if focus is NOT on a button.
-                                        if (media != null) scope.launch { viewModel.getFullEpgForId(media.id) }
+                                        if (media != null) scope.launch { viewModel.getFullEpgForId(media.id, media.title) }
                                         overlayState = OverlayState.EPG_INFO
                                         true
                                     }
@@ -875,7 +875,7 @@ fun PlayerScreen(
         ) {
             val epg = produceState<EpgListing?>(initialValue = null, media?.id, overlayState) {
                 if (media != null && media.type == MediaType.LIVE) {
-                    value = viewModel.getEpgForId(media.id, media.title, media.epgId)
+                    value = viewModel.getEpgForId(media.id, media.title)
                 } else {
                     value = null
                 }
@@ -1207,7 +1207,7 @@ fun PlayerScreen(
                         ) {
                             // Detailed Info Box
                             val currentEpg = produceState<EpgListing?>(initialValue = null, key1 = focusedChannel?.id) {
-                                value = viewModel.getEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title, focusedChannel?.epgId)
+                                value = viewModel.getEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title)
                             }.value
                             
                             ModernProgramDetailBox(epg = currentEpg, channel = focusedChannel, viewModel = viewModel)
@@ -1216,7 +1216,7 @@ fun PlayerScreen(
 
                             // Upcoming Programs for Focused Channel
                             val fullEpg = produceState<List<EpgListing>>(initialValue = emptyList(), key1 = focusedChannel?.id) {
-                                value = viewModel.getFullEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title, focusedChannel?.epgId)
+                                value = viewModel.getFullEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title)
                             }.value
                             val now = System.currentTimeMillis() / 1000
                             val upcomingEpg = remember(fullEpg, focusedChannel) { 
@@ -1249,12 +1249,12 @@ fun PlayerScreen(
         // --- FULL EPG INFO (MODAL) ---
         if (overlayState == OverlayState.EPG_INFO && media != null) {
             val fullEpg = produceState<List<EpgListing>>(initialValue = emptyList(), key1 = media.id) {
-                value = viewModel.getFullEpgForId(media.id, media.title, media.epgId)
+                value = viewModel.getFullEpgForId(media.id, media.title)
             }.value
             val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
             
             val piconUrl = produceState<String?>(initialValue = media.icon, key1 = media.id) {
-                value = viewModel.getIconForChannel(media.epgId, media.title)
+                value = viewModel.getIconForChannel(media.id, media.title)
             }.value
 
             Box(
@@ -1581,11 +1581,11 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
     val formatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
     val epg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
-        value = viewModel.getEpgForId(item.id, item.title, item.epgId)
+        value = viewModel.getEpgForId(item.id, item.title)
     }.value
     
     val nextEpg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
-        value = viewModel.getNextEpgForId(item.id, item.title, item.epgId)
+        value = viewModel.getNextEpgForId(item.id, item.title)
     }.value
 
     val backgroundColor by animateColorAsState(
@@ -1613,7 +1613,7 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
             verticalAlignment = Alignment.CenterVertically
         ) {
             val piconUrl = produceState<String?>(initialValue = item.icon, key1 = item.id) {
-                value = viewModel.getIconForChannel(item.epgId, item.title)
+                value = viewModel.getIconForChannel(item.id, item.title)
             }.value
 
             AsyncImage(
@@ -1670,7 +1670,7 @@ fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: M
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     val piconUrl = produceState<String?>(initialValue = channel?.icon, key1 = channel?.id) {
         if (channel != null) {
-            value = viewModel.getIconForChannel(channel.epgId, channel.title)
+            value = viewModel.getIconForChannel(channel.id, channel.title)
         }
     }.value
     

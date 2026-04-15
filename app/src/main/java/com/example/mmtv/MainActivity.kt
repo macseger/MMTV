@@ -382,6 +382,7 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onRefreshLibrary = { sharedViewModel.refreshDataManually() },
                                             onRefreshEpg = { sharedViewModel.refreshEpgOnly() },
+                                            onExtractPicons = { sharedViewModel.extractPicons() },
                                             onOptimizeLibrary = { sharedViewModel.performOptimization() },
                                             onClearFavorites = { sharedViewModel.clearAllFavorites() },
                                             onClearHistory = { sharedViewModel.clearHistory() },

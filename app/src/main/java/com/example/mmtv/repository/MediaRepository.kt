@@ -215,35 +215,41 @@ class MediaRepository(
         val zipFileInAssets = "picons.zip"
         
         try {
+            // Kontrollera om vi har filen i assets
             val assets = context.assets.list("") ?: emptyArray()
-            if (!assets.contains(zipFileInAssets)) return@withContext
+            if (!assets.contains(zipFileInAssets)) {
+                android.util.Log.e("Picons", "Hittade inte picons.zip i assets!")
+                return@withContext
+            }
 
+            // Om mappen redan finns och inte är tom, kan vi välja att hoppa över (valfritt)
+            // Men vi kör den ändå för att säkerstäverställa att nya ikoner kommer med
             if (!piconsDir.exists()) piconsDir.mkdirs()
 
+            android.util.Log.d("Picons", "Börjar extrahera ikoner...")
             context.assets.open(zipFileInAssets).use { inputStream ->
                 java.util.zip.ZipInputStream(inputStream).use { zipInput ->
                     var entry = zipInput.nextEntry
+                    var count = 0
                     while (entry != null) {
                         if (!entry.isDirectory) {
-                            // Ta bara själva filnamnet, ignorera mappar i zippen (t.ex. "picons/svt1.png" -> "svt1.png")
                             val fileName = File(entry.name).name.lowercase()
-                            val outFile = File(piconsDir, fileName)
-                            
-                            try {
+                            if (fileName.endsWith(".png") || fileName.endsWith(".jpg")) {
+                                val outFile = File(piconsDir, fileName)
                                 outFile.outputStream().use { output ->
                                     zipInput.copyTo(output)
                                 }
-                            } catch (e: Exception) {
-                                // Logga om en enskild fil misslyckas men fortsätt med nästa
-                                e.printStackTrace()
+                                count++
                             }
                         }
                         zipInput.closeEntry()
                         entry = zipInput.nextEntry
                     }
+                    android.util.Log.d("Picons", "Extraherade $count ikoner.")
                 }
             }
         } catch (e: Exception) {
+            android.util.Log.e("Picons", "Fel vid extrahering: ${e.message}")
             e.printStackTrace()
         }
     }

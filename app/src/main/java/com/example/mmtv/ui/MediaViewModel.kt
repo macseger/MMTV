@@ -394,6 +394,20 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
         }
     }
 
+    fun extractPicons() {
+        viewModelScope.launch(Dispatchers.IO) {
+            isUpdatingBackground = true
+            updateStatus = "Extraherar lokala ikoner..."
+            _repository.extractPiconsIfNeeded()
+            withContext(Dispatchers.Main) {
+                updateStatus = "Ikoner extraherade!"
+                delay(2000)
+                updateStatus = null
+                isUpdatingBackground = false
+            }
+        }
+    }
+
     fun deleteFavorites() {
         viewModelScope.launch(Dispatchers.IO) {
             mediaDao.clearAllFavorites()

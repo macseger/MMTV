@@ -37,6 +37,7 @@ fun SettingsScreen(
     onLogout: () -> Unit,
     onRefreshLibrary: () -> Unit,
     onRefreshEpg: () -> Unit,
+    onExtractPicons: () -> Unit,
     onOptimizeLibrary: () -> Unit,
     onClearFavorites: () -> Unit,
     onClearHistory: () -> Unit,
@@ -110,6 +111,16 @@ fun SettingsScreen(
                     icon = Icons.Default.Language,
                     value = if (useExternalEpg) stringResource(R.string.on) else stringResource(R.string.off),
                     onClick = { onToggleExternalEpg(!useExternalEpg) }
+                )
+            }
+
+            item {
+                SettingsAction(
+                    title = "Använd lokala picons",
+                    subtitle = "Extrahera ikoner från picons.zip i assets",
+                    icon = Icons.Default.Image,
+                    isLoading = isUpdating,
+                    onClick = onExtractPicons
                 )
             }
 

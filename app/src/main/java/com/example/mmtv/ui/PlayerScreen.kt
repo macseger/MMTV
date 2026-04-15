@@ -1072,6 +1072,7 @@ fun PlayerScreen(
                     history.forEachIndexed { index, historyItem ->
                         RecentChannelButton(
                             item = historyItem,
+                            viewModel = viewModel,
                             focusRequester = recentChannelsFocusRequesters.getOrPut(historyItem.id) { FocusRequester() },
                             onFocus = { infoJob?.cancel() },
                             onBlur = { resetAutoHideTimer() },
@@ -1475,12 +1476,16 @@ fun ActionButton(
 @Composable
 fun RecentChannelButton(
     item: MediaSource,
+    viewModel: MediaViewModel,
     focusRequester: FocusRequester,
     onFocus: () -> Unit,
     onBlur: () -> Unit,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val piconUrl = produceState<String?>(initialValue = item.icon, key1 = item.id) {
+        value = viewModel.getIconForChannel(item.id, item.title)
+    }.value
     
     Surface(
         onClick = onClick,
@@ -1498,14 +1503,27 @@ fun RecentChannelButton(
         border = if (isFocused) null else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            AsyncImage(
-                model = item.icon,
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(piconUrl)
+                    .crossfade(true)
+                    .build(),
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
                     .alpha(if (isFocused) 0.3f else 0.6f)
                     .padding(12.dp),
-                contentScale = ContentScale.Fit
+                contentScale = ContentScale.Fit,
+                error = {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (item.type == MediaType.LIVE) Icons.Default.Tv else Icons.Default.Movie,
+                            contentDescription = null,
+                            tint = if (isFocused) Color.Black.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.3f),
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+                }
             )
             
             Column(

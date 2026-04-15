@@ -272,7 +272,7 @@ class MainActivity : ComponentActivity() {
                                             },
                                             epgProvider = { id, name -> sharedViewModel.getEpgForId(id, name) },
                                             nextEpgProvider = { id, name -> sharedViewModel.getNextEpgForId(id, name) },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id?.toIntOrNull() ?: 0, name) },
+                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
@@ -298,7 +298,7 @@ class MainActivity : ComponentActivity() {
                                                 sharedViewModel.selectedMedia = media
                                                 navController.navigate("details")
                                             },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id?.toIntOrNull() ?: 0, name) },
+                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
@@ -324,7 +324,7 @@ class MainActivity : ComponentActivity() {
                                                 sharedViewModel.selectedMedia = media
                                                 navController.navigate("details")
                                             },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id?.toIntOrNull() ?: 0, name) },
+                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )

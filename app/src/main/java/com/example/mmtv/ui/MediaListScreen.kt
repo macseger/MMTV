@@ -61,7 +61,7 @@ fun MediaListScreen(
     onToggleFavorite: (MediaSource) -> Unit = {},
     epgProvider: suspend (Int, String?) -> EpgListing? = { _, _ -> null },
     nextEpgProvider: suspend (Int, String?) -> EpgListing? = { _, _ -> null },
-    onGetIcon: suspend (String?, String?) -> String? = { _, _ -> null },
+    onGetIcon: suspend (Int, String?) -> String? = { _, _ -> null },
     onItemFocused: (Int) -> Unit = {},
     backgroundColor: Color = Color.Black,
     onBackPressed: (() -> Unit)? = null,
@@ -426,12 +426,17 @@ fun TvChannelItem(
     modifier: Modifier = Modifier, 
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onGetIcon: (suspend (String?, String?) -> String?)? = null
+    onGetIcon: (suspend (Int, String?) -> String?)? = null
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     
     val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon) {
-        if (value.isNullOrEmpty() && onGetIcon != null) value = onGetIcon(media.epgId, media.title)
+        if (onGetIcon != null) {
+            val localIcon = onGetIcon(media.id, media.title)
+            if (localIcon != null) {
+                value = localIcon
+            }
+        }
     }
 
     val backgroundColor by animateColorAsState(
@@ -505,13 +510,13 @@ fun MediaCard(
     modifier: Modifier = Modifier, 
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onGetIcon: (suspend (String?, String?) -> String?)? = null
+    onGetIcon: (suspend (Int, String?) -> String?)? = null
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     
     val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon) {
         if (value.isNullOrEmpty() && onGetIcon != null) {
-            value = onGetIcon(media.epgId, media.title)
+            value = onGetIcon(media.id, media.title)
         }
     }
 

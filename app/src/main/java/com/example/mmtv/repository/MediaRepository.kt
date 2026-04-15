@@ -515,8 +515,10 @@ class MediaRepository(
                 // Rensa filnamnet på samma sätt
                 val fileName = file.nameWithoutExtension.lowercase().replace(Regex("[^a-z0-9]"), "")
                 // Matcha om filnamnet är exakt samma eller slutar med målet (för att hantera ev. prefix)
-                fileName == target || fileName.endsWith(target)
-            }?.absolutePath
+                val isMatch = fileName == target || fileName.endsWith(target)
+                if (isMatch) return@find true
+                false
+            }?.let { "file://${it.absolutePath}" }
         }
 
         // 1. Kolla lokalt via kanalnamn

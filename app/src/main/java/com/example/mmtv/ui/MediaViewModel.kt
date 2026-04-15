@@ -354,9 +354,9 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
         }
     }
 
-    fun getIconForChannel(id: Int, name: String? = null): String? {
-        // Return null for now, icons should be handled via a state flow or loaded asynchronously in the UI
-        return null
+    suspend fun getIconForChannel(id: Int, name: String? = null): String? {
+        val epgId = channelToEpgMap[id]
+        return _repository.getIconForChannel(epgId, name)
     }
 
     fun refreshDataManually() {

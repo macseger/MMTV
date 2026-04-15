@@ -74,9 +74,24 @@ fun HomeScreen(
     val sessionManager = remember { SessionManager(context) }
 
     // 2. Senaste spelade TV-kanalen för mini-spelaren
-    val lastLiveMedia = remember(history) { history.find { it.type == MediaType.LIVE } }
+    val lastLiveMedia = remember(history) { 
+        history.find { it.type == MediaType.LIVE } 
+    }
     var miniPlayer by remember { mutableStateOf<Player?>(null) }
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+
+    // Vi triggar omspelning om lastLiveMedia ändras eller när vi kommer tillbaka till skärmen
+    LaunchedEffect(lastLiveMedia) {
+        if (lastLiveMedia != null && miniPlayer != null) {
+            val login = sessionManager.getLogin()
+            if (login != null) {
+                val (host, user, pass) = login
+                val streamUrl = "$host/live/$user/$pass/${lastLiveMedia.id}.ts"
+                miniPlayer?.setMediaItem(MediaItem.fromUri(streamUrl))
+                miniPlayer?.prepare()
+            }
+        }
+    }
 
     DisposableEffect(lifecycleOwner, lastLiveMedia) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -86,7 +101,7 @@ fun HomeScreen(
                         val player = MmtvPlayer(context).createPlayer().apply {
                             repeatMode = Player.REPEAT_MODE_ALL
                             playWhenReady = true
-                            volume = 0f // Starta ljudlöst på hemskärmen
+                            volume = 0f
                             
                             val login = sessionManager.getLogin()
                             if (login != null) {
@@ -107,6 +122,27 @@ fun HomeScreen(
                 else -> {}
             }
         }
+
+        // Om vi redan är i RESUMED-läge (t.ex. vid omstart), kör logiken direkt
+        if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+            if (lastLiveMedia != null && miniPlayer == null) {
+                val player = MmtvPlayer(context).createPlayer().apply {
+                    repeatMode = Player.REPEAT_MODE_ALL
+                    playWhenReady = true
+                    volume = 0f
+                    
+                    val login = sessionManager.getLogin()
+                    if (login != null) {
+                        val (host, user, pass) = login
+                        val streamUrl = "$host/live/$user/$pass/${lastLiveMedia.id}.ts"
+                        setMediaItem(MediaItem.fromUri(streamUrl))
+                        prepare()
+                    }
+                }
+                miniPlayer = player
+            }
+        }
+
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)

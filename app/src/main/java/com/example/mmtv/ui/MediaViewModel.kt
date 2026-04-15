@@ -35,7 +35,7 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
 
     val repository: MediaRepository get() = _repository
 
-    var uiState by mutableStateOf(MediaUiState())
+    var uiState by mutableStateOf(MediaUiState(history = sessionManager.getHistory()))
         private set
 
     var loginError by mutableStateOf<String?>(null)

@@ -877,11 +877,17 @@ fun PlayerScreen(
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            val epg = produceState<EpgListing?>(initialValue = null, media?.id, overlayState) {
+            val epg = produceState<EpgListing?>(initialValue = null, key1 = media?.id, key2 = overlayState) {
                 if (media != null && media.type == MediaType.LIVE) {
                     value = viewModel.getEpgForId(media.id, media.title)
                 } else {
                     value = null
+                }
+            }.value
+
+            val piconUrl = produceState<String?>(initialValue = media?.icon, key1 = media?.id) {
+                if (media != null) {
+                    value = viewModel.getIconForChannel(media.id, media.title)
                 }
             }.value
             
@@ -932,7 +938,10 @@ fun PlayerScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         SubcomposeAsyncImage(
-                            model = media?.icon,
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(piconUrl)
+                                .crossfade(true)
+                                .build(),
                             contentDescription = null,
                             modifier = Modifier
                                 .size(70.dp)

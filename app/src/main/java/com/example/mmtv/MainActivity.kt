@@ -72,9 +72,9 @@ class MainActivity : ComponentActivity() {
                     val sharedViewModel: MediaViewModel = viewModel(
                         factory = MediaViewModelFactory(
                             repository = MediaRepository(
-                                ApiClient.getClient(loginInfo?.first ?: "http://localhost"), 
-                                context, 
-                                database
+                                ApiClient.getClient(loginInfo?.first ?: "http://localhost"),
+                                database.mediaDao(),
+                                context
                             ),
                             sessionManager = sessionManager,
                             database = database
@@ -92,9 +92,9 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(loginInfo) {
                         if (loginInfo != null) {
                             val (h, u, p) = loginInfo
-                            sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), context, database))
+                            sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), database.mediaDao(), context))
                             if (sharedViewModel.uiState.liveStreamsGrouped.isEmpty()) {
-                                sharedViewModel.loadData(u, p, h)
+                                sharedViewModel.loadData(u, p, forceRefresh = false)
                             }
                             scheduleDataSync(context)
                         }
@@ -203,7 +203,7 @@ class MainActivity : ComponentActivity() {
                                         LoginScreen(
                                             viewModel = sharedViewModel,
                                             onLogin = { h, u, p ->
-                                                sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), context, database))
+                                                sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), database.mediaDao(), context))
                                                 
                                                 lifecycleScope.launch {
                                                     // 1. Kontrollera inloggningen först
@@ -214,7 +214,7 @@ class MainActivity : ComponentActivity() {
                                                     isProvisioning = true
                                                     provisioningStatus = "Hämtar kategorier..."
                                                     
-                                                    sharedViewModel.loadData(u, p, h, forceRefresh = true) { success ->
+                                                    sharedViewModel.loadData(u, p, forceRefresh = true) { success ->
                                                         // EPG laddas i bakgrunden i loadData, men vi väntar på kategorierna för att släppa in användaren
                                                         isProvisioning = false
                                                         if (success) {

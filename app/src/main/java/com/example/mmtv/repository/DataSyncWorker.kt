@@ -20,7 +20,7 @@ class DataSyncWorker(
         
         val (host, user, pass) = loginInfo
         val database = MediaDatabase.getDatabase(context)
-        val repository = MediaRepository(ApiClient.getClient(host), context, database)
+        val repository = MediaRepository(ApiClient.getClient(host), database.mediaDao(), context)
 
         return try {
             Log.d("DataSyncWorker", "Starting background sync...")

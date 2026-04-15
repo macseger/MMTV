@@ -34,6 +34,7 @@ class EpgParser {
                                 val id = parser.getAttributeValue(null, "id")
                                 var icon: String? = null
                                 var displayName: String? = null
+                                
                                 var depth = 1
                                 while (depth > 0) {
                                     val nextType = parser.next()
@@ -42,10 +43,10 @@ class EpgParser {
                                         when (parser.name) {
                                             "icon" -> icon = parser.getAttributeValue(null, "src")
                                             "display-name" -> {
-                                                try {
-                                                    displayName = parser.nextText()
-                                                    depth-- // nextText moves to END_TAG
-                                                } catch (e: Exception) { }
+                                                if (parser.next() == XmlPullParser.TEXT) {
+                                                    displayName = parser.text
+                                                }
+                                                // depth stannar kvar här för vi konsumerar inte END_TAG manuellt
                                             }
                                         }
                                     } else if (nextType == XmlPullParser.END_TAG) {
@@ -125,6 +126,7 @@ class EpgParser {
                                 val id = parser.getAttributeValue(null, "id")
                                 var icon: String? = null
                                 var displayName: String? = null
+                                
                                 var depth = 1
                                 while (depth > 0) {
                                     val nextType = parser.next()
@@ -133,10 +135,10 @@ class EpgParser {
                                         when (parser.name) {
                                             "icon" -> icon = parser.getAttributeValue(null, "src")
                                             "display-name" -> {
-                                                try {
-                                                    displayName = parser.nextText()
-                                                    depth-- // nextText moves to END_TAG
-                                                } catch (e: Exception) { }
+                                                if (parser.next() == XmlPullParser.TEXT) {
+                                                    displayName = parser.text
+                                                }
+                                                // depth stannar kvar här för vi konsumerar inte END_TAG manuellt
                                             }
                                         }
                                     } else if (nextType == XmlPullParser.END_TAG) {

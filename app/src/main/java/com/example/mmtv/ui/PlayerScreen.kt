@@ -1207,16 +1207,16 @@ fun PlayerScreen(
                         ) {
                             // Detailed Info Box
                             val currentEpg = produceState<EpgListing?>(initialValue = null, key1 = focusedChannel?.id) {
-                                value = viewModel.getEpgForId(focusedChannel?.id ?: 0)
+                                value = viewModel.getEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title, focusedChannel?.epgId)
                             }.value
                             
-                            ModernProgramDetailBox(epg = currentEpg, channel = focusedChannel)
+                            ModernProgramDetailBox(epg = currentEpg, channel = focusedChannel, viewModel = viewModel)
 
                             Spacer(modifier = Modifier.height(32.dp))
 
                             // Upcoming Programs for Focused Channel
                             val fullEpg = produceState<List<EpgListing>>(initialValue = emptyList(), key1 = focusedChannel?.id) {
-                                value = viewModel.getFullEpgForId(focusedChannel?.id ?: 0)
+                                value = viewModel.getFullEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title, focusedChannel?.epgId)
                             }.value
                             val now = System.currentTimeMillis() / 1000
                             val upcomingEpg = remember(fullEpg, focusedChannel) { 
@@ -1249,10 +1249,14 @@ fun PlayerScreen(
         // --- FULL EPG INFO (MODAL) ---
         if (overlayState == OverlayState.EPG_INFO && media != null) {
             val fullEpg = produceState<List<EpgListing>>(initialValue = emptyList(), key1 = media.id) {
-                value = viewModel.getFullEpgForId(media.id)
+                value = viewModel.getFullEpgForId(media.id, media.title, media.epgId)
             }.value
             val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
             
+            val piconUrl = produceState<String?>(initialValue = media.icon, key1 = media.id) {
+                value = viewModel.getIconForChannel(media.epgId, media.title)
+            }.value
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1277,7 +1281,10 @@ fun PlayerScreen(
                     Column(modifier = Modifier.padding(24.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             AsyncImage(
-                                model = media.icon,
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(piconUrl)
+                                    .crossfade(true)
+                                    .build(),
                                 contentDescription = null,
                                 modifier = Modifier.size(50.dp).clip(MaterialTheme.shapes.small)
                             )
@@ -1574,11 +1581,11 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
     val formatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
     val epg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
-        value = viewModel.getEpgForId(item.id)
+        value = viewModel.getEpgForId(item.id, item.title, item.epgId)
     }.value
     
     val nextEpg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
-        value = viewModel.getNextEpgForId(item.id)
+        value = viewModel.getNextEpgForId(item.id, item.title, item.epgId)
     }.value
 
     val backgroundColor by animateColorAsState(
@@ -1605,9 +1612,13 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
             modifier = Modifier.padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val piconUrl = produceState<String?>(initialValue = item.icon, key1 = item.id) {
+                value = viewModel.getIconForChannel(item.epgId, item.title)
+            }.value
+
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
-                    .data(item.icon)
+                    .data(piconUrl)
                     .crossfade(true)
                     .build(),
                 contentDescription = null,
@@ -1655,8 +1666,13 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
 }
 
 @Composable
-fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?) {
+fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: MediaViewModel) {
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
+    val piconUrl = produceState<String?>(initialValue = channel?.icon, key1 = channel?.id) {
+        if (channel != null) {
+            value = viewModel.getIconForChannel(channel.epgId, channel.title)
+        }
+    }.value
     
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -1668,7 +1684,10 @@ fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?) {
             // Channel Icon in Info Box
             if (channel != null) {
                 AsyncImage(
-                    model = channel.icon,
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(piconUrl ?: epg?.icon)
+                        .crossfade(true)
+                        .build(),
                     contentDescription = null,
                     modifier = Modifier
                         .size(80.dp)

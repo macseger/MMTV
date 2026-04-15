@@ -52,7 +52,6 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
     var lastSeriesCategoryIndex by mutableIntStateOf(0)
 
     var selectedMedia by mutableStateOf<MediaSource?>(null)
-    var playingMedia by mutableStateOf<MediaSource?>(null)
     var playingEpisode by mutableStateOf<Episode?>(null)
     var currentPlaylist by mutableStateOf<List<MediaSource>>(emptyList())
 
@@ -473,7 +472,7 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
         }
     }
 
-    fun loadData(user: String, pass: String, host: String? = null, forceRefresh: Boolean = false, onComplete: ((Boolean) -> Unit)? = null) {
+    fun loadData(user: String, pass: String, forceRefresh: Boolean = false, onComplete: ((Boolean) -> Unit)? = null) {
         fetchData(user, pass, forceRefresh, onComplete)
     }
 

@@ -1,45 +1,149 @@
 package com.example.mmtv.repository
 
 import android.content.Context
-import com.example.mmtv.api.EpgParser
 import com.example.mmtv.api.XCodesApi
+import com.example.mmtv.database.*
 import com.example.mmtv.model.*
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-
-import com.example.mmtv.database.MediaDatabase
-import com.example.mmtv.database.MediaEntity
-import com.example.mmtv.database.EpgEntity
-import com.example.mmtv.database.ChannelEntity
-
 import java.util.zip.GZIPInputStream
-import com.example.mmtv.api.M3uParser
-import com.example.mmtv.api.M3uItem
+import com.example.mmtv.api.EpgParser
 
-class MediaRepository(val api: XCodesApi, private val context: Context, private val database: MediaDatabase) {
+class MediaRepository(
+    val api: XCodesApi,
+    private val mediaDao: MediaDao,
+    private val context: Context
+) {
     private val gson = Gson()
     private val cacheDir = context.cacheDir
     private val epgParser = EpgParser()
-    private val m3uParser = M3uParser()
-    private val mediaDao = database.mediaDao()
-    private val CACHE_VERSION = "v5"
-    private var cachedM3uMap: Map<Int, M3uItem>? = null
+
+    suspend fun getLiveCategories(user: String, pass: String, forceRefresh: Boolean = false): List<Category> {
+        return getCachedOrFetch("live_categories", { api.getLiveCategories(user, pass) }, object : TypeToken<List<Category>>() {}, forceRefresh)
+    }
+
+    suspend fun getLiveStreams(user: String, pass: String, categoryId: String? = null, forceRefresh: Boolean = false): List<LiveStream> {
+        val cacheKey = if (categoryId != null) "live_streams_$categoryId" else "live_streams_all"
+        return getCachedOrFetch(cacheKey, { 
+            api.getLiveStreams(user, pass)
+        }, object : TypeToken<List<LiveStream>>() {}, forceRefresh).let { list ->
+            if (categoryId != null) list.filter { it.categoryId == categoryId } else list
+        }
+    }
+
+    suspend fun getMovieCategories(user: String, pass: String, forceRefresh: Boolean = false): List<Category> {
+        return getCachedOrFetch("movie_categories", { api.getMovieCategories(user, pass) }, object : TypeToken<List<Category>>() {}, forceRefresh)
+    }
+
+    suspend fun getMovies(user: String, pass: String, categoryId: String? = null, forceRefresh: Boolean = false): List<Movie> {
+        val cacheKey = if (categoryId != null) "movies_$categoryId" else "movies_all"
+        return getCachedOrFetch(cacheKey, { 
+            api.getMovies(user, pass)
+        }, object : TypeToken<List<Movie>>() {}, forceRefresh).let { list ->
+            if (categoryId != null) list.filter { it.categoryId == categoryId } else list
+        }
+    }
+
+    suspend fun getSeriesCategories(user: String, pass: String, forceRefresh: Boolean = false): List<Category> {
+        return getCachedOrFetch("series_categories", { api.getSeriesCategories(user, pass) }, object : TypeToken<List<Category>>() {}, forceRefresh)
+    }
+
+    suspend fun getSeries(user: String, pass: String, categoryId: String? = null, forceRefresh: Boolean = false): List<Series> {
+        val cacheKey = if (categoryId != null) "series_$categoryId" else "series_all"
+        return getCachedOrFetch(cacheKey, { 
+            api.getSeries(user, pass)
+        }, object : TypeToken<List<Series>>() {}, forceRefresh).let { list ->
+            if (categoryId != null) list.filter { it.categoryId == categoryId } else list
+        }
+    }
+
+    suspend fun getSeriesInfo(user: String, pass: String, seriesId: Int): SeriesInfoResponse {
+        return api.getSeriesInfo(user, pass, seriesId)
+    }
+
+    suspend fun getGroupedLive(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
+        val categories = getLiveCategories(user, pass, forceRefresh)
+        val streams = getLiveStreams(user, pass, forceRefresh = forceRefresh)
+        
+        categories.map { cat ->
+            GroupedMedia(
+                title = cat.categoryName,
+                categoryId = cat.categoryId,
+                items = streams.filter { it.categoryId == cat.categoryId }.map { 
+                    MediaSource(
+                        id = it.streamId,
+                        title = it.name,
+                        icon = it.streamIcon,
+                        type = MediaType.LIVE,
+                        epgId = it.epgId
+                    )
+                }
+            )
+        }.filter { it.items.isNotEmpty() }
+    }
+
+    suspend fun getGroupedMovies(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
+        val categories = getMovieCategories(user, pass, forceRefresh)
+        val movies = getMovies(user, pass, forceRefresh = forceRefresh)
+        
+        categories.map { cat ->
+            GroupedMedia(
+                title = cat.categoryName,
+                categoryId = cat.categoryId,
+                items = movies.filter { it.categoryId == cat.categoryId }.map { 
+                    MediaSource(
+                        id = it.streamId,
+                        title = it.name,
+                        icon = it.streamIcon,
+                        type = MediaType.MOVIE,
+                        extension = it.containerExtension,
+                        rating = it.rating,
+                        addedDate = parseDateToUnix(it.added)
+                    )
+                }
+            )
+        }.filter { it.items.isNotEmpty() }
+    }
+
+    suspend fun getGroupedSeries(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
+        val categories = getSeriesCategories(user, pass, forceRefresh)
+        val series = getSeries(user, pass, forceRefresh = forceRefresh)
+        
+        categories.map { cat ->
+            GroupedMedia(
+                title = cat.categoryName,
+                categoryId = cat.categoryId,
+                items = series.filter { it.categoryId == cat.categoryId }.map { 
+                    MediaSource(
+                        id = it.seriesId,
+                        title = it.name,
+                        icon = it.cover,
+                        type = MediaType.SERIES,
+                        plot = it.plot,
+                        rating = it.rating,
+                        director = it.director,
+                        genre = it.genre,
+                        cast = it.cast,
+                        addedDate = parseDateToUnix(it.lastModified)
+                    )
+                }
+            )
+        }.filter { it.items.isNotEmpty() }
+    }
 
     suspend fun getJustCategories(type: MediaType, user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
-        val dbCount = mediaDao.getCountByType(type)
-        
-        // Om vi tvingar refresh, ladda ner allt först och spara i DB
-        if (forceRefresh || dbCount == 0) {
-            syncMediaFromApi(type, user, pass)
-        }
-
-        // Hämta bara kategorierna från DB
-        val categories = mediaDao.getCategoriesByType(type)
-        categories.map { 
-            GroupedMedia(title = it.categoryName, items = emptyList(), categoryId = it.categoryId) 
+        try {
+            val categories = when (type) {
+                MediaType.LIVE -> getLiveCategories(user, pass, forceRefresh)
+                MediaType.MOVIE -> getMovieCategories(user, pass, forceRefresh)
+                MediaType.SERIES -> getSeriesCategories(user, pass, forceRefresh)
+            }
+            categories.map { GroupedMedia(title = it.categoryName, categoryId = it.categoryId, items = emptyList()) }
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 
@@ -47,424 +151,123 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         mediaDao.getMediaByCategoryId(type, categoryId).map { it.toMediaSource() }
     }
 
-    suspend fun syncMediaFromApi(type: MediaType, user: String, pass: String) {
-        try {
-            // Vi försöker först hämta M3U för att få rika picons/beskrivningar om det är första gången
-            // Men vi behåller Xtream för den faktiska strukturen
-            val categories = when(type) {
-                MediaType.LIVE -> api.getLiveCategories(user, pass)
-                MediaType.MOVIE -> api.getMovieCategories(user, pass)
-                MediaType.SERIES -> api.getSeriesCategories(user, pass)
-            }
-            
-            val items = when(type) {
-                MediaType.LIVE -> api.getLiveStreams(user, pass)
-                    .map { 
-                        MediaSource(id = it.streamId, title = it.name, icon = it.streamIcon, type = type, epgId = it.epgId)
-                            .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
-                    }
-                MediaType.MOVIE -> api.getMovies(user, pass)
-                    .sortedByDescending { it.added?.toLongOrNull() ?: parseDateToUnix(it.added) }
-                    .map { 
-                        val addedTs = it.added?.toLongOrNull() ?: parseDateToUnix(it.added)
-                        MediaSource(id = it.streamId, title = it.name, icon = it.streamIcon, type = type, extension = it.containerExtension, rating = it.rating, addedDate = addedTs)
-                            .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
-                            .copy(addedDate = addedTs)
-                    }
-                MediaType.SERIES -> api.getSeries(user, pass)
-                    .sortedByDescending { it.lastModified?.toLongOrNull() ?: parseDateToUnix(it.lastModified) }
-                    .map { 
-                        val addedTs = it.lastModified?.toLongOrNull() ?: parseDateToUnix(it.lastModified)
-                        MediaSource(id = it.seriesId, title = it.name, icon = it.cover, type = type, plot = it.plot, rating = it.rating, director = it.director, genre = it.genre, cast = it.cast, addedDate = addedTs)
-                            .toEntity(it.categoryId, categories.find { c -> c.categoryId == it.categoryId }?.categoryName)
-                            .copy(addedDate = addedTs)
-                    }
-            }
+    private fun MediaEntity.toMediaSource() = MediaSource(
+        id = id,
+        title = title,
+        icon = icon,
+        type = type,
+        extension = extension,
+        plot = plot,
+        rating = rating,
+        director = director,
+        genre = genre,
+        cast = cast,
+        epgId = epgId,
+        isFavorite = isFavorite,
+        favoriteDate = favoriteDate,
+        addedDate = addedDate
+    )
 
-            if (items.isNotEmpty()) {
-                val existingFavorites = mediaDao.getFavorites().associateBy { it.id }
-                
-                // Berika med M3U-data om det finns lokalt
-                val m3uMap = getLocalM3uMap()
-                
-                val itemsToInsert = items.mapIndexed { index, entity ->
-                    val fav = existingFavorites[entity.id]
-                    val m3uData = m3uMap[entity.id]
-                    
-                    entity.copy(
-                        isFavorite = fav?.isFavorite ?: false,
-                        favoriteDate = fav?.favoriteDate ?: 0L,
-                        categoryOrder = categories.indexOfFirst { it.categoryId == entity.categoryId }.let { if (it == -1) 999 else it },
-                        itemOrder = index,
-                        // Använd M3U ikon/beskrivning om serverns är tom
-                        icon = if (entity.icon.isNullOrEmpty()) m3uData?.logo ?: entity.icon else entity.icon,
-                        plot = if (entity.plot.isNullOrEmpty()) m3uData?.title ?: entity.plot else entity.plot // M3U beskrivning kan vara titeln ibland
-                    )
-                }
-                mediaDao.deleteByType(type)
-                mediaDao.insertAll(itemsToInsert)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+    // Database methods
+    suspend fun getAllMediaByType(type: MediaType): List<MediaEntity> = withContext(Dispatchers.IO) {
+        mediaDao.getMediaByType(type)
     }
 
-    private suspend fun getLocalM3uMap(): Map<Int, M3uItem> = withContext(Dispatchers.IO) {
-        cachedM3uMap?.let { return@withContext it }
-        
-        val file = File(cacheDir, "provisioning.m3u")
-        if (!file.exists()) return@withContext emptyMap()
-        
-        try {
-            val map = file.inputStream().use { m3uParser.parse(it) }.associateBy { it.streamId ?: 0 }
-            cachedM3uMap = map
-            map
-        } catch (e: Exception) { 
-            emptyMap() 
-        }
+    suspend fun getCategoriesByType(type: MediaType): List<CategorySimple> = withContext(Dispatchers.IO) {
+        mediaDao.getCategoriesByType(type)
     }
 
-    suspend fun performInitialProvisioning(user: String, pass: String, onProgress: (String) -> Unit) = withContext(Dispatchers.IO) {
-        onProgress("Laddar ner optimerad metadata...")
-        val m3uFile = File(cacheDir, "provisioning.m3u")
-        try {
-            val response = api.getM3uPlus(user, pass)
-            val body = response
-            val totalBytes = body.contentLength()
-            val totalMb = if (totalBytes > 0) totalBytes / 1024 / 1024 else -1
-            
-            m3uFile.outputStream().use { output ->
-                body.byteStream().use { input -> 
-                    val buffer = ByteArray(64 * 1024)
-                    var bytesRead: Int
-                    var totalRead = 0L
-                    var lastUpdate = 0L
-                    
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        totalRead += bytesRead
-                        
-                        val now = System.currentTimeMillis()
-                        if (now - lastUpdate > 500) {
-                            val currentMb = totalRead / 1024 / 1024
-                            val progressText = if (totalMb > 0) {
-                                "Laddar ner metadata: ${currentMb}MB / ${totalMb}MB..."
-                            } else {
-                                "Laddar ner metadata: ${currentMb}MB..."
-                            }
-                            onProgress(progressText)
-                            lastUpdate = now
-                        }
-                    }
-                }
-            }
-            
-            onProgress("Analyserar ${m3uFile.length() / 1024 / 1024}MB metadata...")
-            // Tvinga parsning här så det är klart till nästa steg
-            getLocalM3uMap()
-            onProgress("Optimering klar!")
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+    suspend fun getMediaByCategoryId(type: MediaType, catId: String): List<MediaEntity> = withContext(Dispatchers.IO) {
+        mediaDao.getMediaByCategoryId(type, catId)
     }
 
-    suspend fun getGroupedLive(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
-        val dbCount = mediaDao.getCountByType(MediaType.LIVE)
-        
-        if (!forceRefresh && dbCount > 0) {
-            val entities = mediaDao.getMediaByType(MediaType.LIVE)
-            return@withContext withContext(Dispatchers.Default) {
-                entities.groupBy { it.categoryId ?: it.categoryName ?: "Okänd" }
-                    .values
-                    .map { items ->
-                        val first = items.first()
-                        GroupedMedia(
-                            title = first.categoryName ?: "Okänd",
-                            items = items.map { it.toMediaSource() }
-                        )
-                    }
-                    .sortedBy { group -> 
-                        entities.firstOrNull { it.categoryName == group.title }?.categoryOrder ?: 999
-                    }
-            }
-        }
+    suspend fun toggleFavorite(item: MediaEntity) = withContext(Dispatchers.IO) {
+        val newFav = !item.isFavorite
+        val favDate = if (newFav) System.currentTimeMillis() else 0L
+        mediaDao.updateFavoriteWithDate(item.id, newFav, favDate)
+    }
 
-        val streams = try { api.getLiveStreams(user, pass) } catch (e: Exception) { emptyList() }
-        val categories = try { api.getLiveCategories(user, pass) } catch (e: Exception) { emptyList() }
-        
-        if (streams.isEmpty() && categories.isEmpty() && dbCount > 0) {
-             val entities = mediaDao.getMediaByType(MediaType.LIVE)
-             return@withContext withContext(Dispatchers.Default) {
-                 entities.groupBy { it.categoryId ?: it.categoryName ?: "Okänd" }
-                    .values
-                    .map { items ->
-                        val first = items.first()
-                        GroupedMedia(
-                            title = first.categoryName ?: "Okänd",
-                            items = items.map { it.toMediaSource() }
-                        )
-                    }
-             }
-        }
+    suspend fun getFavorites(): List<MediaEntity> = withContext(Dispatchers.IO) {
+        mediaDao.getFavorites()
+    }
 
-        val streamsByCategory = streams.groupBy { it.categoryId }
-        
-        val existingFavorites = mediaDao.getFavorites().map { it.id }.toSet()
-        
-        val allEntities = mutableListOf<MediaEntity>()
-        val result = categories.mapIndexed { catIdx, category ->
-            val categoryStreams = streamsByCategory[category.categoryId] ?: emptyList()
-            val mediaSources = categoryStreams.mapIndexed { itemIdx, s ->
-                val title = s.name ?: "Okänd kanal"
-                MediaSource(
-                    id = s.streamId,
-                    title = title,
-                    icon = s.streamIcon,
+    suspend fun clearAllFavorites() = withContext(Dispatchers.IO) {
+        mediaDao.clearAllFavorites()
+    }
+
+    suspend fun getRecentlyAdded(): List<MediaEntity> = withContext(Dispatchers.IO) {
+        mediaDao.getRecentlyAdded()
+    }
+
+    suspend fun searchMedia(query: String): List<MediaEntity> = withContext(Dispatchers.IO) {
+        if (query.length < 2) return@withContext emptyList()
+        mediaDao.searchMedia("%$query%")
+    }
+
+    suspend fun syncLibrary(user: String, pass: String) = withContext(Dispatchers.IO) {
+        try {
+            // 1. Live
+            val liveCats = api.getLiveCategories(user, pass)
+            val liveStreams = api.getLiveStreams(user, pass)
+            val liveEntities = liveStreams.map { stream ->
+                val cat = liveCats.find { it.categoryId == stream.categoryId }
+                MediaEntity(
+                    id = stream.streamId,
+                    title = stream.name ?: "",
                     type = MediaType.LIVE,
-                    epgId = s.epgId,
-                    isFavorite = existingFavorites.contains(s.streamId),
+                    categoryId = stream.categoryId ?: "",
+                    categoryName = cat?.categoryName ?: "Okänd",
+                    icon = stream.streamIcon,
+                    epgId = stream.epgId,
                     addedDate = 0L
                 )
             }
-            
-            allEntities.addAll(mediaSources.mapIndexed { itemIdx, it -> 
-                it.toEntity(category.categoryId, category.categoryName).copy(
-                    categoryOrder = catIdx,
-                    itemOrder = itemIdx
-                )
-            })
-            
-            GroupedMedia(
-                title = category.categoryName ?: "Okänd kategori",
-                items = mediaSources
-            )
-        }.filter { it.items.isNotEmpty() }
-
-        if (allEntities.isNotEmpty()) {
             mediaDao.deleteByType(MediaType.LIVE)
-            mediaDao.insertAll(allEntities)
-        }
-        result
-    }
+            mediaDao.insertAll(liveEntities)
 
-    private fun MediaEntity.toMediaSource() = MediaSource(
-        id = id,
-        title = title, // Behåll originalnamnet från DB
-        icon = icon,
-        type = type,
-        extension = extension,
-        plot = plot,
-        rating = rating,
-        director = director,
-        genre = genre,
-        cast = cast,
-        epgId = epgId,
-        isFavorite = isFavorite,
-        favoriteDate = favoriteDate,
-        addedDate = addedDate
-    )
-
-    private fun MediaSource.toEntity(catId: String?, catName: String?) = MediaEntity(
-        id = id,
-        title = title ?: "", // Spara originalnamnet till DB
-        icon = icon,
-        type = type,
-        categoryId = catId,
-        categoryName = catName,
-        extension = extension,
-        plot = plot,
-        rating = rating,
-        director = director,
-        genre = genre,
-        cast = cast,
-        epgId = epgId,
-        isFavorite = isFavorite,
-        favoriteDate = favoriteDate,
-        addedDate = addedDate
-    )
-
-    suspend fun getGroupedMovies(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
-        val dbCount = mediaDao.getCountByType(MediaType.MOVIE)
-        
-        if (!forceRefresh && dbCount > 0) {
-            val entities = mediaDao.getMediaByType(MediaType.MOVIE)
-            return@withContext withContext(Dispatchers.Default) {
-                entities.groupBy { it.categoryId ?: it.categoryName ?: "Okänd" }
-                    .values
-                    .map { items ->
-                        val first = items.first()
-                        GroupedMedia(
-                            title = first.categoryName ?: "Okänd",
-                            items = items.map { it.toMediaSource() }
-                        )
-                    }
-                    .sortedBy { group -> 
-                        entities.firstOrNull { it.categoryName == group.title }?.categoryOrder ?: 999 
-                    }
-            }
-        }
-
-        val movies = try { api.getMovies(user, pass) } catch (e: Exception) { emptyList() }
-        val categories = try { api.getMovieCategories(user, pass) } catch (e: Exception) { emptyList() }
-        
-        if (movies.isEmpty() && categories.isEmpty() && dbCount > 0) {
-            val entities = mediaDao.getMediaByType(MediaType.MOVIE)
-            return@withContext withContext(Dispatchers.Default) {
-                entities.groupBy { it.categoryId ?: it.categoryName ?: "Okänd" }
-                    .values
-                    .map { items ->
-                        val first = items.first()
-                        GroupedMedia(
-                            title = first.categoryName ?: "Okänd",
-                            items = items.map { it.toMediaSource() }
-                        )
-                    }
-            }
-        }
-
-        val moviesByCategory = movies.groupBy { it.categoryId }
-        val existingFavorites = mediaDao.getFavorites().map { it.id }.toSet()
-
-        val allEntities = mutableListOf<MediaEntity>()
-        val result = categories.mapIndexed { catIdx, category ->
-            val categoryMovies = moviesByCategory[category.categoryId] ?: emptyList()
-            val sortedCategoryMovies = categoryMovies.sortedByDescending { it.added?.toLongOrNull() ?: parseDateToUnix(it.added) }
-            val mediaSources = sortedCategoryMovies.map { movie ->
-                val addedTs = movie.added?.toLongOrNull() ?: parseDateToUnix(movie.added)
-                MediaSource(
+            // 2. Movie
+            val movieCats = api.getMovieCategories(user, pass)
+            val movies = api.getMovies(user, pass)
+            val movieEntities = movies.map { movie ->
+                val cat = movieCats.find { it.categoryId == movie.categoryId }
+                MediaEntity(
                     id = movie.streamId,
-                    title = movie.name ?: "Okänd film",
-                    icon = movie.streamIcon,
+                    title = movie.name ?: "",
                     type = MediaType.MOVIE,
-                    extension = movie.containerExtension,
-                    rating = movie.rating,
-                    isFavorite = existingFavorites.contains(movie.streamId),
-                    addedDate = addedTs
+                    categoryId = movie.categoryId ?: "",
+                    categoryName = cat?.categoryName ?: "Okänd",
+                    icon = movie.streamIcon,
+                    extension = movie.containerExtension ?: "mp4",
+                    addedDate = parseDateToUnix(movie.added)
                 )
             }
-            allEntities.addAll(sortedCategoryMovies.mapIndexed { itemIdx, movie ->
-                val addedTs = movie.added?.toLongOrNull() ?: parseDateToUnix(movie.added)
-                val media = MediaSource(
-                    id = movie.streamId,
-                    title = movie.name ?: "Okänd film",
-                    icon = movie.streamIcon,
-                    type = MediaType.MOVIE,
-                    extension = movie.containerExtension,
-                    rating = movie.rating,
-                    isFavorite = existingFavorites.contains(movie.streamId),
-                    addedDate = addedTs
-                )
-                media.toEntity(category.categoryId, category.categoryName).copy(
-                    categoryOrder = catIdx,
-                    itemOrder = itemIdx,
-                    addedDate = addedTs
-                )
-            })
-            GroupedMedia(title = category.categoryName ?: "Okänd kategori", items = mediaSources)
-        }.filter { it.items.isNotEmpty() }
-
-        if (allEntities.isNotEmpty()) {
             mediaDao.deleteByType(MediaType.MOVIE)
-            mediaDao.insertAll(allEntities)
-        }
-        result
-    }
+            mediaDao.insertAll(movieEntities)
 
-    suspend fun getGroupedSeries(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
-        val dbCount = mediaDao.getCountByType(MediaType.SERIES)
-        
-        if (!forceRefresh && dbCount > 0) {
-            val entities = mediaDao.getMediaByType(MediaType.SERIES)
-            return@withContext withContext(Dispatchers.Default) {
-                entities.groupBy { it.categoryId ?: it.categoryName ?: "Okänd" }
-                    .values
-                    .map { items ->
-                        val first = items.first()
-                        GroupedMedia(
-                            title = first.categoryName ?: "Okänd",
-                            items = items.map { it.toMediaSource() }
-                        )
-                    }
-                    .sortedBy { group -> 
-                        entities.firstOrNull { it.categoryName == group.title }?.categoryOrder ?: 999
-                    }
-            }
-        }
-
-        val series = try { api.getSeries(user, pass) } catch (e: Exception) { emptyList() }
-        val categories = try { api.getSeriesCategories(user, pass) } catch (e: Exception) { emptyList() }
-
-        if (series.isEmpty() && categories.isEmpty() && dbCount > 0) {
-            val entities = mediaDao.getMediaByType(MediaType.SERIES)
-            return@withContext withContext(Dispatchers.Default) {
-                entities.groupBy { it.categoryId ?: it.categoryName ?: "Okänd" }
-                    .values
-                    .map { items ->
-                        val first = items.first()
-                        GroupedMedia(
-                            title = first.categoryName ?: "Okänd",
-                            items = items.map { it.toMediaSource() }
-                        )
-                    }
-            }
-        }
-
-        val seriesByCategory = series.groupBy { it.categoryId }
-        val existingFavorites = mediaDao.getFavorites().map { it.id }.toSet()
-
-        val allEntities = mutableListOf<MediaEntity>()
-        val result = categories.mapIndexed { catIdx, category ->
-            val categorySeries = seriesByCategory[category.categoryId] ?: emptyList()
-            val sortedCategorySeries = categorySeries.sortedByDescending { it.lastModified?.toLongOrNull() ?: parseDateToUnix(it.lastModified) }
-            val mediaSources = sortedCategorySeries.map { s ->
-                val addedTs = s.lastModified?.toLongOrNull() ?: parseDateToUnix(s.lastModified)
-                MediaSource(
-                    id = s.seriesId,
-                    title = s.name ?: "Okänd serie",
-                    icon = s.cover,
+            // 3. Series
+            val seriesCats = api.getSeriesCategories(user, pass)
+            val seriesItems = api.getSeries(user, pass)
+            val seriesEntities = seriesItems.map { item ->
+                val cat = seriesCats.find { it.categoryId == item.categoryId }
+                MediaEntity(
+                    id = item.seriesId,
+                    title = item.name ?: "",
                     type = MediaType.SERIES,
-                    plot = s.plot,
-                    rating = s.rating,
-                    director = s.director,
-                    genre = s.genre,
-                    cast = s.cast,
-                    isFavorite = existingFavorites.contains(s.seriesId),
-                    addedDate = addedTs
+                    categoryId = item.categoryId ?: "",
+                    categoryName = cat?.categoryName ?: "Okänd",
+                    icon = item.cover,
+                    addedDate = parseDateToUnix(item.lastModified)
                 )
             }
-            allEntities.addAll(sortedCategorySeries.mapIndexed { itemIdx, s ->
-                val addedTs = s.lastModified?.toLongOrNull() ?: parseDateToUnix(s.lastModified)
-                val media = MediaSource(
-                    id = s.seriesId,
-                    title = s.name ?: "Okänd serie",
-                    icon = s.cover,
-                    type = MediaType.SERIES,
-                    plot = s.plot,
-                    rating = s.rating,
-                    director = s.director,
-                    genre = s.genre,
-                    cast = s.cast,
-                    isFavorite = existingFavorites.contains(s.seriesId),
-                    addedDate = addedTs
-                )
-                media.toEntity(category.categoryId, category.categoryName).copy(
-                    categoryOrder = catIdx,
-                    itemOrder = itemIdx,
-                    addedDate = addedTs
-                )
-            })
-            GroupedMedia(title = category.categoryName ?: "Okänd kategori", items = mediaSources)
-        }.filter { it.items.isNotEmpty() }
-
-        if (allEntities.isNotEmpty()) {
             mediaDao.deleteByType(MediaType.SERIES)
-            mediaDao.insertAll(allEntities)
+            mediaDao.insertAll(seriesEntities)
+            
+            // Sync EPG also
+            fetchAndStoreEpg(user, pass)
+            
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        result
-    }
-
-    suspend fun getSeriesInfo(user: String, pass: String, seriesId: Int): SeriesInfoResponse = withContext(Dispatchers.IO) {
-        api.getSeriesInfo(user, pass, seriesId)
     }
 
     suspend fun fetchAndStoreEpg(user: String, pass: String, forceRefresh: Boolean = false) = withContext(Dispatchers.IO) {
@@ -477,7 +280,7 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         val dbCount = mediaDao.getEpgCount()
         val useExternalSwedish = com.example.mmtv.api.SessionManager(context).getUseExternalSwedishEpg()
 
-        // 1. Hantera Serverns EPG (Hoppa över om vi bara vill ha svenska externa, eller kör som backup)
+        // 1. Hantera Serverns EPG
         val shouldDownloadServer = forceRefresh || !xmlFile.exists() || (now - xmlFile.lastModified() > twentyFourHours)
         if (shouldDownloadServer || dbCount == 0) {
             try {
@@ -493,7 +296,7 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // 2. Hantera Extern Backup EPG (epgshare01)
+        // 2. Hantera Extern Backup EPG
         val shouldDownloadExternal = forceRefresh || !externalXmlFile.exists() || (now - externalXmlFile.lastModified() > twentyFourHours)
         if (shouldDownloadExternal) {
             try {
@@ -512,18 +315,17 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // 3. Hantera den NYA Svenska EPG:n (iptv-epg.org)
+        // 3. Hantera den Svenska EPG:n (iptv-epg.org)
         if (useExternalSwedish) {
             val shouldDownloadSwedish = forceRefresh || !swedishXmlFile.exists() || (now - swedishXmlFile.lastModified() > twentyFourHours)
             if (shouldDownloadSwedish) {
                 try {
                     val url = "https://iptv-epg.org/files/epg-se.xml"
-                    val responseBody = api.getExternalEpg(url) // Vi kan återanvända getExternalEpg för vanliga XML-filer också
+                    val responseBody = api.getExternalEpg(url)
                     swedishXmlFile.outputStream().use { output ->
                         responseBody.byteStream().use { input -> input.copyTo(output) }
                     }
                     if (swedishXmlFile.exists()) {
-                        // Vi fyller på (isClearFirst = false) så att vi har både serverns och denna
                         parseAndStore(swedishXmlFile, false)
                     }
                 } catch (e: Exception) { e.printStackTrace() }
@@ -534,11 +336,15 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         syncPiconsFromGithub(forceRefresh)
     }
 
+    suspend fun performInitialProvisioning(user: String, pass: String, onProgress: (String) -> Unit) = withContext(Dispatchers.IO) {
+        onProgress("Synkar Live...")
+        syncLibrary(user, pass)
+        onProgress("Synkar EPG...")
+        fetchAndStoreEpg(user, pass, true)
+        onProgress("Synk klar!")
+    }
+
     private suspend fun syncPiconsFromGithub(forceRefresh: Boolean) = withContext(Dispatchers.IO) {
-        val now = System.currentTimeMillis()
-        val sevenDays = 7 * 24 * 60 * 60 * 1000L
-        
-        // Hämta bara om det är tomt eller tvingat
         if (!forceRefresh && mediaDao.getAllPicons().isNotEmpty()) return@withContext
 
         try {
@@ -546,7 +352,6 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
             val files = api.getGithubFiles(githubUrl)
             
             val piconEntities = files.filter { it.name.endsWith(".png", true) || it.name.endsWith(".jpg", true) }.map { file ->
-                // Vi mappar namnet (t.ex. "SVT1.png") till en renad version "svt1"
                 val cleanName = file.name.substringBeforeLast(".")
                     .lowercase()
                     .replace(" ", "")
@@ -567,31 +372,29 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         }
     }
 
-    private suspend fun parseAndStore(file: File, isClearFirst: Boolean) {
+    private suspend fun parseAndStore(file: File, isClearFirst: Boolean) = withContext(Dispatchers.IO) {
         val batch = mutableListOf<EpgEntity>()
-        val channelsToInsert = mutableListOf<ChannelEntity>()
+        val channels = mutableListOf<ChannelEntity>()
         var isFirstBatch = true
         
         file.inputStream().use { input ->
             epgParser.parseStreaming(
                 input,
                 onChannelParsed = { id, displayName, icon ->
-                    channelsToInsert.add(ChannelEntity(id, displayName, icon))
-                    if (channelsToInsert.size >= 100) {
-                        mediaDao.insertChannels(ArrayList(channelsToInsert))
-                        channelsToInsert.clear()
+                    channels.add(ChannelEntity(id, displayName, icon))
+                    if (channels.size >= 100) {
+                        mediaDao.insertChannels(ArrayList(channels))
+                        channels.clear()
                     }
                 },
                 onProgrammeParsed = { epgId, it ->
-                    // Vi behöver veta ikon och namn för detta program. 
-                    // Eftersom vi streamar kan vi inte vara säkra på att vi sett kanalen än om XML:en är dåligt strukturerad,
-                    // men oftast kommer <channel> före <programme>.
                     batch.add(EpgEntity(
                         epgId = epgId,
                         title = it.title,
                         description = it.description,
                         startTimestamp = it.startTimestamp ?: 0L,
-                        stopTimestamp = it.stopTimestamp ?: 0L
+                        stopTimestamp = it.stopTimestamp ?: 0L,
+                        icon = it.icon
                     ))
                     
                     if (batch.size >= 500) {
@@ -606,10 +409,7 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
             )
         }
 
-        if (channelsToInsert.isNotEmpty()) {
-            mediaDao.insertChannels(channelsToInsert)
-        }
-
+        if (channels.isNotEmpty()) mediaDao.insertChannels(channels)
         if (batch.isNotEmpty()) {
             if (isFirstBatch && isClearFirst) mediaDao.clearEpg()
             mediaDao.insertEpg(batch)
@@ -618,9 +418,8 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
 
     suspend fun getEpgForChannel(epgId: String?, channelName: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis() / 1000
-        val endLimit = now + (24 * 60 * 60) // Hämta 24 timmar framåt
+        val endLimit = now + (24 * 60 * 60)
         
-        // 1. Försök med exakt ID först
         if (epgId != null) {
             val exactMatch = mediaDao.getEpgForChannelWithLimit(epgId, now, endLimit)
             if (exactMatch.isNotEmpty()) {
@@ -628,43 +427,23 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
             }
         }
 
-        // 2. Om ingen träff, försök med Fuzzy Matching på namnet
         if (channelName != null) {
-            val cleanName = channelName
-                .replace(Regex("\\(.*?\\)"), "") // Ta bort (S) etc
-                .replace(Regex("\\[.*?\\]"), "") // Ta bort [SE] etc
-                .replace("HD", "", ignoreCase = true)
-                .replace("FHD", "", ignoreCase = true)
-                .replace("4K", "", ignoreCase = true)
-                .replace("SD", "", ignoreCase = true)
-                .replace("Sverige", "", ignoreCase = true)
-                .replace("|", "")
-                .trim()
+            val cleanName = cleanChannelName(channelName)
+            val nameNoSpaces = cleanName.replace(" ", "").lowercase()
+            val simpleQuery = "%${nameNoSpaces}%"
             
-            val nameNoSpaces = cleanName.replace(" ", "")
-            
-            val fuzzyMatch = mediaDao.findEpgByFuzzyName(cleanName, nameNoSpaces, now, endLimit)
+            val fuzzyMatch = mediaDao.findEpgByFuzzyName(cleanName, simpleQuery, now, endLimit)
             if (fuzzyMatch.isNotEmpty()) {
                 return@withContext fuzzyMatch.map { it.toEpgListing() }
             }
         }
-
-        emptyList()
+        
+        emptyList<EpgListing>()
     }
 
     suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
-        // 1. Kolla om vi har en matchande picon från GitHub först (Högsta kvalitet)
         if (channelName != null) {
-            val cleanName = channelName
-                .replace(Regex("\\(.*?\\)"), "")
-                .replace(Regex("\\[.*?\\]"), "")
-                .replace("HD", "", ignoreCase = true)
-                .replace("FHD", "", ignoreCase = true)
-                .replace("4K", "", ignoreCase = true)
-                .replace("SD", "", ignoreCase = true)
-                .replace("Sverige", "", ignoreCase = true)
-                .replace("|", "")
-                .trim()
+            val cleanName = cleanChannelName(channelName)
                 .lowercase()
                 .replace(" ", "")
                 .replace("-", "")
@@ -674,31 +453,33 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
             if (githubPicon != null) return@withContext githubPicon.url
         }
 
-        // 2. Kolla exakt EPG ID
         if (epgId != null) {
             val icon = mediaDao.getIconByEpgId(epgId)
             if (icon != null) return@withContext icon
         }
         
-        // 3. Kolla fuzzy på namnet i EPG databasen
         if (channelName != null) {
-            val cleanName = channelName
-                .replace(Regex("\\(.*?\\)"), "")
-                .replace(Regex("\\[.*?\\]"), "")
-                .replace("HD", "", ignoreCase = true)
-                .replace("FHD", "", ignoreCase = true)
-                .replace("4K", "", ignoreCase = true)
-                .replace("SD", "", ignoreCase = true)
-                .replace("Sverige", "", ignoreCase = true)
-                .replace("|", "")
-                .trim()
-            
+            val cleanName = cleanChannelName(channelName)
             val nameNoSpaces = cleanName.replace(" ", "")
             val icon = mediaDao.findIconByFuzzyName(cleanName, nameNoSpaces)
             if (icon != null) return@withContext icon
         }
         
         null
+    }
+
+    private fun cleanChannelName(name: String): String {
+        return name
+            .replace(Regex("\\(.*?\\)"), "")
+            .replace(Regex("\\[.*?\\]"), "")
+            .replace("HD", "", ignoreCase = true)
+            .replace("FHD", "", ignoreCase = true)
+            .replace("4K", "", ignoreCase = true)
+            .replace("SD", "", ignoreCase = true)
+            .replace("Sverige", "", ignoreCase = true)
+            .replace("Sweden", "", ignoreCase = true)
+            .replace("|", "")
+            .trim()
     }
 
     private fun EpgEntity.toEpgListing() = EpgListing(
@@ -716,12 +497,10 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
     private fun parseDateToUnix(dateStr: String?): Long {
         if (dateStr == null) return 0L
         return try {
-            // Försök med formatet YYYY-MM-DD HH:MM:SS som är vanligt i IPTV-listor
             val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
             sdf.parse(dateStr)?.time?.div(1000) ?: 0L
         } catch (e: Exception) {
             try {
-                // Försök med bara datum YYYY-MM-DD
                 val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
                 sdf.parse(dateStr)?.time?.div(1000) ?: 0L
             } catch (e2: Exception) {
@@ -742,7 +521,6 @@ class MediaRepository(val api: XCodesApi, private val context: Context, private 
         
         if (!forceRefresh && cacheFile.exists() && (now - cacheFile.lastModified() < twentyFourHours)) {
             try {
-                // Använd en BufferedSource för snabbare läsning av stora filer
                 val json = cacheFile.bufferedReader().use { it.readText() }
                 val cached = gson.fromJson<T>(json, typeToken.type)
                 if (cached != null) return@withContext cached

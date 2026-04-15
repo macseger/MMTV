@@ -357,6 +357,7 @@ class MediaRepository(
                     .replace(" ", "")
                     .replace("-", "")
                     .replace("_", "")
+                    .replace(".", "")
                 
                 com.example.mmtv.database.PiconEntity(
                     name = cleanName,
@@ -375,6 +376,7 @@ class MediaRepository(
     private suspend fun parseAndStore(file: File, isClearFirst: Boolean) = withContext(Dispatchers.IO) {
         val batch = mutableListOf<EpgEntity>()
         val channels = mutableListOf<ChannelEntity>()
+        val channelNamesMap = mutableMapOf<String, String>()
         var isFirstBatch = true
         
         file.inputStream().use { input ->
@@ -382,6 +384,7 @@ class MediaRepository(
                 input,
                 onChannelParsed = { id, displayName, icon ->
                     channels.add(ChannelEntity(id, displayName, icon))
+                    if (displayName != null) channelNamesMap[id] = displayName
                     if (channels.size >= 100) {
                         mediaDao.insertChannels(ArrayList(channels))
                         channels.clear()
@@ -390,6 +393,7 @@ class MediaRepository(
                 onProgrammeParsed = { epgId, it ->
                     batch.add(EpgEntity(
                         epgId = epgId,
+                        channelName = channelNamesMap[epgId],
                         title = it.title,
                         description = it.description,
                         startTimestamp = it.startTimestamp ?: 0L,
@@ -429,10 +433,12 @@ class MediaRepository(
 
         if (channelName != null) {
             val cleanName = cleanChannelName(channelName)
-            val nameNoSpaces = cleanName.replace(" ", "").lowercase()
-            val simpleQuery = "%${nameNoSpaces}%"
+            val nameNoSpaces = cleanName.lowercase()
+                .replace(" ", "")
+                .replace(".", "")
+                .replace("-", "")
             
-            val fuzzyMatch = mediaDao.findEpgByFuzzyName(cleanName, simpleQuery, now, endLimit)
+            val fuzzyMatch = mediaDao.findEpgByFuzzyName(cleanName, nameNoSpaces, now, endLimit)
             if (fuzzyMatch.isNotEmpty()) {
                 return@withContext fuzzyMatch.map { it.toEpgListing() }
             }
@@ -448,6 +454,7 @@ class MediaRepository(
                 .replace(" ", "")
                 .replace("-", "")
                 .replace("_", "")
+                .replace(".", "")
             
             val githubPicon = mediaDao.getPiconByName(cleanName)
             if (githubPicon != null) return@withContext githubPicon.url
@@ -460,7 +467,9 @@ class MediaRepository(
         
         if (channelName != null) {
             val cleanName = cleanChannelName(channelName)
-            val nameNoSpaces = cleanName.replace(" ", "")
+            val nameNoSpaces = cleanName.lowercase()
+                .replace(" ", "")
+                .replace(".", "")
             val icon = mediaDao.findIconByFuzzyName(cleanName, nameNoSpaces)
             if (icon != null) return@withContext icon
         }
@@ -469,17 +478,18 @@ class MediaRepository(
     }
 
     private fun cleanChannelName(name: String): String {
-        return name
+        var cleaned = name
             .replace(Regex("\\(.*?\\)"), "")
             .replace(Regex("\\[.*?\\]"), "")
-            .replace("HD", "", ignoreCase = true)
-            .replace("FHD", "", ignoreCase = true)
-            .replace("4K", "", ignoreCase = true)
-            .replace("SD", "", ignoreCase = true)
-            .replace("Sverige", "", ignoreCase = true)
-            .replace("Sweden", "", ignoreCase = true)
+            .replace(Regex("(?i)(\\d{3,4}p|H265|HEVC|HD|FHD|UHD|4K|SD|Sverige|Sweden)"), "")
             .replace("|", "")
-            .trim()
+            .replace(".", " ")
+
+        // Ta bort vanliga IPTV-prefix (t.ex. "SE:", "NO:", "SE |", "SWE ")
+        val prefixRegex = Regex("(?i)^([a-z]{1,3}\\s?[:|\\-]\\s?|SE\\s+|SWE\\s+)")
+        cleaned = cleaned.replace(prefixRegex, "")
+
+        return cleaned.trim()
     }
 
     private fun EpgEntity.toEpgListing() = EpgListing(

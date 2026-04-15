@@ -169,8 +169,15 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
         viewModelScope.launch {
             uiState = uiState.copy(isLoading = true)
             try {
+                // 1. Synka biblioteket (kanaler, filmer, serier) till databasen
+                withContext(Dispatchers.IO) {
+                    _repository.syncLibrary(user, pass)
+                }
+
+                // 2. Hämta EPG parallellt
                 val epgJob = launch { _repository.fetchAndStoreEpg(user, pass, forceRefresh) }
 
+                // 3. Ladda kategorierna från den nyss uppdaterade databasen
                 val liveCats = async { _repository.getJustCategories(MediaType.LIVE, user, pass, forceRefresh) }
                 val movieCats = async { _repository.getJustCategories(MediaType.MOVIE, user, pass, forceRefresh) }
                 val seriesCats = async { _repository.getJustCategories(MediaType.SERIES, user, pass, forceRefresh) }
@@ -348,21 +355,25 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
     suspend fun getEpgForId(streamId: Int, channelName: String? = null, epgId: String? = null): EpgListing? = withContext(Dispatchers.IO) {
         val finalEpgId = epgId ?: channelToEpgMap[streamId]
         val now = System.currentTimeMillis() / 1000
+        
+        // 1. Kolla cache först
         if (finalEpgId != null) {
             val cached = fullEpgData[finalEpgId]
             if (cached != null) {
-                return@withContext cached.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
+                val found = cached.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
+                if (found != null) return@withContext found
             }
         }
+
+        // 2. Hämta från databas/repository
         val fullEpg = _repository.getEpgForChannel(finalEpgId, channelName)
         if (fullEpg.isNotEmpty()) {
-            val actualEpgId = finalEpgId ?: fullEpg.first().epgId ?: channelName ?: "unknown"
+            val actualKey = finalEpgId ?: channelName ?: "unknown"
             withContext(Dispatchers.Main) {
-                if (fullEpgData.size > 50) {
-                    val firstKey = fullEpgData.keys.first()
-                    fullEpgData.remove(firstKey)
+                if (fullEpgData.size > 100) {
+                    fullEpgData.clear() // Rensa om det blir för mycket
                 }
-                fullEpgData[actualEpgId] = fullEpg
+                fullEpgData[actualKey] = fullEpg
             }
             return@withContext fullEpg.find { now in (it.startTimestamp ?: 0)..(it.stopTimestamp ?: 0) }
         }

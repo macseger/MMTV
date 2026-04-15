@@ -148,7 +148,13 @@ class MediaRepository(
     }
 
     suspend fun getMediaForCategory(type: MediaType, categoryId: String): List<MediaSource> = withContext(Dispatchers.IO) {
-        mediaDao.getMediaByCategoryId(type, categoryId).map { it.toMediaSource() }
+        val entities = if (type == MediaType.LIVE) {
+            mediaDao.getMediaByCategoryId(type, categoryId)
+        } else {
+            // Sortera VOD efter nyaste först
+            mediaDao.getMediaByCategoryId(type, categoryId).sortedByDescending { it.addedDate }
+        }
+        entities.map { it.toMediaSource() }
     }
 
     private fun MediaEntity.toMediaSource() = MediaSource(
@@ -209,16 +215,18 @@ class MediaRepository(
             // 1. Live
             val liveCats = api.getLiveCategories(user, pass)
             val liveStreams = api.getLiveStreams(user, pass)
-            val liveEntities = liveStreams.map { stream ->
+            val liveEntities = liveStreams.mapIndexed { index, stream ->
                 val cat = liveCats.find { it.categoryId == stream.categoryId }
+                val cleanedName = cleanChannelName(stream.name ?: "")
                 MediaEntity(
                     id = stream.streamId,
-                    title = stream.name ?: "",
+                    title = cleanedName,
                     type = MediaType.LIVE,
                     categoryId = stream.categoryId ?: "",
                     categoryName = cat?.categoryName ?: "Okänd",
                     icon = stream.streamIcon,
                     epgId = stream.epgId,
+                    itemOrder = index,
                     addedDate = 0L
                 )
             }
@@ -228,7 +236,7 @@ class MediaRepository(
             // 2. Movie
             val movieCats = api.getMovieCategories(user, pass)
             val movies = api.getMovies(user, pass)
-            val movieEntities = movies.map { movie ->
+            val movieEntities = movies.mapIndexed { index, movie ->
                 val cat = movieCats.find { it.categoryId == movie.categoryId }
                 MediaEntity(
                     id = movie.streamId,
@@ -238,6 +246,7 @@ class MediaRepository(
                     categoryName = cat?.categoryName ?: "Okänd",
                     icon = movie.streamIcon,
                     extension = movie.containerExtension ?: "mp4",
+                    itemOrder = index,
                     addedDate = parseDateToUnix(movie.added)
                 )
             }
@@ -247,7 +256,7 @@ class MediaRepository(
             // 3. Series
             val seriesCats = api.getSeriesCategories(user, pass)
             val seriesItems = api.getSeries(user, pass)
-            val seriesEntities = seriesItems.map { item ->
+            val seriesEntities = seriesItems.mapIndexed { index, item ->
                 val cat = seriesCats.find { it.categoryId == item.categoryId }
                 MediaEntity(
                     id = item.seriesId,
@@ -256,6 +265,7 @@ class MediaRepository(
                     categoryId = item.categoryId ?: "",
                     categoryName = cat?.categoryName ?: "Okänd",
                     icon = item.cover,
+                    itemOrder = index,
                     addedDate = parseDateToUnix(item.lastModified)
                 )
             }
@@ -448,29 +458,29 @@ class MediaRepository(
     }
 
     suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
+        // 1. Försök matcha picon via EPG-ID (t.ex. "SVT1.se" -> "svt1")
+        if (epgId != null) {
+            val cleanEpgId = epgId.lowercase()
+                .substringBefore(".") // Ta bort .se, .com osv
+                .replace(Regex("[^a-z0-9]"), "")
+            
+            val githubPicon = mediaDao.getPiconByName(cleanEpgId)
+            if (githubPicon != null) return@withContext githubPicon.url
+        }
+
+        // 2. Försök matcha via det rena kanalnamnet
         if (channelName != null) {
             val cleanName = cleanChannelName(channelName)
                 .lowercase()
-                .replace(" ", "")
-                .replace("-", "")
-                .replace("_", "")
-                .replace(".", "")
+                .replace(Regex("[^a-z0-9]"), "")
             
             val githubPicon = mediaDao.getPiconByName(cleanName)
             if (githubPicon != null) return@withContext githubPicon.url
         }
 
+        // 3. Fallback till serverns ikon via EPG-ID
         if (epgId != null) {
             val icon = mediaDao.getIconByEpgId(epgId)
-            if (icon != null) return@withContext icon
-        }
-        
-        if (channelName != null) {
-            val cleanName = cleanChannelName(channelName)
-            val nameNoSpaces = cleanName.lowercase()
-                .replace(" ", "")
-                .replace(".", "")
-            val icon = mediaDao.findIconByFuzzyName(cleanName, nameNoSpaces)
             if (icon != null) return@withContext icon
         }
         

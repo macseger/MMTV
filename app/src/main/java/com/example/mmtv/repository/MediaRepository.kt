@@ -225,9 +225,17 @@ class MediaRepository(
                     var entry = zipInput.nextEntry
                     while (entry != null) {
                         if (!entry.isDirectory) {
-                            val outFile = File(piconsDir, entry.name.lowercase())
-                            outFile.outputStream().use { output ->
-                                zipInput.copyTo(output)
+                            // Ta bara själva filnamnet, ignorera mappar i zippen (t.ex. "picons/svt1.png" -> "svt1.png")
+                            val fileName = File(entry.name).name.lowercase()
+                            val outFile = File(piconsDir, fileName)
+                            
+                            try {
+                                outFile.outputStream().use { output ->
+                                    zipInput.copyTo(output)
+                                }
+                            } catch (e: Exception) {
+                                // Logga om en enskild fil misslyckas men fortsätt med nästa
+                                e.printStackTrace()
                             }
                         }
                         zipInput.closeEntry()
@@ -493,11 +501,15 @@ class MediaRepository(
         val piconFiles = piconsDir.listFiles() ?: arrayOf<File>()
         
         fun findLocalPicon(search: String): String? {
+            // Rensa söksträngen på allt utom bokstäver och siffror
             val target = search.lowercase().replace(Regex("[^a-z0-9]"), "")
+            if (target.isEmpty()) return null
+            
             return piconFiles.find { file ->
+                // Rensa filnamnet på samma sätt
                 val fileName = file.nameWithoutExtension.lowercase().replace(Regex("[^a-z0-9]"), "")
-                // Kolla om filnamnet innehåller söksträngen (t.ex. "001svt1" innehåller "svt1")
-                fileName.endsWith(target) || fileName == target
+                // Matcha om filnamnet är exakt samma eller slutar med målet (för att hantera ev. prefix)
+                fileName == target || fileName.endsWith(target)
             }?.absolutePath
         }
 
@@ -558,8 +570,9 @@ class MediaRepository(
 
     private fun getSearchName(name: String): String {
         return name.lowercase()
-            .replace(Regex("(?i)(HD|FHD|UHD|4K|SD|H265|HEVC)"), "")
-            .replace(Regex("[^a-z0-9]"), "")
+            .replace(Regex("(?i)\\b(HD|FHD|UHD|4K|SD|H265|HEVC|S\\d+)\\b"), "") // Ta bort kvalitéts-markörer
+            .replace(Regex("[^a-z0-9]"), "") // Ta bort allt utom bokstäver och siffror
+            .trim()
     }
 
     private fun EpgEntity.toEpgListing() = EpgListing(

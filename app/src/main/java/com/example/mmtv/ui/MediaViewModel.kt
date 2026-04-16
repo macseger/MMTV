@@ -213,9 +213,15 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
                 
                 fun List<GroupedMedia>.withFavoritesAndHistory(type: MediaType): List<GroupedMedia> {
                     val favsForType = allFavs.filter { it.type == type }.map { it.toMediaSource() }
-                    var result = if (favsForType.isNotEmpty()) {
-                        listOf(GroupedMedia(title = "⭐ FAVORITER", items = favsForType)) + this
-                    } else this
+                    var result = this
+
+                    if (type == MediaType.LIVE) {
+                        result = listOf(GroupedMedia(title = "📺 ALLA KANALER", categoryId = "ALL_CHANNELS", items = emptyList())) + result
+                    }
+
+                    if (favsForType.isNotEmpty()) {
+                        result = listOf(GroupedMedia(title = "⭐ FAVORITER", items = favsForType)) + result
+                    }
 
                     if (type != MediaType.LIVE) {
                         val historyForType = sessionManager.getHistory().filter { it.type == type }
@@ -255,7 +261,11 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
     fun loadItemsForCategory(type: MediaType, categoryId: String?) {
         if (categoryId == null) return
         viewModelScope.launch {
-            val items = _repository.getMediaForCategory(type, categoryId)
+            val items = if (categoryId == "ALL_CHANNELS") {
+                mediaDao.getMediaByType(MediaType.LIVE).map { it.toMediaSource() }
+            } else {
+                _repository.getMediaForCategory(type, categoryId)
+            }
             
             // Mappa kanal-ID till EPG-ID direkt
             if (type == MediaType.LIVE) {

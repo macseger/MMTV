@@ -511,4 +511,39 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
         sessionManager.addToHistory(media, episode)
         uiState = uiState.copy(history = sessionManager.getHistory())
     }
+
+    // Nya fält för app-uppdatering
+    var isCheckingForAppUpdate by mutableStateOf(false)
+    var appUpdateInfo by mutableStateOf<com.example.mmtv.util.UpdateInfo?>(null)
+
+    fun checkForAppUpdate(context: android.content.Context) {
+        viewModelScope.launch {
+            isCheckingForAppUpdate = true
+            val updateManager = com.example.mmtv.util.UpdateManager(context)
+            // Uppdaterings-URL för macseger
+            val info = updateManager.checkForUpdates("https://raw.githubusercontent.com/macseger/MMTV-Update/main/update.json")
+            
+            val currentVersionCode = try {
+                val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    pInfo.longVersionCode.toInt()
+                } else {
+                    @Suppress("DEPRECATION")
+                    pInfo.versionCode
+                }
+            } catch (e: Exception) { 0 }
+
+            if (info != null && info.versionCode > currentVersionCode) {
+                appUpdateInfo = info
+            }
+            isCheckingForAppUpdate = false
+        }
+    }
+
+    fun startAppUpdate(context: android.content.Context) {
+        appUpdateInfo?.let { info ->
+            com.example.mmtv.util.UpdateManager(context).downloadAndInstall(info.apkUrl)
+            appUpdateInfo = null
+        }
+    }
 }

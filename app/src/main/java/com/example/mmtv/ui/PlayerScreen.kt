@@ -8,8 +8,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.tv.foundation.lazy.list.itemsIndexed as TvLazyRowItemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -28,7 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.ui.text.font.FontWeight
@@ -52,7 +52,6 @@ import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.GroupedMedia
 import com.example.mmtv.model.MediaSource
-import androidx.compose.ui.res.painterResource
 import coil.request.ImageRequest
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.Episode
@@ -64,6 +63,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.*
+import kotlin.math.absoluteValue
 
 enum class OverlayState {
     NONE, CHANNELS, CATEGORIES, SUBTITLES, QUICK_INFO, EPG_INFO
@@ -95,13 +95,12 @@ fun PlayerScreen(
     var isPlaying by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(false) }
     var overlayState by remember { mutableStateOf(OverlayState.NONE) }
-    var focusedChannel by remember { mutableStateOf<MediaSource?>(media) }
+    var focusedChannel by remember { mutableStateOf(media) }
     var showSeekFeedback by remember { mutableStateOf(false) }
     var seekMessage by remember { mutableStateOf("") }
     
     var accumulatedSeekMs by remember { mutableLongStateOf(0L) }
     var isLongPressSeeking by remember { mutableStateOf(false) }
-    var lastKeyDownTime by remember { mutableLongStateOf(0L) }
     val scope = rememberCoroutineScope()
     var seekJob by remember { mutableStateOf<Job?>(null) }
     var infoJob by remember { mutableStateOf<Job?>(null) }
@@ -179,7 +178,7 @@ fun PlayerScreen(
     // För "Spela nästa avsnitt"
     val isSeries = media?.type == MediaType.SERIES
     val nextEpisode = remember(media, viewModel.selectedSeriesInfo, viewModel.playingEpisode) {
-        if (!isSeries || media == null || viewModel.selectedSeriesInfo?.episodes == null) {
+        if (!isSeries || viewModel.selectedSeriesInfo?.episodes == null) {
             null
         } else {
             val episodesMap = viewModel.selectedSeriesInfo!!.episodes!!
@@ -204,19 +203,16 @@ fun PlayerScreen(
     
     val currentPlaybackId = remember(media, viewModel.playingEpisode) {
         if (isSeries && viewModel.playingEpisode != null) {
-            viewModel.playingEpisode?.id ?: media?.id?.toString() ?: "0"
+            viewModel.playingEpisode?.id ?: media.id.toString()
         } else {
             media?.id?.toString() ?: "0"
         }
     }
 
     val tvGuideFocusRequester = remember { FocusRequester() }
-    val historyFocusRequester = remember { FocusRequester() }
     val recentChannelsFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val nextEpisodeButtonFocusRequester = remember { FocusRequester() }
     val favoriteButtonFocusRequester = remember { FocusRequester() }
-
-    var selectedActionIndex by remember { mutableIntStateOf(-1) } // -1: none, 0: TV Guide, 1: History, 2+: Recent Channels
 
     // Favorit-feedback
     var showFavoriteFeedback by remember { mutableStateOf(false) }
@@ -259,7 +255,7 @@ fun PlayerScreen(
         
         // Add to history if it's a live stream
         if (media != null) {
-            viewModel.addToHistory(media)
+            viewModel.addToHistory(media, if (isSeries) viewModel.playingEpisode else null)
         }
 
         // Synka kategorin i bakgrunden så att vi hamnar rätt när vi backar ut
@@ -336,9 +332,9 @@ fun PlayerScreen(
         val minutes = (totalSeconds % 3600) / 60
         val seconds = totalSeconds % 60
         return if (hours > 0) {
-            String.format("%02d:%02d:%02d", hours, minutes, seconds)
+            String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
         } else {
-            String.format("%02d:%02d", minutes, seconds)
+            String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
         }
     }
 
@@ -381,10 +377,7 @@ fun PlayerScreen(
             }
             OverlayState.EPG_INFO -> {
                 if (media != null) {
-                    val currentEpg = viewModel.getFullEpgForId(media.id, media.title)
-                    if (currentEpg.isNotEmpty()) {
-                        // Vi väntar inte med delay(100) utan låter UI reagera på listan
-                    }
+                    viewModel.getFullEpgForId(media.id, media.title)
                 }
             }
             else -> { 
@@ -400,13 +393,13 @@ fun PlayerScreen(
         isUserInteracting = true
         accumulatedSeekMs += offsetMs
         
-        val totalSecs = (Math.abs(accumulatedSeekMs) / 1000).toInt()
+        val totalSecs = (accumulatedSeekMs.absoluteValue / 1000).toInt()
         val minutes = totalSecs / 60
         val seconds = totalSecs % 60
         
         seekMessage = if (minutes > 0) {
             val sign = if (accumulatedSeekMs > 0) "+" else "-"
-            "$sign$minutes:${String.format("%02d", seconds)}"
+            "$sign$minutes:${String.format(Locale.getDefault(), "%02d", seconds)}"
         } else {
             val sign = if (accumulatedSeekMs > 0) "+" else "-"
             "$sign$seconds s"
@@ -453,179 +446,183 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .onKeyEvent { keyEvent ->
-                if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                    if (overlayState == OverlayState.QUICK_INFO) resetAutoHideTimer()
-                    val isRepeat = keyEvent.nativeKeyEvent.repeatCount > 0
-                    if (isRepeat) {
-                        lastKeyDownTime = System.currentTimeMillis()
-                        isLongPressSeeking = true
-                    }
-                    
-                    when (keyEvent.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_DPAD_UP -> {
-                            when (overlayState) {
-                                OverlayState.NONE -> {
-                                    if (showNextEpisodeButton) {
-                                        nextEpisodeButtonFocusRequester.safeFocus()
-                                        true
-                                    } else if (media?.type != MediaType.LIVE) {
-                                        if (!showSeekFeedback) {
-                                            showSeekFeedback = true
-                                            seekJob?.cancel()
-                                            seekJob = scope.launch { delay(5000); showSeekFeedback = false }
-                                        }
-                                        subtitleIconFocusRequester.safeFocus()
-                                        true
-                                    } else false
-                                }
-                                OverlayState.QUICK_INFO -> {
-                                    // Move focus up from action row to nothing or hidden elements
-                                    true
-                                }
-                                else -> false
-                            }
+                val nativeEvent = keyEvent.nativeKeyEvent
+                when (nativeEvent.action) {
+                    KeyEvent.ACTION_DOWN -> {
+                        if (overlayState == OverlayState.QUICK_INFO) resetAutoHideTimer()
+                        val isRepeat = nativeEvent.repeatCount > 0
+                        if (isRepeat) {
+                            isLongPressSeeking = true
                         }
-                        KeyEvent.KEYCODE_DPAD_DOWN -> {
-                            when (overlayState) {
-                                OverlayState.NONE -> {
-                                    overlayState = OverlayState.SUBTITLES
-                                    true
-                                }
-                                OverlayState.QUICK_INFO -> {
-                                    // Already at the bottom action row
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                        KeyEvent.KEYCODE_DPAD_LEFT -> {
-                            when (overlayState) {
-                                OverlayState.NONE -> {
-                                    if (media?.type == MediaType.LIVE) {
-                                        overlayState = OverlayState.CHANNELS
-                                    } else {
-                                        if (isRepeat) performSeek(-10000L, true)
-                                        else performSeek(-10000L)
-                                    }
-                                    true
-                                }
-                                OverlayState.CHANNELS -> {
-                                    overlayState = OverlayState.CATEGORIES
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                            when (overlayState) {
-                                OverlayState.NONE -> {
-                                    if (media?.type != MediaType.LIVE) {
-                                        if (isRepeat) performSeek(10000L, true)
-                                        else performSeek(10000L)
-                                    } else {
-                                        overlayState = OverlayState.SUBTITLES
-                                    }
-                                    true
-                                }
-                                OverlayState.CATEGORIES -> {
-                                    overlayState = OverlayState.CHANNELS
-                                    true
-                                }
-                                OverlayState.CHANNELS -> {
-                                    overlayState = OverlayState.NONE
-                                    true
-                                }
-                                else -> false
-                            }
-                        }
-                        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                            if (showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE) {
-                                onPlayNextEpisode(nextEpisode)
-                                true
-                            } else {
+
+                        when (nativeEvent.keyCode) {
+                            KeyEvent.KEYCODE_DPAD_UP -> {
                                 when (overlayState) {
                                     OverlayState.NONE -> {
-                                        if (media?.type == MediaType.LIVE) {
-                                            val currentTime = System.currentTimeMillis()
-                                            if (currentTime - lastCenterClickTime < doubleClickTimeout) {
-                                                if (media != null) scope.launch { viewModel.getFullEpgForId(media.id, media.title) }
-                                                overlayState = OverlayState.EPG_INFO
-                                            } else {
-                                                overlayState = OverlayState.QUICK_INFO
+                                        if (showNextEpisodeButton) {
+                                            nextEpisodeButtonFocusRequester.safeFocus()
+                                            true
+                                        } else if (media?.type != MediaType.LIVE) {
+                                            if (!showSeekFeedback) {
+                                                showSeekFeedback = true
+                                                seekJob?.cancel()
+                                                seekJob = scope.launch { delay(5000); showSeekFeedback = false }
                                             }
-                                            lastCenterClickTime = currentTime
-                                        } else {
-                                            if (exoPlayer.isPlaying) {
-                                                exoPlayer.pause()
-                                                isPlaying = false
-                                            } else {
-                                                exoPlayer.play()
-                                                isPlaying = true
-                                            }
-                                            showSeekFeedback = true
-                                            seekJob?.cancel()
-                                            seekJob = scope.launch { delay(3000); showSeekFeedback = false }
-                                        }
-                                        true
+                                            subtitleIconFocusRequester.safeFocus()
+                                            true
+                                        } else false
                                     }
                                     OverlayState.QUICK_INFO -> {
-                                        // Let the focused button handle it if any, 
-                                        // otherwise if we are here it means root got it.
-                                        // But Surface onClick should have consumed it if focused.
-                                        // So we only get here if focus is NOT on a button.
-                                        if (media != null) scope.launch { viewModel.getFullEpgForId(media.id, media.title) }
-                                        overlayState = OverlayState.EPG_INFO
+                                        // Move focus up from action row to nothing or hidden elements
                                         true
                                     }
                                     else -> false
                                 }
                             }
-                        }
-                        KeyEvent.KEYCODE_PROG_RED, 183 -> { // 183 är ofta röd knapp på Android TV
-                            if (media != null) {
-                                val isFav = favorites.any { it.id == media.id }
-                                viewModel.toggleFavorite(media)
-                                favoriteMessage = if (isFav) "Borttagen från favoriter" else "Tillagd i favoriter"
-                                showFavoriteFeedback = true
-                                favoriteJob?.cancel()
-                                favoriteJob = scope.launch {
-                                    delay(3000)
-                                    showFavoriteFeedback = false
+                            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                when (overlayState) {
+                                    OverlayState.NONE -> {
+                                        overlayState = OverlayState.SUBTITLES
+                                        true
+                                    }
+                                    OverlayState.QUICK_INFO -> {
+                                        // Already at the bottom action row
+                                        true
+                                    }
+                                    else -> false
                                 }
                             }
-                            true
-                        }
-                        KeyEvent.KEYCODE_BACK -> {
-                            when (overlayState) {
-                                OverlayState.CHANNELS, OverlayState.CATEGORIES -> {
-                                    overlayState = OverlayState.NONE
+                            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                when (overlayState) {
+                                    OverlayState.NONE -> {
+                                        if (media?.type == MediaType.LIVE) {
+                                            overlayState = OverlayState.CHANNELS
+                                        } else {
+                                            if (isRepeat) performSeek(-10000L, true)
+                                            else performSeek(-10000L)
+                                        }
+                                        true
+                                    }
+                                    OverlayState.CHANNELS -> {
+                                        overlayState = OverlayState.CATEGORIES
+                                        true
+                                    }
+                                    else -> false
                                 }
-                                OverlayState.QUICK_INFO -> {
-                                    overlayState = OverlayState.NONE
-                                }
-                                OverlayState.EPG_INFO -> {
-                                    overlayState = OverlayState.NONE
-                                }
-                                OverlayState.NONE -> onBackPressed()
-                                else -> overlayState = OverlayState.NONE
                             }
-                            true
+                            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                when (overlayState) {
+                                    OverlayState.NONE -> {
+                                        if (media?.type != MediaType.LIVE) {
+                                            if (isRepeat) performSeek(10000L, true)
+                                            else performSeek(10000L)
+                                        } else {
+                                            overlayState = OverlayState.SUBTITLES
+                                        }
+                                        true
+                                    }
+                                    OverlayState.CATEGORIES -> {
+                                        overlayState = OverlayState.CHANNELS
+                                        true
+                                    }
+                                    OverlayState.CHANNELS -> {
+                                        overlayState = OverlayState.NONE
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            }
+                            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                                if (showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE) {
+                                    onPlayNextEpisode(nextEpisode)
+                                    true
+                                } else {
+                                    when (overlayState) {
+                                        OverlayState.NONE -> {
+                                            if (media != null && media.type == MediaType.LIVE) {
+                                                val currentTime = System.currentTimeMillis()
+                                                if (currentTime - lastCenterClickTime < doubleClickTimeout) {
+                                                    scope.launch { viewModel.getFullEpgForId(media.id, media.title) }
+                                                    overlayState = OverlayState.EPG_INFO
+                                                } else {
+                                                    overlayState = OverlayState.QUICK_INFO
+                                                }
+                                                lastCenterClickTime = currentTime
+                                            } else {
+                                                if (exoPlayer.isPlaying) {
+                                                    exoPlayer.pause()
+                                                    isPlaying = false
+                                                } else {
+                                                    exoPlayer.play()
+                                                    isPlaying = true
+                                                }
+                                                showSeekFeedback = true
+                                                seekJob?.cancel()
+                                                seekJob = scope.launch { delay(3000); showSeekFeedback = false }
+                                            }
+                                            true
+                                        }
+                                        OverlayState.QUICK_INFO -> {
+                                            // Let the focused button handle it if any, 
+                                            // otherwise if we are here it means root got it.
+                                            // But Surface onClick should have consumed it if focused.
+                                            // So we only get here if focus is NOT on a button.
+                                            if (media != null) scope.launch { viewModel.getFullEpgForId(media.id, media.title) }
+                                            overlayState = OverlayState.EPG_INFO
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                }
+                            }
+                            KeyEvent.KEYCODE_PROG_RED -> { // 183 är ofta röd knapp på Android TV
+                                if (media != null) {
+                                    val isFav = favorites.any { it.id == media.id }
+                                    viewModel.toggleFavorite(media)
+                                    favoriteMessage = if (isFav) "Borttagen från favoriter" else "Tillagd i favoriter"
+                                    showFavoriteFeedback = true
+                                    favoriteJob?.cancel()
+                                    favoriteJob = scope.launch {
+                                        delay(3000)
+                                        showFavoriteFeedback = false
+                                    }
+                                }
+                                true
+                            }
+                            KeyEvent.KEYCODE_BACK -> {
+                                when (overlayState) {
+                                    OverlayState.CHANNELS, OverlayState.CATEGORIES -> {
+                                        overlayState = OverlayState.NONE
+                                    }
+                                    OverlayState.QUICK_INFO -> {
+                                        overlayState = OverlayState.NONE
+                                    }
+                                    OverlayState.EPG_INFO -> {
+                                        overlayState = OverlayState.NONE
+                                    }
+                                    OverlayState.NONE -> onBackPressed()
+                                    else -> overlayState = OverlayState.NONE
+                                }
+                                true
+                            }
+                            else -> false
                         }
-                        else -> false
                     }
-                } else if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
-                    if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || 
-                        keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                        isLongPressSeeking = false
-                        // Starta timer för att dölja feedback
-                        seekJob?.cancel()
-                        seekJob = scope.launch {
-                            delay(2500)
-                            showSeekFeedback = false
+                    KeyEvent.ACTION_UP -> {
+                        if (nativeEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || 
+                            nativeEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                            isLongPressSeeking = false
+                            // Starta timer för att dölja feedback
+                            seekJob?.cancel()
+                            seekJob = scope.launch {
+                                delay(2500)
+                                showSeekFeedback = false
+                            }
                         }
+                        false
                     }
-                    false
-                } else false
+                    else -> false
+                }
             }
             .focusRequester(mainFocusRequester)
             .focusable()
@@ -900,17 +897,17 @@ fun PlayerScreen(
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            val epg = produceState<EpgListing?>(initialValue = null, key1 = media?.id, key2 = overlayState) {
-                if (media != null && media.type == MediaType.LIVE) {
-                    value = viewModel.getEpgForId(media.id, media.title)
+            val epg = produceState(initialValue = null as EpgListing?, key1 = media?.id, key2 = overlayState) {
+                value = if (media?.type == MediaType.LIVE) {
+                    viewModel.getEpgForId(media.id, media.title)
                 } else {
-                    value = null
+                    null
                 }
             }.value
 
-            val piconUrl = produceState<String?>(initialValue = media?.icon, key1 = media?.id) {
-                if (media != null) {
-                    value = viewModel.getIconForChannel(media.id, media.title)
+            val piconUrl = produceState(initialValue = media?.icon, key1 = media?.id) {
+                media?.let {
+                    value = viewModel.getIconForChannel(it.id, it.title)
                 }
             }.value
             
@@ -1070,7 +1067,7 @@ fun PlayerScreen(
                 }
 
                 // Action Row
-                androidx.tv.foundation.lazy.list.TvLazyRow(
+                LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp)
@@ -1118,7 +1115,7 @@ fun PlayerScreen(
                     }
 
                     // Recent Channels
-                    TvLazyRowItemsIndexed(history, key = { _, item -> "history_${item.id}" }) { _, historyItem ->
+                    itemsIndexed(history, key = { _, item -> "history_${item.id}" }) { _, historyItem ->
                         RecentChannelButton(
                             item = historyItem,
                             viewModel = viewModel,
@@ -1232,7 +1229,7 @@ fun PlayerScreen(
                             state = channelListState,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            itemsIndexed(playlist, key = { index, item -> "${item.id}_$index" }) { index, item ->
+                            itemsIndexed(playlist, key = { index, item -> "${item.id}_$index" }) { _, item ->
                                 ChannelListItem(
                                     item = item,
                                     isSelected = item.id == media?.id,
@@ -1268,7 +1265,12 @@ fun PlayerScreen(
                             Spacer(modifier = Modifier.height(32.dp))
 
                             // Upcoming Programs for Focused Channel
-                            val fullEpg = viewModel.getFullEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title)
+                            val fullEpg = produceState(initialValue = emptyList<EpgListing>(), key1 = focusedChannel?.id) {
+                                focusedChannel?.let {
+                                    value = viewModel.getFullEpgForId(it.id, it.title)
+                                }
+                            }.value
+                            
                             val now = System.currentTimeMillis() / 1000
                             val upcomingEpg = remember(fullEpg, focusedChannel) { 
                                 fullEpg.filter { (it.stopTimestamp ?: 0) > now } 
@@ -1302,7 +1304,7 @@ fun PlayerScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             focusedChannel?.let { channel ->
-                                val piconUrl = produceState<String?>(initialValue = channel.icon, key1 = channel.id) {
+                                val piconUrl = produceState(initialValue = channel.icon, key1 = channel.id) {
                                     value = viewModel.getIconForChannel(channel.id, channel.title)
                                 }.value
 
@@ -1332,10 +1334,13 @@ fun PlayerScreen(
 
         // --- FULL EPG INFO (MODAL) ---
         if (overlayState == OverlayState.EPG_INFO && media != null) {
-            val fullEpg = viewModel.getFullEpgForId(media.id, media.title)
+            val fullEpg = produceState(initialValue = emptyList<EpgListing>(), key1 = media.id) {
+                value = viewModel.getFullEpgForId(media.id, media.title)
+            }.value
+            
             val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
             
-            val piconUrl = produceState<String?>(initialValue = media.icon, key1 = media.id) {
+            val piconUrl = produceState(initialValue = media.icon, key1 = media.id) {
                 value = viewModel.getIconForChannel(media.id, media.title)
             }.value
 
@@ -1476,14 +1481,14 @@ fun PlayerScreen(
                         LazyColumn(state = subtitleListState) {
                             item {
                                 SubtitleOptionItem(label = "Ingen undertext", isSelected = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT), modifier = Modifier.focusRequester(subtitleFocusRequesters.getOrPut(0) { FocusRequester() }), onClick = {
-                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setDisabledTrackTypes(setOf(C.TRACK_TYPE_TEXT)).build()
+                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
                                     overlayState = OverlayState.NONE
                                 })
                             }
                             itemsIndexed(availableSubtitles, key = { index, _ -> index }) { index, group ->
                                 val trackName = group.getTrackFormat(0).language ?: "Spår ${index + 1}"
                                 SubtitleOptionItem(label = trackName.uppercase(), isSelected = exoPlayer.currentTracks.isTypeSelected(C.TRACK_TYPE_TEXT) && group.isSelected, modifier = Modifier.focusRequester(subtitleFocusRequesters.getOrPut(index + 1) { FocusRequester() }), onClick = {
-                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0)).setDisabledTrackTypes(emptySet()).build()
+                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0)).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build()
                                     overlayState = OverlayState.NONE
                                 })
                             }
@@ -1562,7 +1567,7 @@ fun RecentChannelButton(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val piconUrl = produceState<String?>(initialValue = item.icon, key1 = item.id) {
+    val piconUrl = produceState(initialValue = item.icon, key1 = item.id) {
         value = viewModel.getIconForChannel(item.id, item.title)
     }.value
     
@@ -1681,10 +1686,8 @@ fun CategoryListItem(title: String, isSelected: Boolean, modifier: Modifier = Mo
 @Composable
 fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaViewModel, onClick: () -> Unit, modifier: Modifier = Modifier) {
     var hasFocus by remember { mutableStateOf(false) }
-    val formatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
     val epg = viewModel.getEpgForId(item.id, item.title)
-    val nextEpg = viewModel.getNextEpgForId(item.id, item.title)
 
     val backgroundColor by animateColorAsState(
         targetValue = when {
@@ -1710,7 +1713,7 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
             modifier = Modifier.padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val piconUrl = produceState<String?>(initialValue = item.icon, key1 = item.id) {
+            val piconUrl = produceState(initialValue = item.icon, key1 = item.id) {
                 value = viewModel.getIconForChannel(item.id, item.title)
             }.value
 
@@ -1744,20 +1747,20 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                     overflow = TextOverflow.Ellipsis
                 )
 
-                if (epg != null) {
-                    val now = System.currentTimeMillis() / 1000
-                    val start = epg.startTimestamp ?: 0L
-                    val stop = epg.stopTimestamp ?: 0L
-                    if (now in start..stop) {
-                        val progress = (now - start).toFloat() / (stop - start).toFloat()
-                        LinearProgressIndicator(
-                            progress = { progress }, 
-                            modifier = Modifier.padding(top = 4.dp).fillMaxWidth().height(3.dp).clip(CircleShape),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = Color.White.copy(alpha = 0.1f)
-                        )
+                    if (epg != null) {
+                        val now = System.currentTimeMillis() / 1000
+                        val start = epg.startTimestamp ?: 0L
+                        val stop = epg.stopTimestamp ?: 0L
+                        if (now in start..stop) {
+                            val progress = (now - start).toFloat() / (stop - start).toFloat()
+                            LinearProgressIndicator(
+                                progress = { progress.coerceIn(0f, 1f) },
+                                modifier = Modifier.padding(top = 4.dp).fillMaxWidth().height(3.dp).clip(CircleShape),
+                                color = MaterialTheme.colorScheme.primary,
+                                trackColor = Color.White.copy(alpha = 0.1f)
+                            )
+                        }
                     }
-                }
             }
         }
     }
@@ -1766,7 +1769,7 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
 @Composable
 fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: MediaViewModel) {
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
-    val piconUrl = produceState<String?>(initialValue = channel?.icon, key1 = channel?.id) {
+    val piconUrl = produceState(initialValue = channel?.icon, key1 = channel?.id) {
         if (channel != null) {
             value = viewModel.getIconForChannel(channel.id, channel.title)
         }

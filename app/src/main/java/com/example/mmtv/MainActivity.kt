@@ -374,6 +374,10 @@ class MainActivity : ComponentActivity() {
                                             autoPlayEnabled = autoPlayEnabled,
                                             useExternalEpg = useExternalEpg,
                                             isUpdating = sharedViewModel.isUpdatingBackground,
+                                            isCheckingForAppUpdate = sharedViewModel.isCheckingForAppUpdate,
+                                            appUpdateVersion = sharedViewModel.appUpdateInfo?.versionName,
+                                            onCheckForUpdate = { sharedViewModel.checkForAppUpdate(context) },
+                                            onStartUpdate = { sharedViewModel.startAppUpdate(context) },
                                             onLogout = {
                                                 sharedViewModel.logout()
                                                 navController.navigate("login") {

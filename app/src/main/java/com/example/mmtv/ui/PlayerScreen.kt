@@ -1243,7 +1243,7 @@ fun PlayerScreen(
                     }
 
                     // 3. EPG & Program Details (Right Side) - The TiviMate Look
-                    if (overlayState == OverlayState.CHANNELS || overlayState == OverlayState.CATEGORIES) {
+                    if (overlayState == OverlayState.CHANNELS) {
                         Column(
                             modifier = Modifier
                                 .fillMaxHeight()
@@ -1279,6 +1279,39 @@ fun PlayerScreen(
                                             isCurrent = idx == 0 && (epg.startTimestamp ?: 0) <= now
                                         )
                                     }
+                                }
+                            }
+                        }
+                    } else if (overlayState == OverlayState.CATEGORIES) {
+                        // Visa en förenklad vy eller bara picon när kategorier är öppna för att ge plats
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .weight(1f)
+                                .padding(32.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            focusedChannel?.let { channel ->
+                                val piconUrl = produceState<String?>(initialValue = channel.icon, key1 = channel.id) {
+                                    value = viewModel.getIconForChannel(channel.id, channel.title)
+                                }.value
+
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    AsyncImage(
+                                        model = piconUrl,
+                                        contentDescription = null,
+                                        modifier = Modifier
+                                            .size(200.dp)
+                                            .alpha(0.5f),
+                                        contentScale = ContentScale.Fit
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = channel.title ?: "",
+                                        style = MaterialTheme.typography.headlineMedium,
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }

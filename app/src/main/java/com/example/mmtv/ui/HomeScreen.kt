@@ -339,7 +339,8 @@ fun HomeScreen(
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter), color = MaterialTheme.colorScheme.primary)
         }
 
-        // Overlay för uppdateringsstatus
+        // Overlay för uppdateringsstatus - Tas bort härifrån enligt önskemål (finns redan i sidofältet/nere till vänster i Main)
+        /*
         val updateStatus = viewModel.updateStatus
         if (updateStatus != null) {
             Surface(
@@ -379,6 +380,7 @@ fun HomeScreen(
                 }
             }
         }
+        */
     }
 }
 

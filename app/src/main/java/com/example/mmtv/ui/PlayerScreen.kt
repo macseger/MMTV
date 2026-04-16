@@ -9,6 +9,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.tv.foundation.lazy.list.itemsIndexed as TvLazyRowItemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -1065,44 +1066,49 @@ fun PlayerScreen(
                 }
 
                 // Action Row
-                Row(
+                androidx.tv.foundation.lazy.list.TvLazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    ActionButton(
-                        icon = Icons.Default.Menu,
-                        label = "TV-guide",
-                        focusRequester = tvGuideFocusRequester,
-                        onFocus = { infoJob?.cancel() },
-                        onBlur = { resetAutoHideTimer() },
-                        onKeyEvent = {
-                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                overlayState = OverlayState.CATEGORIES
-                                true
-                            } else false
-                        },
-                        onClick = {
-                            if (media != null) scope.launch { viewModel.getFullEpgForId(media.id) }
-                            overlayState = OverlayState.EPG_INFO
-                        }
-                    )
+                    item {
+                        ActionButton(
+                            icon = Icons.Default.Menu,
+                            label = "TV-guide",
+                            focusRequester = tvGuideFocusRequester,
+                            onFocus = { infoJob?.cancel() },
+                            onBlur = { resetAutoHideTimer() },
+                            onKeyEvent = {
+                                if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                    overlayState = OverlayState.CATEGORIES
+                                    true
+                                } else false
+                            },
+                            onClick = {
+                                if (media != null) scope.launch { viewModel.getFullEpgForId(media.id) }
+                                overlayState = OverlayState.EPG_INFO
+                            }
+                        )
+                    }
                     
-                    val isFav = media?.let { m -> favorites.any { it.id == m.id } } ?: false
-                    ActionButton(
-                        icon = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        label = "Favorit",
-                        focusRequester = favoriteButtonFocusRequester,
-                        onFocus = { infoJob?.cancel() },
-                        onBlur = { resetAutoHideTimer() },
-                        onClick = {
-                            media?.let { viewModel.toggleFavorite(it) }
-                        }
-                    )
+                    item {
+                        val isFav = media?.let { m -> favorites.any { it.id == m.id } } ?: false
+                        ActionButton(
+                            icon = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            label = "Favorit",
+                            focusRequester = favoriteButtonFocusRequester,
+                            onFocus = { infoJob?.cancel() },
+                            onBlur = { resetAutoHideTimer() },
+                            onClick = {
+                                media?.let { viewModel.toggleFavorite(it) }
+                            }
+                        )
+                    }
 
                     // Recent Channels
-                    history.forEachIndexed { index, historyItem ->
+                    TvLazyRowItemsIndexed(history, key = { _, item -> "history_${item.id}" }) { _, historyItem ->
                         RecentChannelButton(
                             item = historyItem,
                             viewModel = viewModel,

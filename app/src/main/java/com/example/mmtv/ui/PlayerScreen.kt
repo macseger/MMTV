@@ -351,13 +351,15 @@ fun PlayerScreen(
             OverlayState.CHANNELS -> {
                 if (playlist.isNotEmpty()) {
                     val index = playlist.indexOfFirst { it.id == media?.id }.coerceAtLeast(0)
-                    channelListState.scrollToItem(index)
-                    delay(150)
-                    // Ensure focusedChannel matches the current media when opening the list
+                    // Använd snapToItem istället för scrollToItem för att undvika visuell glitch
+                    scope.launch {
+                        channelListState.scrollToItem(index)
+                        delay(50)
+                        channelFocusRequesters[playlist.getOrNull(index)?.id ?: -1]?.safeFocus()
+                    }
                     if (media != null) {
                         focusedChannel = media
                     }
-                    channelFocusRequesters[playlist.getOrNull(index)?.id ?: -1]?.safeFocus()
                 }
             }
             OverlayState.QUICK_INFO -> {

@@ -128,6 +128,22 @@ fun PlayerScreen(
         runCatching { this.requestFocus() }
     }
 
+    // --- LOGIC TO ENSURE CATEGORY ITEMS ARE LOADED ---
+    LaunchedEffect(viewModel.lastLiveCategoryIndex) {
+        val currentCat = categories.getOrNull(viewModel.lastLiveCategoryIndex)
+        if (currentCat != null && currentCat.items.isEmpty()) {
+            viewModel.loadItemsForCategory(MediaType.LIVE, currentCat.categoryId)
+        }
+    }
+    
+    // Update current playlist when category items load in background
+    LaunchedEffect(categories, viewModel.lastLiveCategoryIndex) {
+        val items = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.items ?: emptyList()
+        if (items.isNotEmpty() && viewModel.currentPlaylist.isEmpty()) {
+            viewModel.currentPlaylist = items
+        }
+    }
+
     val mainFocusRequester = remember { FocusRequester() }
     val epgFocusRequester = remember { FocusRequester() }
     val subtitleIconFocusRequester = remember { FocusRequester() }
@@ -1192,7 +1208,7 @@ fun PlayerScreen(
                             state = channelListState,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            itemsIndexed(playlist, key = { _, item -> item.id }) { index, item ->
+                            itemsIndexed(playlist, key = { index, item -> "${item.id}_$index" }) { index, item ->
                                 ChannelListItem(
                                     item = item,
                                     isSelected = item.id == media?.id,
@@ -1221,18 +1237,14 @@ fun PlayerScreen(
                                 .padding(32.dp)
                         ) {
                             // Detailed Info Box
-                            val currentEpg = produceState<EpgListing?>(initialValue = null, key1 = focusedChannel?.id) {
-                                value = viewModel.getEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title)
-                            }.value
+                            val currentEpg = viewModel.getEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title)
                             
                             ModernProgramDetailBox(epg = currentEpg, channel = focusedChannel, viewModel = viewModel)
 
                             Spacer(modifier = Modifier.height(32.dp))
 
                             // Upcoming Programs for Focused Channel
-                            val fullEpg = produceState<List<EpgListing>>(initialValue = emptyList(), key1 = focusedChannel?.id) {
-                                value = viewModel.getFullEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title)
-                            }.value
+                            val fullEpg = viewModel.getFullEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title)
                             val now = System.currentTimeMillis() / 1000
                             val upcomingEpg = remember(fullEpg, focusedChannel) { 
                                 fullEpg.filter { (it.stopTimestamp ?: 0) > now } 
@@ -1263,9 +1275,7 @@ fun PlayerScreen(
 
         // --- FULL EPG INFO (MODAL) ---
         if (overlayState == OverlayState.EPG_INFO && media != null) {
-            val fullEpg = produceState<List<EpgListing>>(initialValue = emptyList(), key1 = media.id) {
-                value = viewModel.getFullEpgForId(media.id, media.title)
-            }.value
+            val fullEpg = viewModel.getFullEpgForId(media.id, media.title)
             val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
             
             val piconUrl = produceState<String?>(initialValue = media.icon, key1 = media.id) {
@@ -1612,13 +1622,8 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
     var hasFocus by remember { mutableStateOf(false) }
     val formatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
-    val epg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
-        value = viewModel.getEpgForId(item.id, item.title)
-    }.value
-    
-    val nextEpg = produceState<EpgListing?>(initialValue = null, key1 = item.id) {
-        value = viewModel.getNextEpgForId(item.id, item.title)
-    }.value
+    val epg = viewModel.getEpgForId(item.id, item.title)
+    val nextEpg = viewModel.getNextEpgForId(item.id, item.title)
 
     val backgroundColor by animateColorAsState(
         targetValue = when {

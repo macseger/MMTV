@@ -44,8 +44,9 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
     private var isFetching = false
     private var lastLoadedSeriesId: Int? = null
 
-    private val channelToEpgMap = mutableMapOf<Int, String>()
-    private val fullEpgData = mutableStateMapOf<String, List<EpgListing>>()
+    val channelToEpgMap = mutableStateMapOf<Int, String>()
+    val fullEpgData = mutableStateMapOf<String, List<EpgListing>>()
+    private val fetchingEpgIds = mutableSetOf<Int>()
 
     var lastLiveCategoryIndex by mutableIntStateOf(0)
     var lastMovieCategoryIndex by mutableIntStateOf(0)
@@ -255,11 +256,19 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
         if (categoryId == null) return
         viewModelScope.launch {
             val items = _repository.getMediaForCategory(type, categoryId)
+            
+            // Mappa kanal-ID till EPG-ID direkt
             if (type == MediaType.LIVE) {
                 items.forEach { item ->
                     item.epgId?.let { epgId -> channelToEpgMap[item.id] = epgId }
                 }
+                
+                // Om detta är den aktuella spellistan i PlayerScreen, uppdatera den
+                if (uiState.liveCategories.getOrNull(lastLiveCategoryIndex)?.categoryId == categoryId) {
+                    currentPlaylist = items
+                }
             }
+
             uiState = when (type) {
                 MediaType.LIVE -> uiState.copy(liveCategories = uiState.liveCategories.map { 
                     if (it.categoryId == categoryId) it.copy(items = items) else it 
@@ -311,27 +320,64 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
     }
 
     fun getEpgForId(id: Int, name: String? = null): EpgListing? {
-        val epgId = channelToEpgMap[id] ?: return null
-        val listings = fullEpgData[epgId] ?: run {
-            viewModelScope.launch {
-                val epg = _repository.getEpgForChannel(epgId, name)
-                if (epg.isNotEmpty()) {
-                    fullEpgData[epgId] = epg
+        val now = System.currentTimeMillis() / 1000
+        
+        // 1. Försök hitta EPG-ID (från minne eller state)
+        var epgId = channelToEpgMap[id]
+        
+        // 2. Om vi har data i cachen, använd den
+        if (epgId != null) {
+            val listings = fullEpgData[epgId]
+            if (listings != null) {
+                return listings.find { 
+                    val start = it.startTimestamp ?: 0L
+                    val stop = it.stopTimestamp ?: 0L
+                    start <= now && stop > now 
                 }
             }
-            return null
         }
-        val now = System.currentTimeMillis() / 1000
-        return listings.find { 
-            val start = it.startTimestamp ?: 0L
-            val stop = it.stopTimestamp ?: 0L
-            start <= now && stop > now 
+
+        // 3. Om vi saknar data, hämta från DB asynkront
+        if (!fetchingEpgIds.contains(id)) {
+            fetchingEpgIds.add(id)
+            viewModelScope.launch {
+                try {
+                    // Om vi inte ens har epgId, leta upp kanalen i DB först
+                    if (epgId == null) {
+                        val media = _repository.getAllMediaByType(MediaType.LIVE).find { it.id == id }
+                        epgId = media?.epgId
+                        if (epgId != null) {
+                            withContext(Dispatchers.Main) {
+                                channelToEpgMap[id] = epgId!!
+                            }
+                        }
+                    }
+                    
+                    if (epgId != null) {
+                        val epg = _repository.getEpgForChannel(epgId!!, name)
+                        if (epg.isNotEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                fullEpgData[epgId!!] = epg
+                            }
+                        }
+                    }
+                } finally {
+                    fetchingEpgIds.remove(id)
+                }
+            }
         }
+        return null
     }
 
     fun getNextEpgForId(id: Int, name: String? = null): EpgListing? {
-        val epgId = channelToEpgMap[id] ?: return null
-        val listings = fullEpgData[epgId] ?: return null
+        val epgId = channelToEpgMap[id]
+        val listings = if (epgId != null) fullEpgData[epgId] else null
+        
+        if (listings == null) {
+            getEpgForId(id, name) // Trigga hämtning om saknas
+            return null
+        }
+
         val now = System.currentTimeMillis() / 1000
         val current = listings.find { 
             val start = it.startTimestamp ?: 0L

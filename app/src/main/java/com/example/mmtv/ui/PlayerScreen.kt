@@ -298,6 +298,10 @@ fun PlayerScreen(
                 videoFormat = exoPlayer.videoFormat
                 audioFormat = exoPlayer.audioFormat
                 
+                if (playbackState == Player.STATE_READY) {
+                    overlayState = OverlayState.NONE
+                }
+
                 if (playbackState == Player.STATE_ENDED) {
                     if (isSeries && nextEpisode != null && sessionManager.getAutoPlayNext()) {
                         onPlayNextEpisode(nextEpisode)

@@ -1077,6 +1077,12 @@ fun PlayerScreen(
                         focusRequester = tvGuideFocusRequester,
                         onFocus = { infoJob?.cancel() },
                         onBlur = { resetAutoHideTimer() },
+                        onKeyEvent = {
+                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                overlayState = OverlayState.CATEGORIES
+                                true
+                            } else false
+                        },
                         onClick = {
                             if (media != null) scope.launch { viewModel.getFullEpgForId(media.id) }
                             overlayState = OverlayState.EPG_INFO
@@ -1463,6 +1469,7 @@ fun ActionButton(
     focusRequester: FocusRequester,
     onFocus: () -> Unit,
     onBlur: () -> Unit,
+    onKeyEvent: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { false },
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -1476,7 +1483,8 @@ fun ActionButton(
             .onFocusChanged { 
                 isFocused = it.isFocused
                 if (it.isFocused) onFocus() else onBlur()
-            },
+            }
+            .onKeyEvent(onKeyEvent),
         color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.5f),
         contentColor = if (isFocused) Color.Black else Color.White,
         shape = RoundedCornerShape(8.dp),
@@ -1501,6 +1509,7 @@ fun RecentChannelButton(
     focusRequester: FocusRequester,
     onFocus: () -> Unit,
     onBlur: () -> Unit,
+    onKeyEvent: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { false },
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -1517,7 +1526,8 @@ fun RecentChannelButton(
             .onFocusChanged { 
                 isFocused = it.isFocused
                 if (it.isFocused) onFocus() else onBlur()
-            },
+            }
+            .onKeyEvent(onKeyEvent),
         color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.5f),
         contentColor = if (isFocused) Color.Black else Color.White,
         shape = RoundedCornerShape(8.dp),

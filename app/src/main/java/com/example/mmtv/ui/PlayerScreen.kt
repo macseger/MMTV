@@ -1069,7 +1069,13 @@ fun PlayerScreen(
                 androidx.tv.foundation.lazy.list.TvLazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 8.dp),
+                        .padding(top = 8.dp)
+                        .onKeyEvent { 
+                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                overlayState = OverlayState.NONE
+                                true
+                            } else false
+                        },
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

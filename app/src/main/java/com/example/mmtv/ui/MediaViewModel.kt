@@ -515,10 +515,12 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
     // Nya fält för app-uppdatering
     var isCheckingForAppUpdate by mutableStateOf(false)
     var appUpdateInfo by mutableStateOf<com.example.mmtv.util.UpdateInfo?>(null)
+    var isAppUpToDate by mutableStateOf(false)
 
     fun checkForAppUpdate(context: android.content.Context) {
         viewModelScope.launch {
             isCheckingForAppUpdate = true
+            isAppUpToDate = false
             val updateManager = com.example.mmtv.util.UpdateManager(context)
             // Uppdaterings-URL för macseger
             val info = updateManager.checkForUpdates("https://raw.githubusercontent.com/macseger/MMTV-Update/main/update.json")
@@ -535,6 +537,8 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
 
             if (info != null && info.versionCode > currentVersionCode) {
                 appUpdateInfo = info
+            } else if (info != null) {
+                isAppUpToDate = true
             }
             isCheckingForAppUpdate = false
         }

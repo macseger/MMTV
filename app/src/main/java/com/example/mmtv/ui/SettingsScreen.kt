@@ -35,6 +35,7 @@ fun SettingsScreen(
     useExternalEpg: Boolean,
     isUpdating: Boolean,
     isCheckingForAppUpdate: Boolean,
+    isAppUpToDate: Boolean,
     appUpdateVersion: String?,
     onCheckForUpdate: () -> Unit,
     onStartUpdate: () -> Unit,
@@ -185,9 +186,20 @@ fun SettingsScreen(
             item { SectionHeader(stringResource(R.string.section_system)) }
 
             item {
+                val title = when {
+                    appUpdateVersion != null -> "Uppdatering tillgänglig: $appUpdateVersion"
+                    isAppUpToDate -> "Du har senaste versionen"
+                    else -> "Sök efter uppdatering"
+                }
+                val subtitle = when {
+                    appUpdateVersion != null -> "Klicka för att ladda ner och installera"
+                    isAppUpToDate -> "Ingen nyare version hittades"
+                    else -> "Kontrollera om det finns en ny version av MMTV"
+                }
+                
                 SettingsAction(
-                    title = if (appUpdateVersion != null) "Uppdatering tillgänglig: $appUpdateVersion" else "Sök efter uppdatering",
-                    subtitle = if (appUpdateVersion != null) "Klicka för att ladda ner och installera" else "Kontrollera om det finns en ny version av MMTV",
+                    title = title,
+                    subtitle = subtitle,
                     icon = if (appUpdateVersion != null) Icons.Default.SystemUpdate else Icons.Default.Update,
                     isLoading = isCheckingForAppUpdate,
                     onClick = {

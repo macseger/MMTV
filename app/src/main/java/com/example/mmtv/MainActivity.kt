@@ -252,13 +252,15 @@ class MainActivity : ComponentActivity() {
                                     }
 
                                     composable("live") {
+                                        val liveStreamsGrouped = sharedViewModel.uiState.liveStreamsGrouped
+                                        
                                         MediaListScreen(
-                                            groupedList = sharedViewModel.uiState.liveStreamsGrouped,
+                                            groupedList = liveStreamsGrouped,
                                             initialCategoryIndex = sharedViewModel.lastLiveCategoryIndex,
                                             initialMediaId = sharedViewModel.selectedMedia?.id,
                                             onCategoryChanged = { index ->
                                                 sharedViewModel.lastLiveCategoryIndex = index
-                                                val category = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(index)
+                                                val category = liveStreamsGrouped.getOrNull(index)
                                                 if (category?.items?.isEmpty() == true) {
                                                     sharedViewModel.loadItemsForCategory(MediaType.LIVE, category.categoryId)
                                                 }
@@ -280,15 +282,20 @@ class MainActivity : ComponentActivity() {
 
                                     composable("movies") {
                                         // Om vi är på index 0 (Historik) och det är tomt, hoppa till index 1
+                                        val movies = sharedViewModel.uiState.movies
                                         val initialIndex = if (sharedViewModel.lastMovieCategoryIndex == 0 && 
-                                            sharedViewModel.uiState.movies.firstOrNull()?.items?.isEmpty() == true) 1 else sharedViewModel.lastMovieCategoryIndex
+                                            movies.firstOrNull()?.items?.isEmpty() == true) {
+                                            if (movies.size > 1) 1 else 0
+                                        } else {
+                                            sharedViewModel.lastMovieCategoryIndex
+                                        }
                                             
                                         MediaListScreen(
-                                            groupedList = sharedViewModel.uiState.movies,
+                                            groupedList = movies,
                                             initialCategoryIndex = initialIndex,
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastMovieCategoryIndex = index 
-                                                val category = sharedViewModel.uiState.movies.getOrNull(index)
+                                                val category = movies.getOrNull(index)
                                                 if (category?.items?.isEmpty() == true) {
                                                     sharedViewModel.loadItemsForCategory(MediaType.MOVIE, category.categoryId)
                                                 }
@@ -306,15 +313,20 @@ class MainActivity : ComponentActivity() {
 
                                     composable("series") {
                                         // Om vi är på index 0 (Historik) och det är tomt, hoppa till index 1
+                                        val series = sharedViewModel.uiState.series
                                         val initialIndex = if (sharedViewModel.lastSeriesCategoryIndex == 0 && 
-                                            sharedViewModel.uiState.series.firstOrNull()?.items?.isEmpty() == true) 1 else sharedViewModel.lastSeriesCategoryIndex
+                                            series.firstOrNull()?.items?.isEmpty() == true) {
+                                            if (series.size > 1) 1 else 0
+                                        } else {
+                                            sharedViewModel.lastSeriesCategoryIndex
+                                        }
 
                                         MediaListScreen(
-                                            groupedList = sharedViewModel.uiState.series,
+                                            groupedList = series,
                                             initialCategoryIndex = initialIndex,
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastSeriesCategoryIndex = index 
-                                                val category = sharedViewModel.uiState.series.getOrNull(index)
+                                                val category = series.getOrNull(index)
                                                 if (category?.items?.isEmpty() == true) {
                                                     sharedViewModel.loadItemsForCategory(MediaType.SERIES, category.categoryId)
                                                 }

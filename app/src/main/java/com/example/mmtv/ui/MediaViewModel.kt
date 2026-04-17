@@ -213,19 +213,19 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
                 
                 fun List<GroupedMedia>.withFavoritesAndHistory(type: MediaType): List<GroupedMedia> {
                     val favsForType = allFavs.filter { it.type == type }.map { it.toMediaSource() }
+                    val historyForType = sessionManager.getHistory().filter { it.type == type }
                     var result = this
 
                     if (type == MediaType.LIVE) {
-                        result = listOf(GroupedMedia(title = "📺 ALLA KANALER", categoryId = "ALL_CHANNELS", items = emptyList())) + result
-                    }
-
-                    if (favsForType.isNotEmpty()) {
-                        result = listOf(GroupedMedia(title = "⭐ FAVORITER", items = favsForType)) + result
-                    }
-
-                    if (type != MediaType.LIVE) {
-                        val historyForType = sessionManager.getHistory().filter { it.type == type }
-                        result = listOf(GroupedMedia(title = "🕒 HISTORIK", items = historyForType)) + result
+                        result = listOf(
+                            GroupedMedia(title = "📺 ALLA KANALER", categoryId = "ALL_CHANNELS", items = emptyList()),
+                            GroupedMedia(title = "⭐ FAVORITER", categoryId = "FAVORITES", items = favsForType)
+                        ) + result
+                    } else {
+                        result = listOf(
+                            GroupedMedia(title = "🕒 HISTORIK", categoryId = "HISTORY", items = historyForType),
+                            GroupedMedia(title = "⭐ FAVORITER", categoryId = "FAVORITES", items = favsForType)
+                        ) + result
                     }
                     return result
                 }
@@ -260,6 +260,10 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
 
     fun loadItemsForCategory(type: MediaType, categoryId: String?) {
         if (categoryId == null) return
+        
+        // Returnera tidigt för specialkategorier (Favoriter/Historik) som inte hämtas från API/DB-kategorier
+        if (categoryId == "FAVORITES" || categoryId == "HISTORY") return
+
         viewModelScope.launch {
             val items = if (categoryId == "ALL_CHANNELS") {
                 mediaDao.getMediaByType(MediaType.LIVE).map { it.toMediaSource() }
@@ -300,18 +304,47 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
             mediaDao.updateFavoriteWithDate(media.id, newFavStatus, if (newFavStatus) System.currentTimeMillis() else 0)
             
             withContext(Dispatchers.Main) {
+                // Uppdatera selectedMedia om det är det vi tittar på
+                if (selectedMedia?.id == media.id) {
+                    selectedMedia = selectedMedia?.copy(isFavorite = newFavStatus)
+                }
+
+                // Uppdatera uiState-kategorier för att reflektera ändringen i listorna
                 uiState = uiState.copy(
-                    liveCategories = uiState.liveCategories.updateItemFav(media.id, newFavStatus),
-                    movieCategories = uiState.movieCategories.updateItemFav(media.id, newFavStatus),
-                    seriesCategories = uiState.seriesCategories.updateItemFav(media.id, newFavStatus)
+                    liveCategories = uiState.liveCategories.updateFavoriteInCategory(media.id, newFavStatus, MediaType.LIVE),
+                    movieCategories = uiState.movieCategories.updateFavoriteInCategory(media.id, newFavStatus, MediaType.MOVIE),
+                    seriesCategories = uiState.seriesCategories.updateFavoriteInCategory(media.id, newFavStatus, MediaType.SERIES)
                 )
+
+                // Uppdatera favorites Flow för att trigga andra lyssnare (t.ex. sökning)
+                val updatedFavs = mediaDao.getFavorites().map { it.toMediaSource() }
+                _favorites.value = updatedFavs
             }
         }
     }
 
-    private fun List<GroupedMedia>.updateItemFav(id: Int, isFav: Boolean): List<GroupedMedia> {
-        return this.map { group ->
+    private fun List<GroupedMedia>.updateFavoriteInCategory(id: Int, isFav: Boolean, type: MediaType): List<GroupedMedia> {
+        val updatedList = this.map { group ->
             group.copy(items = group.items.map { if (it.id == id) it.copy(isFavorite = isFav) else it })
+        }
+
+        // Uppdatera den dedikerade "FAVORITER"-kategorin om den finns
+        return updatedList.map { group ->
+            if (group.categoryId == "FAVORITES") {
+                val currentItems = group.items.toMutableList()
+                if (isFav) {
+                    // Om det inte redan finns i Favoriter (och matchar typen), lägg till det
+                    val itemToAdd = updatedList.flatMap { it.items }.find { it.id == id && it.type == type }
+                    if (itemToAdd != null && currentItems.none { it.id == id }) {
+                        currentItems.add(0, itemToAdd)
+                    }
+                } else {
+                    currentItems.removeAll { it.id == id }
+                }
+                group.copy(items = currentItems)
+            } else {
+                group
+            }
         }
     }
 
@@ -469,10 +502,25 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
             mediaDao.clearAllFavorites()
             withContext(Dispatchers.Main) {
                 uiState = uiState.copy(
-                    liveCategories = uiState.liveCategories.map { g -> g.copy(items = g.items.map { it.copy(isFavorite = false) }) },
-                    movieCategories = uiState.movieCategories.map { g -> g.copy(items = g.items.map { it.copy(isFavorite = false) }) },
-                    seriesCategories = uiState.seriesCategories.map { g -> g.copy(items = g.items.map { it.copy(isFavorite = false) }) }
+                    liveCategories = uiState.liveCategories.map { group ->
+                        if (group.categoryId == "FAVORITES") group.copy(items = emptyList())
+                        else group.copy(items = group.items.map { it.copy(isFavorite = false) })
+                    },
+                    movieCategories = uiState.movieCategories.map { group ->
+                        if (group.categoryId == "FAVORITES") group.copy(items = emptyList())
+                        else group.copy(items = group.items.map { it.copy(isFavorite = false) })
+                    },
+                    seriesCategories = uiState.seriesCategories.map { group ->
+                        if (group.categoryId == "FAVORITES") group.copy(items = emptyList())
+                        else group.copy(items = group.items.map { it.copy(isFavorite = false) })
+                    }
                 )
+                // Uppdatera även selectedMedia om det är en favorit
+                selectedMedia?.let {
+                    if (it.isFavorite) {
+                        selectedMedia = it.copy(isFavorite = false)
+                    }
+                }
             }
         }
     }
@@ -496,7 +544,11 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
 
     fun clearHistory() {
         sessionManager.clearHistory()
-        uiState = uiState.copy(history = emptyList())
+        uiState = uiState.copy(
+            history = emptyList(),
+            movieCategories = uiState.movieCategories.updateHistoryInCategory(emptyList(), MediaType.MOVIE),
+            seriesCategories = uiState.seriesCategories.updateHistoryInCategory(emptyList(), MediaType.SERIES)
+        )
     }
 
     fun clearAllFavorites() {
@@ -509,7 +561,22 @@ class MediaViewModel(private var _repository: MediaRepository, private val sessi
 
     fun addToHistory(media: MediaSource, episode: Episode? = null) {
         sessionManager.addToHistory(media, episode)
-        uiState = uiState.copy(history = sessionManager.getHistory())
+        val newHistory = sessionManager.getHistory()
+        uiState = uiState.copy(
+            history = newHistory,
+            movieCategories = uiState.movieCategories.updateHistoryInCategory(newHistory, MediaType.MOVIE),
+            seriesCategories = uiState.seriesCategories.updateHistoryInCategory(newHistory, MediaType.SERIES)
+        )
+    }
+
+    private fun List<GroupedMedia>.updateHistoryInCategory(history: List<MediaSource>, type: MediaType): List<GroupedMedia> {
+        return this.map { group ->
+            if (group.categoryId == "HISTORY") {
+                group.copy(items = history.filter { it.type == type })
+            } else {
+                group
+            }
+        }
     }
 
     // Nya fält för app-uppdatering

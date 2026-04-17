@@ -281,7 +281,8 @@ fun HomeScreen(
                 }
 
                 // 1. Fortsätt titta (History)
-                if (history.isNotEmpty()) {
+                val filteredHistory = history.filter { it.type != MediaType.LIVE }
+                if (filteredHistory.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column(modifier = Modifier.padding(top = 0.dp)) {
                             Row(
@@ -296,7 +297,7 @@ fun HomeScreen(
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
                             ) {
-                                items(history.take(15)) { item ->
+                                items(filteredHistory.take(15)) { item ->
                                     HistoryCard(item, viewModel) { onMediaSelected(item) }
                                 }
                             }

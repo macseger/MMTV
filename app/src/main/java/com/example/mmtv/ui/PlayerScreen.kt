@@ -97,7 +97,7 @@ fun PlayerScreen(
     val resetAutoHideTimer = {
         infoJob?.cancel()
         infoJob = scope.launch {
-            delay(8000)
+            delay(5000)
             if (overlayState == OverlayState.QUICK_INFO) {
                 overlayState = OverlayState.NONE
             }
@@ -327,10 +327,6 @@ fun PlayerScreen(
         }
         exoPlayer.prepare()
         exoPlayer.play()
-        
-        if (media?.type == MediaType.LIVE) {
-            overlayState = OverlayState.QUICK_INFO
-        }
     }
 
     DisposableEffect(exoPlayer) {

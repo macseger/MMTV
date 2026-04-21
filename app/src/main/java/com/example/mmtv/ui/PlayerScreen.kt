@@ -4,16 +4,14 @@ import android.view.KeyEvent
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.filled.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -24,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.platform.LocalFocusManager
@@ -38,7 +37,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
-import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import androidx.media3.common.C
 import androidx.media3.common.Format
@@ -49,19 +47,15 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.example.mmtv.api.SessionManager
-import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.GroupedMedia
 import com.example.mmtv.model.MediaSource
-import coil.request.ImageRequest
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.Episode
 import com.example.mmtv.player.MmtvPlayer
+import com.example.mmtv.ui.components.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.*
 import kotlin.math.absoluteValue
 
@@ -92,6 +86,7 @@ fun PlayerScreen(
         }
     }
 
+    // --- STATES ---
     var isPlaying by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(false) }
     var overlayState by remember { mutableStateOf(OverlayState.NONE) }
@@ -105,6 +100,7 @@ fun PlayerScreen(
     var seekJob by remember { mutableStateOf<Job?>(null) }
     var infoJob by remember { mutableStateOf<Job?>(null) }
 
+    // --- TIMERS ---
     val resetAutoHideTimer = {
         infoJob?.cancel()
         infoJob = scope.launch {
@@ -115,75 +111,47 @@ fun PlayerScreen(
         }
     }
 
-    var lastCenterClickTime by remember { mutableLongStateOf(0L) }
-    val doubleClickTimeout = 650L
-
+    // --- LIST STATES ---
     val channelListState = rememberLazyListState()
     val categoryListState = rememberLazyListState()
     val subtitleListState = rememberLazyListState()
     val epgListState = rememberLazyListState()
     
-    // Helper for safe focus
-    fun FocusRequester.safeFocus() {
-        runCatching { this.requestFocus() }
-    }
-
-    // --- LOGIC TO ENSURE CATEGORY ITEMS ARE LOADED ---
-    LaunchedEffect(viewModel.lastLiveCategoryIndex) {
-        val currentCat = categories.getOrNull(viewModel.lastLiveCategoryIndex)
-        if (currentCat != null && currentCat.items.isEmpty()) {
-            viewModel.loadItemsForCategory(MediaType.LIVE, currentCat.categoryId)
-        }
-    }
-    
-    // Update current playlist when category items load in background
-    LaunchedEffect(categories, viewModel.lastLiveCategoryIndex) {
-        val items = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.items ?: emptyList()
-        if (items.isNotEmpty() && viewModel.currentPlaylist.isEmpty()) {
-            viewModel.currentPlaylist = items
-        }
-    }
-
+    // --- FOCUS REQUESTERS ---
     val mainFocusRequester = remember { FocusRequester() }
     val epgFocusRequester = remember { FocusRequester() }
     val subtitleIconFocusRequester = remember { FocusRequester() }
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) {
-                exoPlayer.pause()
-                isPlaying = false
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
+    val tvGuideFocusRequester = remember { FocusRequester() }
+    val nextEpisodeButtonFocusRequester = remember { FocusRequester() }
+    val favoriteButtonFocusRequester = remember { FocusRequester() }
+    
     val channelFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val categoryFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val subtitleFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+    val recentChannelsFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
 
+    // --- MEDIA STATE ---
     var availableSubtitles by remember { mutableStateOf<List<Tracks.Group>>(emptyList()) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var isUserInteracting by remember { mutableStateOf(false) }
     var interactionJob by remember { mutableStateOf<Job?>(null) }
+    var lastCenterClickTime by remember { mutableLongStateOf(0L) }
+    val doubleClickTimeout = 650L
 
-    // Technical info states
+    // Technical info
     var videoFormat by remember { mutableStateOf<Format?>(null) }
     var audioFormat by remember { mutableStateOf<Format?>(null) }
     
-    // För "Spela nästa avsnitt"
     val isSeries = media?.type == MediaType.SERIES
+    val favorites by viewModel.favorites.collectAsState()
+
+    // --- NEXT EPISODE LOGIC ---
     val nextEpisode = remember(media, viewModel.selectedSeriesInfo, viewModel.playingEpisode) {
         if (!isSeries || viewModel.selectedSeriesInfo?.episodes == null) {
             null
         } else {
             val episodesMap = viewModel.selectedSeriesInfo!!.episodes!!
-            
-            // Vi vill ha en platt lista på alla avsnitt i rätt ordning (säsong för säsong)
             val allEpisodes = episodesMap.keys
                 .sortedBy { it.toIntOrNull() ?: 0 }
                 .flatMap { seasonKey ->
@@ -200,7 +168,6 @@ fun PlayerScreen(
     }
     
     var showNextEpisodeButton by remember { mutableStateOf(false) }
-    
     val currentPlaybackId = remember(media, viewModel.playingEpisode) {
         if (isSeries && viewModel.playingEpisode != null) {
             viewModel.playingEpisode?.id ?: media.id.toString()
@@ -209,23 +176,110 @@ fun PlayerScreen(
         }
     }
 
-    val tvGuideFocusRequester = remember { FocusRequester() }
-    val recentChannelsFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
-    val nextEpisodeButtonFocusRequester = remember { FocusRequester() }
-    val favoriteButtonFocusRequester = remember { FocusRequester() }
-
-    // Favorit-feedback
+    // --- FEEDBACK STATES ---
     var showFavoriteFeedback by remember { mutableStateOf(false) }
     var favoriteMessage by remember { mutableStateOf("") }
     var favoriteJob by remember { mutableStateOf<Job?>(null) }
-    val favorites by viewModel.favorites.collectAsState()
+
+    // --- HELPER FUNCTIONS ---
+    fun FocusRequester.safeFocus() {
+        runCatching { this.requestFocus() }
+    }
+
+    fun performSeek(offsetMs: Long, isLongPress: Boolean = false) {
+        seekJob?.cancel()
+        interactionJob?.cancel()
+        isUserInteracting = true
+        accumulatedSeekMs += offsetMs
+        
+        val totalSecs = (accumulatedSeekMs.absoluteValue / 1000).toInt()
+        val minutes = totalSecs / 60
+        val seconds = totalSecs % 60
+        
+        seekMessage = if (minutes > 0) {
+            val sign = if (accumulatedSeekMs > 0) "+" else "-"
+            "$sign$minutes:${String.format(Locale.getDefault(), "%02d", seconds)}"
+        } else {
+            val sign = if (accumulatedSeekMs > 0) "+" else "-"
+            "$sign$seconds s"
+        }
+        
+        showSeekFeedback = true
+        
+        if (isLongPress) {
+            val dur = exoPlayer.duration
+            if (dur != C.TIME_UNSET) {
+                val newPos = (exoPlayer.currentPosition + accumulatedSeekMs).coerceIn(0, dur)
+                exoPlayer.seekTo(newPos)
+                accumulatedSeekMs = 0
+            }
+        }
+
+        seekJob = scope.launch {
+            delay(if (isLongPress) 2000 else 1200)
+            
+            if (!isLongPress) {
+                val dur = exoPlayer.duration
+                if (dur != C.TIME_UNSET) {
+                    val newPos = (exoPlayer.currentPosition + accumulatedSeekMs).coerceIn(0, dur)
+                    exoPlayer.seekTo(newPos)
+                }
+            }
+            accumulatedSeekMs = 0 
+            delay(2000)
+            isUserInteracting = false
+            delay(3000)
+            if (!isLongPressSeeking && !isUserInteracting) {
+                showSeekFeedback = false
+            }
+        }
+    }
+
+    fun formatTime(ms: Long): String {
+        if (ms < 0) return "00:00"
+        val totalSeconds = (ms / 1000).toInt()
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        return if (hours > 0) {
+            String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+        }
+    }
+
+    // --- EFFECTS ---
+    LaunchedEffect(viewModel.lastLiveCategoryIndex) {
+        val currentCat = categories.getOrNull(viewModel.lastLiveCategoryIndex)
+        if (currentCat != null && currentCat.items.isEmpty()) {
+            viewModel.loadItemsForCategory(MediaType.LIVE, currentCat.categoryId)
+        }
+    }
+    
+    LaunchedEffect(categories, viewModel.lastLiveCategoryIndex) {
+        val items = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.items ?: emptyList()
+        if (items.isNotEmpty() && viewModel.currentPlaylist.isEmpty()) {
+            viewModel.currentPlaylist = items
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) {
+                exoPlayer.pause()
+                isPlaying = false
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     LaunchedEffect(currentPosition, duration) {
         if (isSeries && nextEpisode != null && duration > 0) {
             val remainingSeconds = (duration - currentPosition) / 1000
-            // Visa knappen sista 120 sekunderna ända till slutet
-            // Vi kollar inte sessionManager.getAutoPlayNext() här för att visa KNAPPEN, 
-            // men vi kan lägga till logik för automatisk uppspelning om vi vill.
             showNextEpisodeButton = remainingSeconds in 0..120
         } else {
             showNextEpisodeButton = false
@@ -237,8 +291,6 @@ fun PlayerScreen(
         while (true) {
             currentPosition = exoPlayer.currentPosition
             duration = exoPlayer.duration
-            
-            // Spara position var 30:e sekund för extra stabilitet
             if (media?.type != MediaType.LIVE && isPlaying) {
                 counter++
                 if (counter >= 30) {
@@ -252,13 +304,9 @@ fun PlayerScreen(
 
     LaunchedEffect(url) {
         focusManager.clearFocus()
-        
-        // Add to history if it's a live stream
         if (media != null) {
             viewModel.addToHistory(media, if (isSeries) viewModel.playingEpisode else null)
         }
-
-        // Synka kategorin i bakgrunden så att vi hamnar rätt när vi backar ut
         if (media?.type == MediaType.LIVE) {
             viewModel.setLiveCategoryByMediaId(media.id)
         }
@@ -295,7 +343,7 @@ fun PlayerScreen(
                 audioFormat = exoPlayer.audioFormat
                 
                 if (playbackState == Player.STATE_READY) {
-                    overlayState = OverlayState.NONE
+                    // Spelaren är redo för uppspelning
                 }
 
                 if (playbackState == Player.STATE_ENDED) {
@@ -312,32 +360,17 @@ fun PlayerScreen(
             exoPlayer.removeListener(listener)
             if (media != null && media.type != MediaType.LIVE) {
                 val currentPos = exoPlayer.currentPosition
-                val duration = exoPlayer.duration
-                if (currentPos > 10000 && (duration == C.TIME_UNSET || currentPos < duration - 5000)) {
+                val dur = exoPlayer.duration
+                if (currentPos > 10000 && (dur == C.TIME_UNSET || currentPos < dur - 5000)) {
                     sessionManager.savePlaybackPosition(currentPlaybackId, currentPos)
-                } else if (duration != C.TIME_UNSET && currentPos >= duration - 5000) {
+                } else if (dur != C.TIME_UNSET && currentPos >= dur - 5000) {
                     sessionManager.clearPlaybackPosition(currentPlaybackId)
                 }
             }
-            // All cleanup should happen here to avoid race conditions and double releases
             exoPlayer.stop()
             mmtvPlayerFactory.releasePlayer()
         }
     }
-
-    fun formatTime(ms: Long): String {
-        if (ms < 0) return "00:00"
-        val totalSeconds = (ms / 1000).toInt()
-        val hours = totalSeconds / 3600
-        val minutes = (totalSeconds % 3600) / 60
-        val seconds = totalSeconds % 60
-        return if (hours > 0) {
-            String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-        }
-    }
-
 
     LaunchedEffect(overlayState) {
         when (overlayState) {
@@ -345,27 +378,23 @@ fun PlayerScreen(
                 val currentCategoryIndex = viewModel.lastLiveCategoryIndex.coerceAtLeast(0)
                 if (categories.isNotEmpty()) {
                     categoryListState.scrollToItem(currentCategoryIndex)
-                    delay(150) // Ökad delay för stabilitet
+                    delay(150)
                     categoryFocusRequesters[currentCategoryIndex]?.safeFocus()
                 }
             }
             OverlayState.CHANNELS -> {
                 if (playlist.isNotEmpty()) {
                     val index = playlist.indexOfFirst { it.id == media?.id }.coerceAtLeast(0)
-                    // Använd snapToItem istället för scrollToItem för att undvika visuell glitch
                     scope.launch {
                         channelListState.scrollToItem(index)
                         delay(50)
                         channelFocusRequesters[playlist.getOrNull(index)?.id ?: -1]?.safeFocus()
                     }
-                    if (media != null) {
-                        focusedChannel = media
-                    }
+                    if (media != null) focusedChannel = media
                 }
             }
             OverlayState.QUICK_INFO -> {
                 resetAutoHideTimer()
-                // Focus the first action button by default or stay on current
                 scope.launch {
                     delay(100)
                     tvGuideFocusRequester.safeFocus()
@@ -387,60 +416,7 @@ fun PlayerScreen(
         }
     }
 
-    fun performSeek(offsetMs: Long, isLongPress: Boolean = false) {
-        seekJob?.cancel()
-        interactionJob?.cancel()
-        isUserInteracting = true
-        accumulatedSeekMs += offsetMs
-        
-        val totalSecs = (accumulatedSeekMs.absoluteValue / 1000).toInt()
-        val minutes = totalSecs / 60
-        val seconds = totalSecs % 60
-        
-        seekMessage = if (minutes > 0) {
-            val sign = if (accumulatedSeekMs > 0) "+" else "-"
-            "$sign$minutes:${String.format(Locale.getDefault(), "%02d", seconds)}"
-        } else {
-            val sign = if (accumulatedSeekMs > 0) "+" else "-"
-            "$sign$seconds s"
-        }
-        
-        showSeekFeedback = true
-        
-        if (isLongPress) {
-            // Vid långtryck, uppdatera positionen direkt för "mjuk" känsla
-            val dur = exoPlayer.duration
-            if (dur != C.TIME_UNSET) {
-                val newPos = (exoPlayer.currentPosition + accumulatedSeekMs).coerceIn(0, dur)
-                exoPlayer.seekTo(newPos)
-                accumulatedSeekMs = 0
-            }
-        }
-
-        seekJob = scope.launch {
-            delay(if (isLongPress) 2000 else 1200) // Vänta på att användaren slutat trycka
-            
-            if (!isLongPress) {
-                val dur = exoPlayer.duration
-                if (dur != C.TIME_UNSET) {
-                    val newPos = (exoPlayer.currentPosition + accumulatedSeekMs).coerceIn(0, dur)
-                    exoPlayer.seekTo(newPos)
-                }
-            }
-            // NOLLSTÄLL ALLTID efter utförd sökning eller timeout, även om dur == UNSET
-            accumulatedSeekMs = 0 
-            
-            // Vänta lite innan vi tillåter att feedbacken döljs
-            delay(2000)
-            isUserInteracting = false
-            
-            delay(3000)
-            if (!isLongPressSeeking && !isUserInteracting) {
-                showSeekFeedback = false
-            }
-        }
-    }
-
+    // --- RENDER ---
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -451,155 +427,104 @@ fun PlayerScreen(
                     KeyEvent.ACTION_DOWN -> {
                         if (overlayState == OverlayState.QUICK_INFO) resetAutoHideTimer()
                         val isRepeat = nativeEvent.repeatCount > 0
-                        if (isRepeat) {
-                            isLongPressSeeking = true
-                        }
+                        if (isRepeat) isLongPressSeeking = true
 
                         when (nativeEvent.keyCode) {
                             KeyEvent.KEYCODE_DPAD_UP -> {
-                                when (overlayState) {
-                                    OverlayState.NONE -> {
-                                        if (showNextEpisodeButton) {
-                                            nextEpisodeButtonFocusRequester.safeFocus()
-                                            true
-                                        } else if (media?.type != MediaType.LIVE) {
-                                            if (!showSeekFeedback) {
-                                                showSeekFeedback = true
-                                                seekJob?.cancel()
-                                                seekJob = scope.launch { delay(5000); showSeekFeedback = false }
-                                            }
-                                            subtitleIconFocusRequester.safeFocus()
-                                            true
-                                        } else false
-                                    }
-                                    OverlayState.QUICK_INFO -> {
-                                        // Move focus up from action row to nothing or hidden elements
+                                if (overlayState == OverlayState.NONE) {
+                                    if (showNextEpisodeButton) {
+                                        nextEpisodeButtonFocusRequester.safeFocus()
                                         true
-                                    }
-                                    else -> false
-                                }
+                                    } else if (media?.type != MediaType.LIVE) {
+                                        if (!showSeekFeedback) {
+                                            showSeekFeedback = true
+                                            seekJob?.cancel()
+                                            seekJob = scope.launch { delay(5000); showSeekFeedback = false }
+                                        }
+                                        subtitleIconFocusRequester.safeFocus()
+                                        true
+                                    } else false
+                                } else false
                             }
                             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                                when (overlayState) {
-                                    OverlayState.NONE -> {
-                                        overlayState = OverlayState.SUBTITLES
-                                        true
-                                    }
-                                    OverlayState.QUICK_INFO -> {
-                                        // Already at the bottom action row
-                                        true
-                                    }
-                                    else -> false
-                                }
+                                if (overlayState == OverlayState.NONE) {
+                                    overlayState = OverlayState.SUBTITLES
+                                    true
+                                } else false
                             }
                             KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                when (overlayState) {
-                                    OverlayState.NONE -> {
-                                        if (media?.type == MediaType.LIVE) {
-                                            overlayState = OverlayState.CHANNELS
-                                        } else {
-                                            if (isRepeat) performSeek(-10000L, true)
-                                            else performSeek(-10000L)
-                                        }
-                                        true
+                                if (overlayState == OverlayState.NONE) {
+                                    if (media?.type == MediaType.LIVE) {
+                                        overlayState = OverlayState.CHANNELS
+                                    } else {
+                                        if (isRepeat) performSeek(-10000L, true)
+                                        else performSeek(-10000L)
                                     }
-                                    OverlayState.CHANNELS -> {
-                                        overlayState = OverlayState.CATEGORIES
-                                        true
-                                    }
-                                    else -> false
-                                }
+                                    true
+                                } else if (overlayState == OverlayState.CHANNELS) {
+                                    overlayState = OverlayState.CATEGORIES
+                                    true
+                                } else false
                             }
                             KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                when (overlayState) {
-                                    OverlayState.NONE -> {
-                                        if (media?.type != MediaType.LIVE) {
-                                            if (isRepeat) performSeek(10000L, true)
-                                            else performSeek(10000L)
-                                        } else {
-                                            overlayState = OverlayState.SUBTITLES
-                                        }
-                                        true
+                                if (overlayState == OverlayState.NONE) {
+                                    if (media?.type != MediaType.LIVE) {
+                                        if (isRepeat) performSeek(10000L, true)
+                                        else performSeek(10000L)
+                                    } else {
+                                        overlayState = OverlayState.SUBTITLES
                                     }
-                                    OverlayState.CATEGORIES -> {
-                                        overlayState = OverlayState.CHANNELS
-                                        true
-                                    }
-                                    OverlayState.CHANNELS -> {
-                                        overlayState = OverlayState.NONE
-                                        true
-                                    }
-                                    else -> false
-                                }
+                                    true
+                                } else if (overlayState == OverlayState.CATEGORIES) {
+                                    overlayState = OverlayState.CHANNELS
+                                    true
+                                } else if (overlayState == OverlayState.CHANNELS) {
+                                    overlayState = OverlayState.NONE
+                                    true
+                                } else false
                             }
                             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                                 if (showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE) {
                                     onPlayNextEpisode(nextEpisode)
                                     true
-                                } else {
-                                    when (overlayState) {
-                                        OverlayState.NONE -> {
-                                            if (media != null && media.type == MediaType.LIVE) {
-                                                val currentTime = System.currentTimeMillis()
-                                                if (currentTime - lastCenterClickTime < doubleClickTimeout) {
-                                                    scope.launch { viewModel.getFullEpgForId(media.id, media.title) }
-                                                    overlayState = OverlayState.EPG_INFO
-                                                } else {
-                                                    overlayState = OverlayState.QUICK_INFO
-                                                }
-                                                lastCenterClickTime = currentTime
-                                            } else {
-                                                if (exoPlayer.isPlaying) {
-                                                    exoPlayer.pause()
-                                                    isPlaying = false
-                                                } else {
-                                                    exoPlayer.play()
-                                                    isPlaying = true
-                                                }
-                                                showSeekFeedback = true
-                                                seekJob?.cancel()
-                                                seekJob = scope.launch { delay(3000); showSeekFeedback = false }
-                                            }
-                                            true
-                                        }
-                                        OverlayState.QUICK_INFO -> {
-                                            // Let the focused button handle it if any, 
-                                            // otherwise if we are here it means root got it.
-                                            // But Surface onClick should have consumed it if focused.
-                                            // So we only get here if focus is NOT on a button.
-                                            if (media != null) scope.launch { viewModel.getFullEpgForId(media.id, media.title) }
+                                } else if (overlayState == OverlayState.NONE) {
+                                    if (media != null && media.type == MediaType.LIVE) {
+                                        val currentTime = System.currentTimeMillis()
+                                        if (currentTime - lastCenterClickTime < doubleClickTimeout) {
+                                            scope.launch { viewModel.getFullEpgForId(media.id, media.title) }
                                             overlayState = OverlayState.EPG_INFO
-                                            true
+                                        } else {
+                                            overlayState = OverlayState.QUICK_INFO
                                         }
-                                        else -> false
+                                        lastCenterClickTime = currentTime
+                                    } else {
+                                        if (exoPlayer.isPlaying) {
+                                            exoPlayer.pause()
+                                            isPlaying = false
+                                        } else {
+                                            exoPlayer.play()
+                                            isPlaying = true
+                                        }
+                                        showSeekFeedback = true
+                                        seekJob?.cancel()
+                                        seekJob = scope.launch { delay(3000); showSeekFeedback = false }
                                     }
-                                }
+                                    true
+                                } else false
                             }
-                            KeyEvent.KEYCODE_PROG_RED -> { // 183 är ofta röd knapp på Android TV
+                            KeyEvent.KEYCODE_PROG_RED -> {
                                 if (media != null) {
                                     val isFav = favorites.any { it.id == media.id }
                                     viewModel.toggleFavorite(media)
                                     favoriteMessage = if (isFav) "Borttagen från favoriter" else "Tillagd i favoriter"
                                     showFavoriteFeedback = true
                                     favoriteJob?.cancel()
-                                    favoriteJob = scope.launch {
-                                        delay(3000)
-                                        showFavoriteFeedback = false
-                                    }
+                                    favoriteJob = scope.launch { delay(3000); showFavoriteFeedback = false }
                                 }
                                 true
                             }
                             KeyEvent.KEYCODE_BACK -> {
                                 when (overlayState) {
-                                    OverlayState.CHANNELS, OverlayState.CATEGORIES -> {
-                                        overlayState = OverlayState.NONE
-                                    }
-                                    OverlayState.QUICK_INFO -> {
-                                        overlayState = OverlayState.NONE
-                                    }
-                                    OverlayState.EPG_INFO -> {
-                                        overlayState = OverlayState.NONE
-                                    }
                                     OverlayState.NONE -> onBackPressed()
                                     else -> overlayState = OverlayState.NONE
                                 }
@@ -612,12 +537,8 @@ fun PlayerScreen(
                         if (nativeEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || 
                             nativeEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                             isLongPressSeeking = false
-                            // Starta timer för att dölja feedback
                             seekJob?.cancel()
-                            seekJob = scope.launch {
-                                delay(2500)
-                                showSeekFeedback = false
-                            }
+                            seekJob = scope.launch { delay(2500); showSeekFeedback = false }
                         }
                         false
                     }
@@ -632,7 +553,7 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // --- MODERN SEEK BAR / PROGRESS OVERLAY (VOD) ---
+        // --- MODERN SEEK BAR ---
         AnimatedVisibility(
             visible = showSeekFeedback && media?.type != MediaType.LIVE,
             enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
@@ -640,9 +561,7 @@ fun PlayerScreen(
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp)
         ) {
             Surface(
-                modifier = Modifier
-                    .fillMaxWidth(0.85f)
-                    .height(100.dp),
+                modifier = Modifier.fillMaxWidth(0.85f).height(100.dp),
                 color = Color.Black.copy(alpha = 0.8f),
                 shape = RoundedCornerShape(20.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
@@ -681,7 +600,6 @@ fun PlayerScreen(
                                 Icon(Icons.Default.Pause, null, tint = Color.White, modifier = Modifier.size(32.dp).padding(end = 12.dp))
                             }
                             
-                            // Interactive Subtitle Button
                             var isSubFocused by remember { mutableStateOf(false) }
                             Surface(
                                 onClick = { overlayState = OverlayState.SUBTITLES },
@@ -690,16 +608,8 @@ fun PlayerScreen(
                                     .focusRequester(subtitleIconFocusRequester)
                                     .onFocusChanged { 
                                         isSubFocused = it.isFocused 
-                                        if (it.isFocused) {
-                                            // Förläng visningstiden om vi har fokus
-                                            seekJob?.cancel()
-                                        } else {
-                                            // Starta timern igen när vi tappar fokus
-                                            seekJob = scope.launch {
-                                                delay(5000)
-                                                showSeekFeedback = false
-                                            }
-                                        }
+                                        if (it.isFocused) seekJob?.cancel()
+                                        else seekJob = scope.launch { delay(5000); showSeekFeedback = false }
                                     },
                                 shape = RoundedCornerShape(12.dp),
                                 color = if (isSubFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
@@ -730,7 +640,6 @@ fun PlayerScreen(
                     
                     Spacer(modifier = Modifier.height(12.dp))
                     
-                    // Modern Progress Bar
                     val progress = if (duration > 0) currentPosition.toFloat() / duration else 0f
                     Box(
                         modifier = Modifier
@@ -772,24 +681,14 @@ fun PlayerScreen(
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Favorite,
-                        contentDescription = null,
-                        tint = if (favoriteMessage.contains("Tillagd")) Color.Red else Color.Gray,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Icon(Icons.Default.Favorite, null, tint = if (favoriteMessage.contains("Tillagd")) Color.Red else Color.Gray, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = favoriteMessage,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text(text = favoriteMessage, style = MaterialTheme.typography.bodyLarge, color = Color.White, fontWeight = FontWeight.Bold)
                 }
             }
         }
 
-        // --- NEXT EPISODE BUTTON (MODERN OVERLAY) ---
+        // --- NEXT EPISODE BUTTON ---
         AnimatedVisibility(
             visible = showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE,
             enter = fadeIn() + slideInHorizontally(initialOffsetX = { it }),
@@ -815,11 +714,7 @@ fun PlayerScreen(
                 border = if (isFocused) null else androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
                 tonalElevation = 12.dp
             ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Miniatyr/Ikon för serien
+                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(modifier = Modifier.size(86.dp).clip(RoundedCornerShape(8.dp))) {
                         SubcomposeAsyncImage(
                             model = media?.icon,
@@ -828,55 +723,18 @@ fun PlayerScreen(
                             contentScale = ContentScale.Crop,
                             error = { Icon(Icons.Default.Movie, null, tint = Color.Gray, modifier = Modifier.padding(16.dp)) }
                         )
-                        Box(
-                            modifier = Modifier.fillMaxSize().background(
-                                brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))
-                                )
-                            )
-                        )
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp).align(Alignment.Center)
-                        )
+                        Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))))
+                        Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(24.dp).align(Alignment.Center))
                     }
-                    
                     Spacer(modifier = Modifier.width(16.dp))
-                    
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "SE NÄSTA AVSNITT",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.2.sp
-                            ),
-                            color = if (isFocused) Color.Black.copy(alpha = 0.7f) else MaterialTheme.colorScheme.primary
-                        )
+                        Text(text = "SE NÄSTA AVSNITT", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.2.sp), color = if (isFocused) Color.Black.copy(alpha = 0.7f) else MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = nextEpisode?.title ?: "Nästa avsnitt",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        
+                        Text(text = nextEpisode?.title ?: "Nästa avsnitt", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val remainingSecs = ((duration - currentPosition) / 1000).coerceAtLeast(0)
-                        Text(
-                            text = "Avslutas om $remainingSecs s",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (isFocused) Color.Black.copy(alpha = 0.5f) else Color.Gray
-                        )
+                        Text(text = "Avslutas om $remainingSecs s", style = MaterialTheme.typography.bodySmall, color = if (isFocused) Color.Black.copy(alpha = 0.5f) else Color.Gray)
                     }
-                    
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.NavigateNext,
-                        contentDescription = null,
-                        modifier = Modifier.size(32.dp),
-                        tint = if (isFocused) Color.Black else MaterialTheme.colorScheme.primary
-                    )
+                    Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(32.dp), tint = if (isFocused) Color.Black else MaterialTheme.colorScheme.primary)
                 }
             }
             
@@ -890,580 +748,72 @@ fun PlayerScreen(
             }
         }
 
-        // --- QUICK INFO OVERLAY (ZAP BANNER) ---
+        // --- OVERLAYS ---
         AnimatedVisibility(
             visible = overlayState == OverlayState.QUICK_INFO && media != null,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            val epg = produceState(initialValue = null as EpgListing?, key1 = media?.id, key2 = overlayState) {
-                value = if (media?.type == MediaType.LIVE) {
-                    viewModel.getEpgForId(media.id, media.title)
-                } else {
-                    null
-                }
-            }.value
-
-            val piconUrl = produceState(initialValue = media?.icon, key1 = media?.id) {
-                media?.let {
-                    value = viewModel.getIconForChannel(it.id, it.title)
-                }
-            }.value
-            
-            val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
-            val dateFormatter = remember { DateTimeFormatter.ofPattern("EEE d MMM").withLocale(Locale("sv", "SE")).withZone(ZoneId.systemDefault()) }
-            val history = viewModel.uiState.history.filter { it.type == MediaType.LIVE }.take(10)
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                // Top Info Bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val categoryName = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title ?: ""
-                    Text(
-                        text = categoryName.uppercase(),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontWeight = FontWeight.Bold
-                    )
-                    
-                    Text(
-                        text = "${dateFormatter.format(Instant.now())}  ${timeFormatter.format(Instant.now())}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                // Main Program Banner
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    color = Color.Black.copy(alpha = 0.85f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(piconUrl)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(70.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.White.copy(alpha = 0.05f))
-                                .padding(8.dp),
-                            contentScale = ContentScale.Fit,
-                            error = { Icon(Icons.Default.Tv, null, tint = Color.Gray) }
-                        )
-                        
-                        Spacer(modifier = Modifier.width(16.dp))
-                        
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = media?.title ?: "",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White.copy(alpha = 0.7f)
-                            )
-                            
-                            Text(
-                                text = epg?.title ?: "Ingen information",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = Color.White,
-                                fontWeight = FontWeight.Black,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            
-                            if (epg != null) {
-                                val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
-                                val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
-                                val now = System.currentTimeMillis() / 1000
-                                val duration = (epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0)
-                                val elapsed = now - (epg.startTimestamp ?: 0)
-                                val remaining = (epg.stopTimestamp ?: 0) - now
-                                
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "$start - $stop",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = Color.LightGray
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Box(modifier = Modifier.width(1.dp).height(12.dp).background(Color.Gray))
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
-                                        text = "${remaining / 60} min kvar",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                
-                                val progress = if (duration > 0) elapsed.toFloat() / duration.toFloat() else 0f
-                                if (progress in 0f..1f) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(4.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.White.copy(alpha = 0.1f))
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth(progress)
-                                                .fillMaxHeight()
-                                                .background(MaterialTheme.colorScheme.primary)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        
-                        // Technical Tags
-                        val resolution = when {
-                            videoFormat == null || videoFormat!!.height <= 0 -> ""
-                            videoFormat!!.height >= 2160 -> "4K"
-                            videoFormat!!.height >= 1080 -> "FHD"
-                            videoFormat!!.height >= 720 -> "HD"
-                            else -> "SD"
-                        }
-                        val fpsVal = videoFormat?.frameRate ?: 0f
-                        val fps = if (fpsVal > 0) "${fpsVal.toInt()}FPS" else ""
-                        val audio = if (audioFormat != null && audioFormat!!.channelCount > 0) {
-                            if (audioFormat!!.channelCount >= 6) "5.1" else "2.0"
-                        } else ""
-
-                        Row(modifier = Modifier.padding(start = 16.dp)) {
-                            if (resolution.isNotEmpty()) {
-                                TechnicalTag(resolution)
-                                Spacer(modifier = Modifier.width(4.dp))
-                            }
-                            if (fps.isNotEmpty()) {
-                                TechnicalTag(fps)
-                                Spacer(modifier = Modifier.width(4.dp))
-                            }
-                            if (audio.isNotEmpty()) {
-                                TechnicalTag(audio)
-                            }
-                        }
-                    }
-                }
-
-                // Action Row
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp)
-                        .onKeyEvent { 
-                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                overlayState = OverlayState.NONE
-                                true
-                            } else false
-                        },
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    item {
-                        ActionButton(
-                            icon = Icons.Default.Menu,
-                            label = "TV-guide",
-                            focusRequester = tvGuideFocusRequester,
-                            onFocus = { infoJob?.cancel() },
-                            onBlur = { resetAutoHideTimer() },
-                            onKeyEvent = {
-                                if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                    overlayState = OverlayState.CATEGORIES
-                                    true
-                                } else false
-                            },
-                            onClick = {
-                                if (media != null) scope.launch { viewModel.getFullEpgForId(media.id) }
-                                overlayState = OverlayState.EPG_INFO
-                            }
-                        )
-                    }
-                    
-                    item {
-                        val isFav = media?.let { m -> favorites.any { it.id == m.id } } ?: false
-                        ActionButton(
-                            icon = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            label = "Favorit",
-                            focusRequester = favoriteButtonFocusRequester,
-                            onFocus = { infoJob?.cancel() },
-                            onBlur = { resetAutoHideTimer() },
-                            onClick = {
-                                media?.let { viewModel.toggleFavorite(it) }
-                            }
-                        )
-                    }
-
-                    // Recent Channels
-                    itemsIndexed(history, key = { _, item -> "history_${item.id}" }) { _, historyItem ->
-                        RecentChannelButton(
-                            item = historyItem,
-                            viewModel = viewModel,
-                            focusRequester = recentChannelsFocusRequesters.getOrPut(historyItem.id) { FocusRequester() },
-                            onFocus = { infoJob?.cancel() },
-                            onBlur = { resetAutoHideTimer() },
-                            onClick = {
-                                overlayState = OverlayState.NONE
-                                onMediaSelected(historyItem)
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // --- MODERN TIVIMATE-STYLE INTEGRATED OVERLAY ---
-        val isSideOverlayVisible = overlayState == OverlayState.CHANNELS || overlayState == OverlayState.CATEGORIES
-        
-        AnimatedVisibility(
-            visible = isSideOverlayVisible,
-            enter = slideInHorizontally(
-                initialOffsetX = { -it },
-                animationSpec = androidx.compose.animation.core.tween(durationMillis = 400, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-            ) + fadeIn(animationSpec = androidx.compose.animation.core.tween(400)),
-            exit = slideOutHorizontally(
-                targetOffsetX = { -it },
-                animationSpec = androidx.compose.animation.core.tween(durationMillis = 400, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-            ) + fadeOut(animationSpec = androidx.compose.animation.core.tween(400)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                // Dimmed background
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.6f))
-                        .clickable(
-                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                            indication = null,
-                            onClick = { overlayState = OverlayState.NONE }
-                        )
-                )
-
-                Row(modifier = Modifier.fillMaxSize()) {
-                    // 1. Categories Sidebar (Slide out)
-                    // Vi använder AnimatedContent eller liknande för att växla mellan vyer om vi vill, 
-                    // men här behåller vi logiken för att bara visa kategorier när overlayState är CATEGORIES
-                    val showCategories = overlayState == OverlayState.CATEGORIES
-                    
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = showCategories,
-                        enter = slideInHorizontally(initialOffsetX = { -it }) + fadeIn(),
-                        exit = slideOutHorizontally(targetOffsetX = { -it }) + fadeOut()
-                    ) {
-                        LazyColumn(
-                            state = categoryListState,
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .width(280.dp)
-                                .background(Color.Black.copy(alpha = 0.95f))
-                                .padding(vertical = 16.dp)
-                        ) {
-                            itemsIndexed(categories, key = { index, category -> category.categoryId ?: "cat_$index" }) { index, category ->
-                                val isSelected = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title == category.title
-                                CategoryListItem(
-                                    title = category.title ?: "",
-                                    isSelected = isSelected,
-                                    modifier = Modifier
-                                        .focusRequester(categoryFocusRequesters.getOrPut(index) { FocusRequester() })
-                                        .onFocusChanged {
-                                            if (it.isFocused) {
-                                                onCategorySelected(index)
-                                                val cat = categories.getOrNull(index)
-                                                if (cat != null && cat.items.isEmpty()) {
-                                                    viewModel.loadItemsForCategory(MediaType.LIVE, cat.categoryId)
-                                                }
-                                                scope.launch { channelListState.scrollToItem(0) }
-                                            }
-                                        }
-                                        .onKeyEvent {
-                                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                                overlayState = OverlayState.CHANNELS
-                                                true
-                                            } else false
-                                        },
-                                    onClick = { overlayState = OverlayState.CHANNELS }
-                                )
-                            }
-                        }
-                    }
-
-                    // 2. Channel List (Left Side)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(420.dp)
-                            .background(Color.Black.copy(alpha = 0.85f))
-                    ) {
-                        val currentCategoryTitle = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title ?: ""
-                        Text(
-                            text = currentCategoryTitle.uppercase(),
-                            modifier = Modifier.padding(24.dp),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Black,
-                            letterSpacing = 2.sp
-                        )
-
-                        LazyColumn(
-                            state = channelListState,
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            itemsIndexed(playlist, key = { index, item -> "${item.id}_$index" }) { _, item ->
-                                ChannelListItem(
-                                    item = item,
-                                    isSelected = item.id == media?.id,
-                                    viewModel = viewModel,
-                                    modifier = Modifier
-                                        .focusRequester(channelFocusRequesters.getOrPut(item.id) { FocusRequester() })
-                                        .onFocusChanged { if (it.isFocused) focusedChannel = item }
-                                        .onKeyEvent {
-                                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                                overlayState = OverlayState.CATEGORIES
-                                                true
-                                            } else false
-                                        },
-                                    onClick = { overlayState = OverlayState.NONE; onMediaSelected(item) }
-                                )
-                            }
-                        }
-                    }
-
-                    // 3. EPG & Program Details (Right Side) - The TiviMate Look
-                    if (overlayState == OverlayState.CHANNELS) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .weight(1f)
-                                .padding(32.dp)
-                        ) {
-                            // Detailed Info Box
-                            val currentEpg = viewModel.getEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title)
-                            
-                            ModernProgramDetailBox(epg = currentEpg, channel = focusedChannel, viewModel = viewModel)
-
-                            Spacer(modifier = Modifier.height(32.dp))
-
-                            // Upcoming Programs for Focused Channel
-                            val fullEpg = produceState(initialValue = emptyList<EpgListing>(), key1 = focusedChannel?.id) {
-                                focusedChannel?.let {
-                                    value = viewModel.getFullEpgForId(it.id, it.title)
-                                }
-                            }.value
-                            
-                            val now = System.currentTimeMillis() / 1000
-                            val upcomingEpg = remember(fullEpg, focusedChannel) { 
-                                fullEpg.filter { (it.stopTimestamp ?: 0) > now } 
-                            }
-
-                            if (upcomingEpg.isNotEmpty()) {
-                                Text(
-                                    text = "PROGRAMGUIDE",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = Color.Gray,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(bottom = 12.dp)
-                                )
-                                LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                                    itemsIndexed(upcomingEpg, key = { _, epg -> "${epg.id}_${epg.startTimestamp}" }) { idx, epg ->
-                                        MiniProgramGuideItem(
-                                            epg = epg,
-                                            isCurrent = idx == 0 && (epg.startTimestamp ?: 0) <= now
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    } else if (overlayState == OverlayState.CATEGORIES) {
-                        // Visa en förenklad vy eller bara picon när kategorier är öppna för att ge plats
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .weight(1f)
-                                .padding(32.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            focusedChannel?.let { channel ->
-                                val piconUrl = produceState(initialValue = channel.icon, key1 = channel.id) {
-                                    value = viewModel.getIconForChannel(channel.id, channel.title)
-                                }.value
-
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    AsyncImage(
-                                        model = piconUrl,
-                                        contentDescription = null,
-                                        modifier = Modifier
-                                            .size(200.dp)
-                                            .alpha(0.5f),
-                                        contentScale = ContentScale.Fit
-                                    )
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text(
-                                        text = channel.title ?: "",
-                                        style = MaterialTheme.typography.headlineMedium,
-                                        color = Color.White.copy(alpha = 0.5f),
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- FULL EPG INFO (MODAL) ---
-        if (overlayState == OverlayState.EPG_INFO && media != null) {
-            val fullEpg = produceState(initialValue = emptyList<EpgListing>(), key1 = media.id) {
-                value = viewModel.getFullEpgForId(media.id, media.title)
-            }.value
-            
-            val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
-            
-            val piconUrl = produceState(initialValue = media.icon, key1 = media.id) {
-                value = viewModel.getIconForChannel(media.id, media.title)
-            }.value
-
-            LaunchedEffect(fullEpg) {
-                if (fullEpg.isNotEmpty()) {
-                    delay(100)
-                    epgFocusRequester.safeFocus()
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.85f))
-                    .onKeyEvent { 
-                        if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                            overlayState = OverlayState.NONE
-                            true
-                        } else false
+            media?.let { 
+                QuickInfoOverlay(
+                    media = it,
+                    viewModel = viewModel,
+                    categories = categories,
+                    tvGuideFocusRequester = tvGuideFocusRequester,
+                    favoriteButtonFocusRequester = favoriteButtonFocusRequester,
+                    recentChannelsFocusRequesters = recentChannelsFocusRequesters,
+                    videoFormat = videoFormat,
+                    audioFormat = audioFormat,
+                    favorites = favorites,
+                    onTvGuideClick = {
+                        scope.launch { viewModel.getFullEpgForId(it.id) }
+                        overlayState = OverlayState.EPG_INFO
                     },
-                contentAlignment = Alignment.Center
-            ) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth(0.85f)
-                        .fillMaxHeight(0.85f)
-                        .clickable(enabled = false) {},
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A)),
-                    shape = MaterialTheme.shapes.large,
-                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color.White.copy(alpha = 0.1f)))
-                ) {
-                    Column(modifier = Modifier.padding(24.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            SubcomposeAsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(piconUrl)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = null,
-                                modifier = Modifier.size(50.dp).clip(MaterialTheme.shapes.small),
-                                error = { Icon(Icons.Default.Tv, null, tint = Color.Gray) }
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(text = media.title ?: "Programguide", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                                Text(text = "Kommande program", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                            }
-                            Spacer(modifier = Modifier.weight(1f))
-                            IconButton(onClick = { overlayState = OverlayState.NONE }) { 
-                                Icon(Icons.Default.Close, null, tint = Color.White) 
-                            }
-                        }
-                        
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        if (fullEpg.isEmpty()) {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
-                                CircularProgressIndicator()
-                            }
-                        } else {
-                            val now = System.currentTimeMillis() / 1000
-                            // Filtrera bort program som redan har slutat för att göra listan mer relevant
-                            val futureEpg = remember(fullEpg) { fullEpg.filter { (it.stopTimestamp ?: 0) > now } }
-                            
-                            LazyColumn(
-                                state = epgListState,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                            ) {
-                                itemsIndexed(futureEpg, key = { _, epg -> "${epg.id}_${epg.startTimestamp}" }) { index, epg ->
-                                    var isItemFocused by remember { mutableStateOf(false) }
-                                    val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
-                                    val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
-                                    val isCurrent = (epg.startTimestamp ?: 0) <= now && (epg.stopTimestamp ?: 0) > now
-                                    
-                                    Surface(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .then(if (index == 0) Modifier.focusRequester(epgFocusRequester) else Modifier)
-                                            .onFocusChanged { isItemFocused = it.isFocused }
-                                            .clickable { /* Klickbar för fokus */ }
-                                            .padding(vertical = 4.dp),
-                                        color = if (isItemFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-                                                else if (isCurrent) Color.White.copy(alpha = 0.05f)
-                                                else Color.Transparent,
-                                        shape = MaterialTheme.shapes.medium
-                                    ) {
-                                        Row(modifier = Modifier.padding(16.dp)) {
-                                            Column(modifier = Modifier.width(120.dp)) {
-                                                Text(text = start, style = MaterialTheme.typography.titleMedium, color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.White, fontWeight = FontWeight.Bold)
-                                                Text(text = stop, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                                            }
-                                            
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    text = epg.title ?: "", 
-                                                    style = MaterialTheme.typography.titleLarge, 
-                                                    fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.Bold,
-                                                    color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.White
-                                                )
-                                                if (!epg.description.isNullOrBlank()) {
-                                                    Text(
-                                                        text = epg.description, 
-                                                        style = MaterialTheme.typography.bodyMedium, 
-                                                        color = Color.LightGray,
-                                                        maxLines = if (isItemFocused) 10 else 2,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                    onRecentChannelClick = { item ->
+                        overlayState = OverlayState.NONE
+                        onMediaSelected(item)
+                    },
+                    onCategoryRequest = { overlayState = OverlayState.CATEGORIES },
+                    onCloseRequest = { overlayState = OverlayState.NONE },
+                    onFocusAction = { infoJob?.cancel() },
+                    onBlurAction = { resetAutoHideTimer() }
+                )
             }
         }
 
+        SideOverlay(
+            isVisible = overlayState == OverlayState.CHANNELS || overlayState == OverlayState.CATEGORIES,
+            overlayState = overlayState.name,
+            categories = categories,
+            playlist = playlist,
+            viewModel = viewModel,
+            focusedChannel = focusedChannel,
+            categoryListState = categoryListState,
+            channelListState = channelListState,
+            categoryFocusRequesters = categoryFocusRequesters,
+            channelFocusRequesters = channelFocusRequesters,
+            onCategorySelected = onCategorySelected,
+            onMediaSelected = { 
+                overlayState = OverlayState.NONE
+                onMediaSelected(it) 
+            },
+            onFocusedChannelChanged = { focusedChannel = it },
+            onOverlayStateChange = { overlayState = OverlayState.valueOf(it) },
+            onDismiss = { overlayState = OverlayState.NONE }
+        )
 
+        if (overlayState == OverlayState.EPG_INFO && media != null) {
+            EpgModal(
+                media = media,
+                viewModel = viewModel,
+                epgListState = epgListState,
+                epgFocusRequester = epgFocusRequester,
+                onClose = { overlayState = OverlayState.NONE }
+            )
+        }
 
-        // Subtitles Overlay
+        // --- SUBTITLES ---
         AnimatedVisibility(
             visible = overlayState == OverlayState.SUBTITLES,
             enter = fadeIn(),
@@ -1480,392 +830,32 @@ fun PlayerScreen(
                     else {
                         LazyColumn(state = subtitleListState) {
                             item {
-                                SubtitleOptionItem(label = "Ingen undertext", isSelected = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT), modifier = Modifier.focusRequester(subtitleFocusRequesters.getOrPut(0) { FocusRequester() }), onClick = {
-                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
-                                    overlayState = OverlayState.NONE
-                                })
+                                SubtitleOptionItem(
+                                    label = "Ingen undertext",
+                                    isSelected = exoPlayer.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT),
+                                    modifier = Modifier.focusRequester(subtitleFocusRequesters.getOrPut(0) { FocusRequester() }),
+                                    onClick = {
+                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
+                                        overlayState = OverlayState.NONE
+                                    }
+                                )
                             }
                             itemsIndexed(availableSubtitles, key = { index, _ -> index }) { index, group ->
-                                val trackName = group.getTrackFormat(0).language ?: "Spår ${index + 1}"
-                                SubtitleOptionItem(label = trackName.uppercase(), isSelected = exoPlayer.currentTracks.isTypeSelected(C.TRACK_TYPE_TEXT) && group.isSelected, modifier = Modifier.focusRequester(subtitleFocusRequesters.getOrPut(index + 1) { FocusRequester() }), onClick = {
-                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0)).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build()
-                                    overlayState = OverlayState.NONE
-                                })
+                                val trackName = group.mediaTrackGroup.getFormat(0).language ?: "Spår ${index + 1}"
+                                SubtitleOptionItem(
+                                    label = trackName.uppercase(),
+                                    isSelected = exoPlayer.currentTracks.isTypeSelected(C.TRACK_TYPE_TEXT) && group.isSelected,
+                                    modifier = Modifier.focusRequester(subtitleFocusRequesters.getOrPut(index + 1) { FocusRequester() }),
+                                    onClick = {
+                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0)).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build()
+                                        overlayState = OverlayState.NONE
+                                    }
+                                )
                             }
                         }
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-fun TechnicalTag(text: String) {
-    Surface(
-        color = Color.White.copy(alpha = 0.15f),
-        shape = RoundedCornerShape(4.dp)
-    ) {
-        Text(
-            text = text,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = Color.White.copy(alpha = 0.8f),
-            fontWeight = FontWeight.Bold
-        )
-    }
-}
-
-@Composable
-fun ActionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    focusRequester: FocusRequester,
-    onFocus: () -> Unit,
-    onBlur: () -> Unit,
-    onKeyEvent: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { false },
-    onClick: () -> Unit
-) {
-    var isFocused by remember { mutableStateOf(false) }
-    
-    Surface(
-        onClick = onClick,
-        modifier = Modifier
-            .width(140.dp)
-            .height(80.dp)
-            .focusRequester(focusRequester)
-            .onFocusChanged { 
-                isFocused = it.isFocused
-                if (it.isFocused) onFocus() else onBlur()
-            }
-            .onKeyEvent(onKeyEvent),
-        color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.5f),
-        contentColor = if (isFocused) Color.Black else Color.White,
-        shape = RoundedCornerShape(8.dp),
-        border = if (isFocused) null else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(text = label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-fun RecentChannelButton(
-    item: MediaSource,
-    viewModel: MediaViewModel,
-    focusRequester: FocusRequester,
-    onFocus: () -> Unit,
-    onBlur: () -> Unit,
-    onKeyEvent: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = { false },
-    onClick: () -> Unit
-) {
-    var isFocused by remember { mutableStateOf(false) }
-    val piconUrl = produceState(initialValue = item.icon, key1 = item.id) {
-        value = viewModel.getIconForChannel(item.id, item.title)
-    }.value
-    
-    Surface(
-        onClick = onClick,
-        modifier = Modifier
-            .width(120.dp)
-            .height(80.dp)
-            .focusRequester(focusRequester)
-            .onFocusChanged { 
-                isFocused = it.isFocused
-                if (it.isFocused) onFocus() else onBlur()
-            }
-            .onKeyEvent(onKeyEvent),
-        color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.5f),
-        contentColor = if (isFocused) Color.Black else Color.White,
-        shape = RoundedCornerShape(8.dp),
-        border = if (isFocused) null else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(piconUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(if (isFocused) 0.3f else 0.6f)
-                    .padding(12.dp),
-                contentScale = ContentScale.Fit,
-                error = {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (item.type == MediaType.LIVE) Icons.Default.Tv else Icons.Default.Movie,
-                            contentDescription = null,
-                            tint = if (isFocused) Color.Black.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.3f),
-                            modifier = Modifier.size(40.dp)
-                        )
-                    }
-                }
-            )
-            
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(4.dp),
-                verticalArrangement = Arrangement.Bottom,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = item.title ?: "",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun SubtitleOptionItem(label: String, isSelected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    var hasFocus by remember { mutableStateOf(false) }
-    Surface(modifier = modifier.fillMaxWidth().onFocusChanged { hasFocus = it.isFocused }.clickable { onClick() }, color = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent) {
-        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(selected = isSelected, onClick = null)
-            Spacer(modifier = Modifier.width(16.dp))
-            Text(text = label, style = MaterialTheme.typography.bodyLarge)
-        }
-    }
-}
-
-@Composable
-fun CategoryListItem(title: String, isSelected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    var hasFocus by remember { mutableStateOf(false) }
-    val backgroundColor by animateColorAsState(
-        targetValue = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) 
-                    else if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) 
-                    else Color.Transparent,
-        label = "catBg"
-    )
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(52.dp)
-            .onFocusChanged { hasFocus = it.isFocused }
-            .clickable(
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                indication = null,
-                onClick = { onClick() }
-            ), 
-        color = backgroundColor
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .fillMaxHeight()
-                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
-            )
-            Text(
-                text = title, 
-                modifier = Modifier.padding(horizontal = 20.dp), 
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal), 
-                color = if (isSelected || hasFocus) Color.White else Color.LightGray, 
-                maxLines = 1, 
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-@Composable
-fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaViewModel, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    var hasFocus by remember { mutableStateOf(false) }
-    
-    val epg = viewModel.getEpgForId(item.id, item.title)
-
-    val backgroundColor by animateColorAsState(
-        targetValue = when {
-            hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-            isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-            else -> Color.Transparent
-        }, label = "chBg"
-    )
-
-    Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(72.dp)
-            .onFocusChanged { hasFocus = it.isFocused }
-            .clickable(
-                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                indication = null,
-                onClick = { onClick() }
-            ),
-        color = backgroundColor
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val piconUrl = produceState(initialValue = item.icon, key1 = item.id) {
-                value = viewModel.getIconForChannel(item.id, item.title)
-            }.value
-
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(piconUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
-                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
-                contentScale = ContentScale.Fit,
-                error = { Icon(Icons.Default.Tv, null, tint = Color.Gray) }
-            )
-            
-            Spacer(modifier = Modifier.width(16.dp))
-            
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.title ?: "", 
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), 
-                    color = Color.White, 
-                    maxLines = 1, 
-                    overflow = TextOverflow.Ellipsis
-                )
-                
-                Text(
-                    text = epg?.title ?: "Ingen programinfo", 
-                    style = MaterialTheme.typography.bodySmall, 
-                    color = if (hasFocus) Color.White else Color.LightGray, 
-                    maxLines = 1, 
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                    if (epg != null) {
-                        val now = System.currentTimeMillis() / 1000
-                        val start = epg.startTimestamp ?: 0L
-                        val stop = epg.stopTimestamp ?: 0L
-                        if (now in start..stop) {
-                            val progress = (now - start).toFloat() / (stop - start).toFloat()
-                            LinearProgressIndicator(
-                                progress = { progress.coerceIn(0f, 1f) },
-                                modifier = Modifier.padding(top = 4.dp).fillMaxWidth().height(3.dp).clip(CircleShape),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = Color.White.copy(alpha = 0.1f)
-                            )
-                        }
-                    }
-            }
-        }
-    }
-}
-
-@Composable
-fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: MediaViewModel) {
-    val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
-    val piconUrl = produceState(initialValue = channel?.icon, key1 = channel?.id) {
-        if (channel != null) {
-            value = viewModel.getIconForChannel(channel.id, channel.title)
-        }
-    }.value
-    
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = Color.White.copy(alpha = 0.05f),
-        shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
-    ) {
-        Row(modifier = Modifier.padding(24.dp)) {
-            // Channel Icon in Info Box
-            if (channel != null) {
-                SubcomposeAsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(piconUrl ?: epg?.icon)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color.White.copy(alpha = 0.05f))
-                        .padding(8.dp),
-                    contentScale = ContentScale.Fit,
-                    error = { Icon(Icons.Default.Tv, null, tint = Color.Gray, modifier = Modifier.size(40.dp)) }
-                )
-                Spacer(modifier = Modifier.width(24.dp))
-            }
-
-            Column(modifier = Modifier.weight(1f)) {
-                if (epg != null) {
-                    val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
-                    val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
-                    val duration = ((epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0)) / 60
-
-                    Text(
-                        text = epg.title ?: "",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.Black
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-                        Text(text = "$start - $stop", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text(text = "$duration min", color = Color.Gray)
-                        if (channel != null) {
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Text(text = channel.title ?: "", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                    Text(
-                        text = epg.description ?: "Ingen beskrivning tillgänglig.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = Color.LightGray,
-                        maxLines = 5,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                } else {
-                    Text(
-                        text = channel?.title ?: "Välj en kanal",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.Black
-                    )
-                    Text("Ingen programinfo tillgänglig", color = Color.Gray)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun MiniProgramGuideItem(epg: EpgListing, isCurrent: Boolean) {
-    val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
-    val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
-
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = start,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Gray,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.width(64.dp)
-        )
-        Text(
-            text = epg.title ?: "",
-            style = MaterialTheme.typography.bodyLarge,
-            color = if (isCurrent) Color.White else Color.LightGray,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal
-        )
     }
 }

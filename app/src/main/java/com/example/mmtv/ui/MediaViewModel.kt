@@ -27,6 +27,7 @@ data class MediaUiState(
     val liveCategories: List<GroupedMedia> = emptyList(),
     val movieCategories: List<GroupedMedia> = emptyList(),
     val seriesCategories: List<GroupedMedia> = emptyList(),
+    val ppvCategories: List<GroupedMedia> = emptyList(),
     val isLoading: Boolean = true,
     val history: List<MediaSource> = emptyList()
 ) {
@@ -84,6 +85,7 @@ class MediaViewModel(
     private val fetchingEpgIds = mutableSetOf<Int>()
 
     var lastLiveCategoryIndex by mutableIntStateOf(0)
+    var lastPpvCategoryIndex by mutableIntStateOf(0)
     var lastMovieCategoryIndex by mutableIntStateOf(0)
     var lastSeriesCategoryIndex by mutableIntStateOf(0)
 
@@ -244,6 +246,11 @@ class MediaViewModel(
                 val movieData = movieCats.await()
                 val seriesData = seriesCats.await()
                 
+                val ppvKeywords = listOf("TV4 Play", "Viaplay", "Svensk Hockey.tv", "Telia play")
+                val ppvData = liveData.filter { cat -> 
+                    ppvKeywords.any { keyword -> cat.title?.contains(keyword, ignoreCase = true) == true }
+                }
+
                 val allFavs = withContext(Dispatchers.IO) { mediaDao.getFavorites() }
                 
                 fun List<GroupedMedia>.withFavoritesAndHistory(type: MediaType): List<GroupedMedia> {
@@ -269,10 +276,14 @@ class MediaViewModel(
                     liveCategories = liveData.withFavoritesAndHistory(MediaType.LIVE),
                     movieCategories = movieData.withFavoritesAndHistory(MediaType.MOVIE),
                     seriesCategories = seriesData.withFavoritesAndHistory(MediaType.SERIES),
+                    ppvCategories = ppvData,
                     isLoading = false
                 )
                 
                 loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
+                if (ppvData.isNotEmpty()) {
+                    loadItemsForCategory(MediaType.LIVE, ppvData.firstOrNull()?.categoryId)
+                }
                 loadItemsForCategory(MediaType.MOVIE, movieData.firstOrNull()?.categoryId)
                 loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
 
@@ -319,9 +330,14 @@ class MediaViewModel(
             }
 
             uiState = when (type) {
-                MediaType.LIVE -> uiState.copy(liveCategories = uiState.liveCategories.map { 
-                    if (it.categoryId == categoryId) it.copy(items = items) else it 
-                })
+                MediaType.LIVE -> uiState.copy(
+                    liveCategories = uiState.liveCategories.map { 
+                        if (it.categoryId == categoryId) it.copy(items = items) else it 
+                    },
+                    ppvCategories = uiState.ppvCategories.map {
+                        if (it.categoryId == categoryId) it.copy(items = items) else it
+                    }
+                )
                 MediaType.MOVIE -> uiState.copy(movieCategories = uiState.movieCategories.map { 
                     if (it.categoryId == categoryId) it.copy(items = items) else it 
                 })

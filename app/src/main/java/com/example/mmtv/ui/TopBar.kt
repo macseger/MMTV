@@ -91,6 +91,10 @@ fun TopBar(
                     focusedItem = "live"
                     onLiveTvClick()
                 }
+                TopBarItem("PPV TV", Icons.Default.Sports, focusedItem == "ppv") {
+                    focusedItem = "ppv"
+                    onNavigate("ppv")
+                }
                 TopBarItem("FILMER", Icons.Default.Movie, focusedItem == "movies") {
                     focusedItem = "movies"
                     onNavigate("movies")

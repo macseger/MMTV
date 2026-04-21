@@ -277,6 +277,29 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
 
+                                    composable("ppv") {
+                                        val ppvCategories = sharedViewModel.uiState.ppvCategories
+                                        
+                                        PpvScreen(
+                                            groupedList = ppvCategories,
+                                            initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
+                                            onCategoryChanged = { index ->
+                                                sharedViewModel.lastPpvCategoryIndex = index
+                                                val category = ppvCategories.getOrNull(index)
+                                                if (category != null && category.items.isEmpty()) {
+                                                    sharedViewModel.loadItemsForCategory(MediaType.LIVE, category.categoryId)
+                                                }
+                                            },
+                                            onMediaSelected = { media -> 
+                                                sharedViewModel.addToHistory(media)
+                                                val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
+                                                playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
+                                            },
+                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            topBarFocusRequester = topBarHomeFocusRequester
+                                        )
+                                    }
+
                                     composable("live") {
                                         val liveStreamsGrouped = sharedViewModel.uiState.liveStreamsGrouped
                                         
@@ -302,6 +325,29 @@ class MainActivity : ComponentActivity() {
                                             nextEpgProvider = { id, name -> sharedViewModel.getNextEpgForId(id, name) },
                                             onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
                                             onBackPressed = { navController.popBackStack() },
+                                            topBarFocusRequester = topBarHomeFocusRequester
+                                        )
+                                    }
+
+                                    composable("ppv") {
+                                        val ppvCategories = sharedViewModel.uiState.ppvCategories
+                                        
+                                        PpvScreen(
+                                            groupedList = ppvCategories,
+                                            initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
+                                            onCategoryChanged = { index ->
+                                                sharedViewModel.lastPpvCategoryIndex = index
+                                                val category = ppvCategories.getOrNull(index)
+                                                if (category != null && category.items.isEmpty()) {
+                                                    sharedViewModel.loadItemsForCategory(MediaType.LIVE, category.categoryId)
+                                                }
+                                            },
+                                            onMediaSelected = { media -> 
+                                                sharedViewModel.addToHistory(media)
+                                                val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
+                                                playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
+                                            },
+                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }
@@ -337,6 +383,29 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
 
+                                    composable("ppv") {
+                                        val ppvCategories = sharedViewModel.uiState.ppvCategories
+                                        
+                                        PpvScreen(
+                                            groupedList = ppvCategories,
+                                            initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
+                                            onCategoryChanged = { index ->
+                                                sharedViewModel.lastPpvCategoryIndex = index
+                                                val category = ppvCategories.getOrNull(index)
+                                                if (category != null && category.items.isEmpty()) {
+                                                    sharedViewModel.loadItemsForCategory(MediaType.LIVE, category.categoryId)
+                                                }
+                                            },
+                                            onMediaSelected = { media -> 
+                                                sharedViewModel.addToHistory(media)
+                                                val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
+                                                playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
+                                            },
+                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            topBarFocusRequester = topBarHomeFocusRequester
+                                        )
+                                    }
+
                                     composable("series") {
                                         // Om vi är på index 0 (Historik) och det är tomt, hoppa till index 1
                                         val series = sharedViewModel.uiState.series
@@ -364,6 +433,29 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
                                             onBackPressed = { navController.popBackStack() },
+                                            topBarFocusRequester = topBarHomeFocusRequester
+                                        )
+                                    }
+
+                                    composable("ppv") {
+                                        val ppvCategories = sharedViewModel.uiState.ppvCategories
+                                        
+                                        PpvScreen(
+                                            groupedList = ppvCategories,
+                                            initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
+                                            onCategoryChanged = { index ->
+                                                sharedViewModel.lastPpvCategoryIndex = index
+                                                val category = ppvCategories.getOrNull(index)
+                                                if (category != null && category.items.isEmpty()) {
+                                                    sharedViewModel.loadItemsForCategory(MediaType.LIVE, category.categoryId)
+                                                }
+                                            },
+                                            onMediaSelected = { media -> 
+                                                sharedViewModel.addToHistory(media)
+                                                val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
+                                                playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
+                                            },
+                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }

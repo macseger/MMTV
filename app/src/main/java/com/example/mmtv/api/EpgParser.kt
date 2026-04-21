@@ -10,6 +10,7 @@ import java.util.*
 class EpgParser {
     private val dateFormat = SimpleDateFormat("yyyyMMddHHmmss Z", Locale.US)
     private val simpleFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.US)
+    private val altFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
 
     fun parse(inputStream: InputStream, onChannelParsed: ((String, String?, String?) -> Unit)? = null): Map<String, List<EpgListing>> {
         val result = mutableMapOf<String, MutableList<EpgListing>>()
@@ -193,15 +194,23 @@ class EpgParser {
 
     private fun parseDate(dateStr: String?): Long {
         if (dateStr == null) return 0
-        return try {
-            val cleanStr = dateStr.trim()
-            if (cleanStr.contains(" ")) {
-                dateFormat.parse(cleanStr)?.time?.div(1000) ?: 0
-            } else {
-                simpleFormat.parse(cleanStr)?.time?.div(1000) ?: 0
-            }
-        } catch (e: Exception) {
-            0
+        val cleanStr = dateStr.trim()
+        
+        // Testa olika format
+        val formats = listOf(dateFormat, simpleFormat, altFormat)
+        for (format in formats) {
+            try {
+                val date = format.parse(cleanStr)
+                if (date != null) return date.time / 1000
+            } catch (e: Exception) { }
         }
+        
+        // Sista försök: Bara siffror
+        return try {
+            val justDigits = cleanStr.replace(Regex("[^0-9]"), "")
+            if (justDigits.length >= 14) {
+                simpleFormat.parse(justDigits.take(14))?.time?.div(1000) ?: 0
+            } else 0
+        } catch (e: Exception) { 0 }
     }
 }

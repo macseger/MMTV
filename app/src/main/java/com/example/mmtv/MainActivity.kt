@@ -436,6 +436,8 @@ class MainActivity : ComponentActivity() {
                                             onToggleExternalEpg = { enabled ->
                                                 useExternalEpg = enabled
                                                 sessionManager.setUseExternalSwedishEpg(enabled)
+                                                // Uppdatera tablåerna direkt för att reflektera ändringen (lägg till eller ta bort extern EPG)
+                                                sharedViewModel.refreshEpgOnly()
                                             }
                                         )
                                     }

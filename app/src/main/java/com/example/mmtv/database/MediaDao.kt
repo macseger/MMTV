@@ -53,8 +53,8 @@ interface MediaDao {
     @Query("SELECT * FROM epg_listings WHERE epgId = :epgId AND stopTimestamp > :currentTime AND startTimestamp < :endLimit ORDER BY startTimestamp ASC")
     suspend fun getEpgForChannelWithLimit(epgId: String, currentTime: Long, endLimit: Long): List<EpgEntity>
 
-    @Query("SELECT * FROM epg_listings WHERE (epgId LIKE '%' || :name || '%' OR epgId LIKE '%' || :nameNoSpaces || '%' OR channelName LIKE '%' || :name || '%' OR channelName LIKE '%' || :nameNoSpaces || '%') AND stopTimestamp > :currentTime AND startTimestamp < :endLimit GROUP BY startTimestamp ORDER BY startTimestamp ASC LIMIT 50")
-    suspend fun findEpgByFuzzyName(name: String, nameNoSpaces: String, currentTime: Long, endLimit: Long): List<EpgEntity>
+    @Query("SELECT * FROM epg_listings WHERE (epgId = :epgId OR epgId LIKE '%' || :nameNoSpaces || '%' OR :nameNoSpaces LIKE '%' || epgId || '%' OR channelName LIKE '%' || :name || '%' OR :name LIKE '%' || channelName || '%') AND stopTimestamp > :currentTime AND startTimestamp < :endLimit GROUP BY startTimestamp ORDER BY startTimestamp ASC LIMIT 50")
+    suspend fun findEpgByFuzzyName(name: String, nameNoSpaces: String, epgId: String?, currentTime: Long, endLimit: Long): List<EpgEntity>
 
     @Query("SELECT icon FROM channel_metadata WHERE epgId = :epgId LIMIT 1")
     suspend fun getIconByEpgId(epgId: String): String?

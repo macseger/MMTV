@@ -344,7 +344,6 @@ class MediaRepository(
 
     suspend fun fetchAndStoreEpg(user: String, pass: String, forceRefresh: Boolean = false) = withContext(Dispatchers.IO) {
         val xmlFile = File(cacheDir, "full_epg.xml")
-        val externalXmlFile = File(cacheDir, "external_epg.xml")
         val swedishXmlFile = File(cacheDir, "swedish_epg.xml")
         val now = System.currentTimeMillis()
         val twentyFourHours = 24 * 60 * 60 * 1000L
@@ -352,63 +351,69 @@ class MediaRepository(
         val dbCount = mediaDao.getEpgCount()
         val useExternalSwedish = com.example.mmtv.api.SessionManager(context).getUseExternalSwedishEpg()
 
+        var hasCleared = false
+
         // 1. Hantera Serverns EPG
         val shouldDownloadServer = forceRefresh || !xmlFile.exists() || (now - xmlFile.lastModified() > twentyFourHours)
         if (shouldDownloadServer || dbCount == 0) {
             try {
                 if (shouldDownloadServer) {
                     val responseBody = api.getFullEpg(user, pass)
-                    xmlFile.outputStream().use { output ->
-                        responseBody.byteStream().use { input -> input.copyTo(output) }
+                    // Kolla om streamen är GZIP-komprimerad
+                    val isGzip = responseBody.contentType()?.toString()?.contains("gzip", true) == true || 
+                                 responseBody.contentType()?.toString()?.contains("octet-stream", true) == true
+                    
+                    if (isGzip) {
+                        try {
+                            GZIPInputStream(responseBody.byteStream()).use { gzipInput ->
+                                xmlFile.outputStream().use { output -> gzipInput.copyTo(output) }
+                            }
+                        } catch (e: Exception) {
+                            // Om GZIP misslyckas, prova spara som rådata
+                            responseBody.byteStream().use { input ->
+                                xmlFile.outputStream().use { output -> input.copyTo(output) }
+                            }
+                        }
+                    } else {
+                        responseBody.byteStream().use { input ->
+                            xmlFile.outputStream().use { output -> input.copyTo(output) }
+                        }
                     }
                 }
-                if (xmlFile.exists()) {
-                    parseAndStore(xmlFile, true)
+                if (xmlFile.exists() && xmlFile.length() > 0) {
+                    val clearFirst = forceRefresh || dbCount == 0
+                    parseAndStore(xmlFile, clearFirst)
+                    if (clearFirst) hasCleared = true
                 }
             } catch (e: Exception) { e.printStackTrace() }
         }
 
-        // 2. Hantera Extern Backup EPG
-        val shouldDownloadExternal = forceRefresh || !externalXmlFile.exists() || (now - externalXmlFile.lastModified() > twentyFourHours)
-        if (shouldDownloadExternal) {
-            try {
-                val url = "https://epgshare01.online/epgshare01/epg_ripper_SE1.xml.gz"
-                val responseBody = api.getExternalEpg(url)
-                
-                GZIPInputStream(responseBody.byteStream()).use { gzipInput ->
-                    externalXmlFile.outputStream().use { output ->
-                        gzipInput.copyTo(output)
-                    }
-                }
-                
-                if (externalXmlFile.exists()) {
-                    parseAndStore(externalXmlFile, false)
-                }
-            } catch (e: Exception) { e.printStackTrace() }
-        }
-
-        // 3. Hantera den Svenska EPG:n (epgshare01)
+        // 2. Hantera den Svenska EPG:n (epgshare01)
         if (useExternalSwedish) {
             val shouldDownloadSwedish = forceRefresh || !swedishXmlFile.exists() || (now - swedishXmlFile.lastModified() > twentyFourHours)
-            if (shouldDownloadSwedish) {
+            if (shouldDownloadSwedish || (hasCleared && swedishXmlFile.exists())) {
                 try {
-                    val url = "https://epgshare01.online/epgshare01/epg_ripper_SE1.xml.gz"
-                    val responseBody = api.getExternalEpg(url)
-                    
-                    GZIPInputStream(responseBody.byteStream()).use { gzipInput ->
-                        swedishXmlFile.outputStream().use { output ->
-                            gzipInput.copyTo(output)
+                    if (shouldDownloadSwedish) {
+                        val url = "https://epgshare01.online/epgshare01/epg_ripper_SE1.xml.gz"
+                        val responseBody = api.getExternalEpg(url)
+                        
+                        GZIPInputStream(responseBody.byteStream()).use { gzipInput ->
+                            swedishXmlFile.outputStream().use { output ->
+                                gzipInput.copyTo(output)
+                            }
                         }
                     }
 
-                    if (swedishXmlFile.exists()) {
-                        parseAndStore(swedishXmlFile, false)
+                    if (swedishXmlFile.exists() && swedishXmlFile.length() > 0) {
+                        val clearFirst = forceRefresh && !hasCleared
+                        parseAndStore(swedishXmlFile, clearFirst)
+                        if (clearFirst) hasCleared = true
                     }
                 } catch (e: Exception) { e.printStackTrace() }
             }
         }
 
-        // 4. Hantera Picons från GitHub
+        // 3. Hantera Picons från GitHub
         syncPiconsFromGithub(forceRefresh)
     }
 
@@ -498,10 +503,10 @@ class MediaRepository(
 
     suspend fun getEpgForChannel(epgId: String?, channelName: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis() / 1000
-        val endLimit = now + (24 * 60 * 60)
+        val endLimit = now + (48 * 60 * 60) // Öka till 48h för att vara säkrare vid tidszonsskillnader
         
         if (epgId != null) {
-            val exactMatch = mediaDao.getEpgForChannelWithLimit(epgId, now, endLimit)
+            val exactMatch = mediaDao.getEpgForChannelWithLimit(epgId, now - 3600, endLimit) // -1h för marginal
             if (exactMatch.isNotEmpty()) {
                 return@withContext exactMatch.map { it.toEpgListing() }
             }
@@ -509,7 +514,7 @@ class MediaRepository(
 
         if (channelName != null) {
             val searchName = getSearchName(channelName)
-            val fuzzyMatch = mediaDao.findEpgByFuzzyName(channelName, searchName, now, endLimit)
+            val fuzzyMatch = mediaDao.findEpgByFuzzyName(channelName, searchName, epgId, now - 3600, endLimit)
             if (fuzzyMatch.isNotEmpty()) {
                 return@withContext fuzzyMatch.map { it.toEpgListing() }
             }

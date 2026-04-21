@@ -215,29 +215,8 @@ class MediaViewModel(
         viewModelScope.launch {
             uiState = uiState.copy(isLoading = true)
             try {
-                updateStatus = "Extraherar lokala ikoner..."
-                withContext(Dispatchers.IO) {
-                    _repository.extractPiconsIfNeeded()
-                }
-
-                updateStatus = "Verifierar konto..."
-                
-                val isDbEmpty = withContext(Dispatchers.IO) { 
-                    mediaDao.getCountByType(MediaType.LIVE) == 0 
-                }
-                
-                if (forceRefresh || isDbEmpty) {
-                    updateStatus = "Hämtar kanaler & filmer..."
-                    withContext(Dispatchers.IO) {
-                        _repository.syncLibrary(user, pass)
-                    }
-                }
-
-                updateStatus = "Kollar tablåer..."
-                val epgJob = launch { 
-                    _repository.fetchAndStoreEpg(user, pass, forceRefresh) 
-                }
-
+                // 1. Hämta kategorier först (mycket snabbt)
+                updateStatus = "Hämtar kategorier..."
                 val liveCats = async { _repository.getJustCategories(MediaType.LIVE, user, pass, forceRefresh) }
                 val movieCats = async { _repository.getJustCategories(MediaType.MOVIE, user, pass, forceRefresh) }
                 val seriesCats = async { _repository.getJustCategories(MediaType.SERIES, user, pass, forceRefresh) }
@@ -272,6 +251,7 @@ class MediaViewModel(
                     return result
                 }
 
+                // Uppdatera UI direkt med kategorierna
                 uiState = uiState.copy(
                     liveCategories = liveData.withFavoritesAndHistory(MediaType.LIVE),
                     movieCategories = movieData.withFavoritesAndHistory(MediaType.MOVIE),
@@ -279,20 +259,54 @@ class MediaViewModel(
                     ppvCategories = ppvData,
                     isLoading = false
                 )
-                
-                loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
-                if (ppvData.isNotEmpty()) {
-                    loadItemsForCategory(MediaType.LIVE, ppvData.firstOrNull()?.categoryId)
-                }
-                loadItemsForCategory(MediaType.MOVIE, movieData.firstOrNull()?.categoryId)
-                loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
 
-                epgJob.join()
-                isUpdatingBackground = false
-                updateStatus = "Klart!"
+                // SLÄPP IN ANVÄNDAREN NU!
                 onComplete?.invoke(true)
-                delay(3000)
-                updateStatus = null
+                
+                // 2. Fortsätt med resten i bakgrunden
+                launch(Dispatchers.IO) {
+                    // Lokala ikoner i bakgrunden
+                    _repository.extractPiconsIfNeeded()
+                    
+                    val isDbEmpty = mediaDao.getCountByType(MediaType.LIVE) == 0 
+                    if (forceRefresh || isDbEmpty) {
+                        updateStatus = "Synkar kanaler & filmer..."
+                        _repository.syncLibrary(user, pass) // syncLibrary gör även EPG
+                        
+                        // Ladda in items för de första kategorierna när biblioteket är redo
+                        withContext(Dispatchers.Main) {
+                            loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
+                            if (ppvData.isNotEmpty()) {
+                                loadItemsForCategory(MediaType.LIVE, ppvData.firstOrNull()?.categoryId)
+                            }
+                            loadItemsForCategory(MediaType.MOVIE, movieData.firstOrNull()?.categoryId)
+                            loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
+                            
+                            // Uppdatera Flow-data
+                            _recentlyAdded.value = mediaDao.getRecentlyAdded().map { it.toMediaSource() }
+                            _favorites.value = mediaDao.getFavorites().map { it.toMediaSource() }
+                        }
+                    } else {
+                        // DB inte tom, ladda in items direkt
+                        withContext(Dispatchers.Main) {
+                            loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
+                            if (ppvData.isNotEmpty()) {
+                                loadItemsForCategory(MediaType.LIVE, ppvData.firstOrNull()?.categoryId)
+                            }
+                            loadItemsForCategory(MediaType.MOVIE, movieData.firstOrNull()?.categoryId)
+                            loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
+                        }
+                        
+                        // Uppdatera EPG asynkront
+                        updateStatus = "Kollar tablåer..."
+                        _repository.fetchAndStoreEpg(user, pass, forceRefresh)
+                    }
+
+                    isUpdatingBackground = false
+                    updateStatus = "Klart!"
+                    delay(3000)
+                    updateStatus = null
+                }
 
             } catch (e: Exception) {
                 uiState = uiState.copy(isLoading = false)

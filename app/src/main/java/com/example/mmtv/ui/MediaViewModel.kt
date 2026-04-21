@@ -14,6 +14,10 @@ import kotlinx.coroutines.delay
 
 import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.database.MediaEntity
+import com.example.mmtv.player.MmtvPlayer
+import androidx.media3.common.Player
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,7 +35,38 @@ data class MediaUiState(
     val series get() = seriesCategories
 }
 
-class MediaViewModel(private var _repository: MediaRepository, private val sessionManager: SessionManager, private val database: MediaDatabase) : ViewModel() {
+class MediaViewModel(
+    private var _repository: MediaRepository, 
+    private val sessionManager: SessionManager, 
+    private val database: MediaDatabase,
+    private val context: android.content.Context
+) : ViewModel() {
+
+    private val playerFactory = MmtvPlayer(context)
+    var exoPlayer: ExoPlayer? = null
+        private set
+
+    var isInPipMode by mutableStateOf(false)
+
+    fun getOrInitializePlayer(): ExoPlayer {
+        if (exoPlayer == null) {
+            exoPlayer = playerFactory.createPlayer().apply {
+                repeatMode = Player.REPEAT_MODE_OFF
+            }
+        }
+        return exoPlayer!!
+    }
+
+    fun stopAndResetPlayer() {
+        exoPlayer?.stop()
+        exoPlayer?.clearMediaItems()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        exoPlayer?.release()
+        exoPlayer = null
+    }
 
     val repository: MediaRepository get() = _repository
 

@@ -47,8 +47,33 @@ import kotlinx.coroutines.launch
 import androidx.work.*
 import com.example.mmtv.repository.DataSyncWorker
 import java.util.concurrent.TimeUnit
+import android.app.PictureInPictureParams
+import android.util.Rational
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var sharedViewModel: MediaViewModel
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (::sharedViewModel.isInitialized && 
+            sharedViewModel.exoPlayer?.isPlaying == true && 
+            sharedViewModel.selectedMedia?.type == MediaType.LIVE &&
+            !sharedViewModel.isInPipMode) {
+            enterPictureInPictureMode(
+                PictureInPictureParams.Builder()
+                    .setAspectRatio(Rational(16, 9))
+                    .build()
+            )
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        if (::sharedViewModel.isInitialized) {
+            sharedViewModel.isInPipMode = isInPictureInPictureMode
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -69,7 +94,7 @@ class MainActivity : ComponentActivity() {
                     val loginInfo = sessionManager.getLogin()
                     val startDest = if (loginInfo != null) "home" else "login"
 
-                    val sharedViewModel: MediaViewModel = viewModel(
+                    sharedViewModel = viewModel(
                         factory = MediaViewModelFactory(
                             repository = MediaRepository(
                                 ApiClient.getClient(loginInfo?.first ?: "http://localhost"),
@@ -77,7 +102,8 @@ class MainActivity : ComponentActivity() {
                                 context
                             ),
                             sessionManager = sessionManager,
-                            database = database
+                            database = database,
+                            context = context
                         )
                     )
 

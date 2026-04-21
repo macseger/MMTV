@@ -34,7 +34,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.SubcomposeAsyncImage
@@ -51,7 +50,6 @@ import com.example.mmtv.model.GroupedMedia
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.Episode
-import com.example.mmtv.player.MmtvPlayer
 import com.example.mmtv.ui.components.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -79,12 +77,7 @@ fun PlayerScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val sessionManager = remember { SessionManager(context) }
-    val mmtvPlayerFactory = remember { MmtvPlayer(context) }
-    val exoPlayer = remember { 
-        mmtvPlayerFactory.createPlayer().apply {
-            repeatMode = Player.REPEAT_MODE_OFF
-        }
-    }
+    val exoPlayer = remember { viewModel.getOrInitializePlayer() }
 
     // --- STATES ---
     var isPlaying by remember { mutableStateOf(true) }
@@ -264,11 +257,19 @@ fun PlayerScreen(
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, exoPlayer) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) {
-                exoPlayer.pause()
-                isPlaying = false
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> {
+                    if (!viewModel.isInPipMode) {
+                        exoPlayer.pause()
+                        isPlaying = false
+                    }
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    // Spelaren återupptar om den var pausad av lifecycle
+                }
+                else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -312,13 +313,20 @@ fun PlayerScreen(
         }
 
         val mediaItem = MediaItem.Builder().setUri(url).build()
+        
+        // En liten delay hjälper vissa enheter att släppa den förra ytan (Surface)
+        // innan vi förbereder nästa ström, vilket förhindrar svart bild.
+        exoPlayer.stop()
+        exoPlayer.clearMediaItems()
+        delay(150) 
+
         exoPlayer.setMediaItem(mediaItem)
         if (media?.type != MediaType.LIVE) {
             val savedPos = sessionManager.getPlaybackPosition(currentPlaybackId)
             if (savedPos > 0) exoPlayer.seekTo(savedPos)
         }
         exoPlayer.prepare()
-        exoPlayer.playWhenReady = true
+        exoPlayer.play()
         
         if (media?.type == MediaType.LIVE) {
             overlayState = OverlayState.QUICK_INFO
@@ -343,7 +351,7 @@ fun PlayerScreen(
                 audioFormat = exoPlayer.audioFormat
                 
                 if (playbackState == Player.STATE_READY) {
-                    // Spelaren är redo för uppspelning
+                    // Ready
                 }
 
                 if (playbackState == Player.STATE_ENDED) {
@@ -367,8 +375,8 @@ fun PlayerScreen(
                     sessionManager.clearPlaybackPosition(currentPlaybackId)
                 }
             }
-            exoPlayer.stop()
-            mmtvPlayerFactory.releasePlayer()
+            // Vi stoppar inte längre spelaren här eftersom den ägs av ViewModel
+            // och kan behövas för PiP eller snabba kanalbyten.
         }
     }
 
@@ -417,11 +425,28 @@ fun PlayerScreen(
     }
 
     // --- RENDER ---
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black)
+    if (viewModel.isInPipMode) {
+        AndroidView(
+            factory = { ctx -> 
+                PlayerView(ctx).apply { 
+                    player = exoPlayer
+                    useController = false
+                    keepScreenOn = true
+                } 
+            },
+            update = { view -> 
+                if (view.player != exoPlayer) view.player = exoPlayer
+                view.onResume()
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+    } else {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
             .onKeyEvent { keyEvent ->
+                // ... (Key handling logic)
                 val nativeEvent = keyEvent.nativeKeyEvent
                 when (nativeEvent.action) {
                     KeyEvent.ACTION_DOWN -> {
@@ -431,7 +456,8 @@ fun PlayerScreen(
 
                         when (nativeEvent.keyCode) {
                             KeyEvent.KEYCODE_DPAD_UP -> {
-                                if (overlayState == OverlayState.NONE) {
+                            when (overlayState) {
+                                OverlayState.NONE -> {
                                     if (showNextEpisodeButton) {
                                         nextEpisodeButtonFocusRequester.safeFocus()
                                         true
@@ -444,8 +470,10 @@ fun PlayerScreen(
                                         subtitleIconFocusRequester.safeFocus()
                                         true
                                     } else false
-                                } else false
+                                }
+                                else -> false
                             }
+                        }
                             KeyEvent.KEYCODE_DPAD_DOWN -> {
                                 if (overlayState == OverlayState.NONE) {
                                     overlayState = OverlayState.SUBTITLES
@@ -549,7 +577,17 @@ fun PlayerScreen(
             .focusable()
     ) {
         AndroidView(
-            factory = { ctx -> PlayerView(ctx).apply { player = exoPlayer; useController = false; keepScreenOn = true } },
+            factory = { ctx -> 
+                PlayerView(ctx).apply { 
+                    player = exoPlayer
+                    useController = false
+                    keepScreenOn = true
+                } 
+            },
+            update = { view -> 
+                if (view.player != exoPlayer) view.player = exoPlayer
+                view.onResume()
+            },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -858,4 +896,5 @@ fun PlayerScreen(
             }
         }
     }
+}
 }

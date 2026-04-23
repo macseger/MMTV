@@ -497,12 +497,14 @@ class MainActivity : ComponentActivity() {
                                         val loginInfo = sessionManager.getLogin()
                                         var autoPlayEnabled by remember { mutableStateOf(sessionManager.getAutoPlayNext()) }
                                         var useExternalEpg by remember { mutableStateOf(sessionManager.getUseExternalSwedishEpg()) }
+                                        var useTunneling by remember { mutableStateOf(sessionManager.getUseTunneling()) }
                                         
                                         SettingsScreen(
                                             username = loginInfo?.second ?: "Okänd",
                                             host = loginInfo?.first ?: "",
                                             autoPlayEnabled = autoPlayEnabled,
                                             useExternalEpg = useExternalEpg,
+                                            useTunneling = useTunneling,
                                             isUpdating = sharedViewModel.isUpdatingBackground,
                                             isCheckingForAppUpdate = sharedViewModel.isCheckingForAppUpdate,
                                             isAppUpToDate = sharedViewModel.isAppUpToDate,
@@ -530,6 +532,10 @@ class MainActivity : ComponentActivity() {
                                                 sessionManager.setUseExternalSwedishEpg(enabled)
                                                 // Uppdatera tablåerna direkt för att reflektera ändringen (lägg till eller ta bort extern EPG)
                                                 sharedViewModel.refreshEpgOnly()
+                                            },
+                                            onToggleTunneling = { enabled ->
+                                                useTunneling = enabled
+                                                sessionManager.setUseTunneling(enabled)
                                             }
                                         )
                                     }

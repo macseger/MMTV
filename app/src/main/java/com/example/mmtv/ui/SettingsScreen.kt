@@ -33,6 +33,7 @@ fun SettingsScreen(
     host: String,
     autoPlayEnabled: Boolean,
     useExternalEpg: Boolean,
+    useTunneling: Boolean,
     isUpdating: Boolean,
     isCheckingForAppUpdate: Boolean,
     isAppUpToDate: Boolean,
@@ -47,7 +48,8 @@ fun SettingsScreen(
     onClearFavorites: () -> Unit,
     onClearHistory: () -> Unit,
     onToggleAutoPlay: (Boolean) -> Unit,
-    onToggleExternalEpg: (Boolean) -> Unit
+    onToggleExternalEpg: (Boolean) -> Unit,
+    onToggleTunneling: (Boolean) -> Unit
 ) {
     val firstButtonFocusRequester = remember { FocusRequester() }
     
@@ -180,6 +182,16 @@ fun SettingsScreen(
                     icon = if (autoPlayEnabled) Icons.Default.PlayCircleFilled else Icons.Default.PlayCircleOutline,
                     value = if (autoPlayEnabled) stringResource(R.string.on) else stringResource(R.string.off),
                     onClick = { onToggleAutoPlay(!autoPlayEnabled) }
+                )
+            }
+
+            item {
+                SettingsAction(
+                    title = "Tunneluppspelning",
+                    subtitle = "Direkt hårdvaruavkodning (hjälper vid lagg på vissa enheter)",
+                    icon = Icons.Default.Bolt,
+                    value = if (useTunneling) stringResource(R.string.on) else stringResource(R.string.off),
+                    onClick = { onToggleTunneling(!useTunneling) }
                 )
             }
 

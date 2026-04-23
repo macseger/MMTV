@@ -124,6 +124,14 @@ class SessionManager(context: Context) {
         return prefs.getBoolean("use_external_se_epg", false)
     }
 
+    fun setUseTunneling(enabled: Boolean) {
+        prefs.edit { putBoolean("use_tunneling", enabled) }
+    }
+
+    fun getUseTunneling(): Boolean {
+        return prefs.getBoolean("use_tunneling", false)
+    }
+
     // Historikhantering
     fun addToHistory(media: MediaSource, episode: Episode? = null) {
         val history = getHistory().toMutableList()

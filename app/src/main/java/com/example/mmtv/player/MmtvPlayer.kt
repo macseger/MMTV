@@ -9,6 +9,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import com.example.mmtv.api.SessionManager
 
@@ -39,7 +40,15 @@ class MmtvPlayer(private val context: Context) {
             setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
         }
 
+        val trackSelector = DefaultTrackSelector(context)
+        if (sessionManager.getUseTunneling()) {
+            trackSelector.parameters = trackSelector.buildUponParameters()
+                .setTunnelingEnabled(true)
+                .build()
+        }
+
         val player = ExoPlayer.Builder(context, renderersFactory)
+            .setTrackSelector(trackSelector)
             .setMediaSourceFactory(
                 DefaultMediaSourceFactory(context)
                     .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)

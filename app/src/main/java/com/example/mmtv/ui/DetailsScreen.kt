@@ -26,7 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
 import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.Episode
 import com.example.mmtv.model.MediaSource
@@ -87,12 +87,11 @@ fun DetailsScreen(
             }
         }
         
-        SubcomposeAsyncImage(
+        AsyncImage(
             model = bgIcon,
             contentDescription = null,
             modifier = Modifier.fillMaxSize().alpha(0.2f),
-            contentScale = ContentScale.Crop,
-            error = { Box(Modifier.fillMaxSize().background(Color.Black)) }
+            contentScale = ContentScale.Crop
         )
         
         Box(modifier = Modifier.fillMaxSize().background(
@@ -112,14 +111,17 @@ fun DetailsScreen(
                         modifier = Modifier.width(260.dp).aspectRatio(0.7f),
                         elevation = CardDefaults.cardElevation(16.dp)
                     ) {
-                        SubcomposeAsyncImage(
-                            model = bgIcon,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                            loading = { Box(Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) },
-                            error = { ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = !isSeries) }
-                        )
+                        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A)), contentAlignment = Alignment.Center) {
+                            AsyncImage(
+                                model = bgIcon,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                            if (bgIcon == null) {
+                                ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = !isSeries)
+                            }
+                        }
                     }
 
                     Column(modifier = Modifier.weight(1f)) {
@@ -371,13 +373,14 @@ fun EpisodeItem(episode: Episode, onClick: () -> Unit) {
                     modifier = Modifier.size(width = 120.dp, height = 68.dp),
                     shape = MaterialTheme.shapes.small
                 ) {
-                    SubcomposeAsyncImage(
-                        model = episode.info?.icon,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        error = { Box(Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) }
-                    )
+                    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A)), contentAlignment = Alignment.Center) {
+                        AsyncImage(
+                            model = episode.info?.icon,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.width(16.dp))
             }

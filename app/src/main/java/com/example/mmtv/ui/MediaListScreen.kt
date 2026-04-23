@@ -39,7 +39,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.example.mmtv.model.EpgListing
@@ -205,13 +204,7 @@ fun MediaListScreen(
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
                             TvChannelItem(
                                 media = media,
-                                isFocused = focusedMedia?.id == media.id,
-                                epg = produceState<EpgListing?>(initialValue = null, key1 = media.id) {
-                                    value = epgProvider(media.id, media.title)
-                                }.value,
-                                nextEpg = produceState<EpgListing?>(initialValue = null, key1 = media.id) {
-                                    value = nextEpgProvider(media.id, media.title)
-                                }.value,
+                                epgProvider = epgProvider,
                                 onGetIcon = onGetIcon,
                                 modifier = Modifier
                                     .focusRequester(requester)
@@ -320,17 +313,24 @@ fun LiveDetailPane(media: MediaSource, currentEpg: EpgListing?, nextEpg: EpgList
     val formatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
     Column(modifier = Modifier.fillMaxSize()) {
-        SubcomposeAsyncImage(
-            model = displayIcon ?: media.icon,
-            contentDescription = null,
+        Box(
             modifier = Modifier
                 .height(120.dp)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color.White.copy(alpha = 0.05f)),
-            contentScale = ContentScale.Fit,
-            error = { ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize()) }
-        )
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                model = displayIcon ?: media.icon,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit
+            )
+            if (displayIcon == null && media.icon == null) {
+                ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize())
+            }
+        }
         
         Spacer(modifier = Modifier.height(24.dp))
         
@@ -425,22 +425,26 @@ fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifi
 @Composable
 fun TvChannelItem(
     media: MediaSource, 
-    isFocused: Boolean,
-    epg: EpgListing?, 
-    nextEpg: EpgListing?, 
     modifier: Modifier = Modifier, 
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    epgProvider: (suspend (Int, String?) -> EpgListing?)? = null,
     onGetIcon: (suspend (Int, String?) -> String?)? = null
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon) {
+    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.id) {
         if (onGetIcon != null) {
             val localIcon = onGetIcon(media.id, media.title)
             if (localIcon != null) {
                 value = localIcon
             }
+        }
+    }
+
+    val epg by produceState<EpgListing?>(initialValue = null, key1 = media.id) {
+        if (epgProvider != null) {
+            value = epgProvider(media.id, media.title)
         }
     }
 
@@ -461,13 +465,23 @@ fun TvChannelItem(
         color = backgroundColor
     ) {
         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            SubcomposeAsyncImage(
-                model = displayIcon,
-                contentDescription = null,
-                modifier = Modifier.size(54.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.05f)),
-                contentScale = ContentScale.Fit,
-                error = { ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize()) }
-            )
+            Box(
+                modifier = Modifier
+                    .size(54.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.White.copy(alpha = 0.05f)),
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = displayIcon,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+                if (displayIcon == null && media.icon == null) {
+                    ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize())
+                }
+            }
             
             Spacer(modifier = Modifier.width(16.dp))
             
@@ -478,9 +492,10 @@ fun TvChannelItem(
                     color = Color.White,
                     maxLines = 1
                 )
-                if (epg != null) {
+                val currentEpg = epg
+                if (currentEpg != null) {
                     Text(
-                        text = epg.title ?: "",
+                        text = currentEpg.title ?: "",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.Gray,
                         maxLines = 1,
@@ -488,8 +503,8 @@ fun TvChannelItem(
                     )
                     
                     val now = System.currentTimeMillis() / 1000
-                    val start = epg.startTimestamp ?: 0L
-                    val end = epg.stopTimestamp ?: 0L
+                    val start = currentEpg.startTimestamp ?: 0L
+                    val end = currentEpg.stopTimestamp ?: 0L
                     if (now in start..end) {
                         val progress = (now - start).toFloat() / (end - start).toFloat()
                         LinearProgressIndicator(
@@ -550,20 +565,20 @@ fun MediaCard(
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                SubcomposeAsyncImage(
+                val isMovie = media.type == MediaType.MOVIE || media.type == MediaType.SERIES
+                AsyncImage(
                     model = displayIcon,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    loading = { Box(Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) },
-                    error = { 
-                        ChannelPlaceholder(
-                            media.title ?: "?", 
-                            Modifier.fillMaxSize(), 
-                            isMovie = media.type == MediaType.MOVIE || media.type == MediaType.SERIES
-                        ) 
-                    }
+                    contentScale = ContentScale.Crop
                 )
+                if (displayIcon == null && media.icon == null) {
+                    ChannelPlaceholder(
+                        media.title ?: "?", 
+                        Modifier.fillMaxSize(), 
+                        isMovie = isMovie
+                    ) 
+                }
                 
                 if (media.isFavorite) {
                     Icon(

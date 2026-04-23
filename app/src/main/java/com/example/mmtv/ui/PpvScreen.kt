@@ -25,7 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import com.example.mmtv.model.GroupedMedia
 import com.example.mmtv.model.MediaSource
@@ -210,22 +210,23 @@ fun PpvItem(
                 modifier = Modifier
                     .size(60.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(Color.White.copy(alpha = 0.1f))
+                    .background(Color.White.copy(alpha = 0.1f)),
+                contentAlignment = Alignment.Center
             ) {
-                SubcomposeAsyncImage(
+                AsyncImage(
                     model = displayIcon,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit,
-                    error = { 
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                text = media.title?.firstOrNull()?.toString() ?: "?",
-                                color = Color.Gray
-                            )
-                        }
-                    }
+                    contentScale = ContentScale.Fit
                 )
+                if (displayIcon == null && media.icon == null) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = media.title?.firstOrNull()?.toString() ?: "?",
+                            color = Color.Gray
+                        )
+                    }
+                }
             }
             
             Spacer(modifier = Modifier.width(24.dp))

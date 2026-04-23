@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
-import coil.compose.SubcomposeAsyncImage
+import coil.compose.AsyncImage
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
@@ -665,14 +665,16 @@ fun PlayerScreen(
                 tonalElevation = 12.dp
             ) {
                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.size(86.dp).clip(RoundedCornerShape(8.dp))) {
-                        SubcomposeAsyncImage(
+                    Box(modifier = Modifier.size(86.dp).clip(RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                        AsyncImage(
                             model = media?.icon,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop,
-                            error = { Icon(Icons.Default.Movie, null, tint = Color.Gray, modifier = Modifier.padding(16.dp)) }
+                            contentScale = ContentScale.Crop
                         )
+                        if (media?.icon == null) {
+                            Icon(Icons.Default.Movie, null, tint = Color.Gray, modifier = Modifier.padding(16.dp))
+                        }
                         Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))))
                         Icon(Icons.Default.PlayArrow, null, tint = Color.White, modifier = Modifier.size(24.dp).align(Alignment.Center))
                     }
@@ -852,13 +854,17 @@ fun VodControlOverlay(
                     shape = RoundedCornerShape(8.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
                 ) {
-                    SubcomposeAsyncImage(
-                        model = media?.icon,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        error = { Box(Modifier.fillMaxSize().background(Color.DarkGray)) }
-                    )
+                    Box(modifier = Modifier.fillMaxSize().background(Color.DarkGray), contentAlignment = Alignment.Center) {
+                        AsyncImage(
+                            model = media?.icon,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        if (media?.icon == null) {
+                            Box(Modifier.fillMaxSize().background(Color.DarkGray))
+                        }
+                    }
                 }
                 
                 Spacer(modifier = Modifier.width(24.dp))

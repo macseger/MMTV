@@ -43,7 +43,6 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
 import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
@@ -464,9 +463,9 @@ fun HistoryCard(
     val scope = rememberCoroutineScope()
     var pressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon) {
+    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.id) {
         if (value.isNullOrEmpty()) {
-            value = viewModel.repository.getIconForChannel(media.id.toString(), media.title)
+            value = viewModel.getIconForChannel(media.id, media.title)
         }
     }
 
@@ -528,20 +527,13 @@ fun HistoryCard(
         ) {
             Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A))) {
                 val isMovie = media.type == MediaType.MOVIE || media.type == MediaType.SERIES
-                if (!displayIcon.isNullOrEmpty()) {
-                    SubcomposeAsyncImage(
-                        model = displayIcon,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                        error = {
-                            ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = isMovie)
-                        },
-                        loading = {
-                            Box(Modifier.fillMaxSize().background(Color.DarkGray.copy(alpha = 0.3f)))
-                        }
-                    )
-                } else {
+                AsyncImage(
+                    model = displayIcon,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                if (displayIcon == null && media.icon == null) {
                     ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = isMovie)
                 }
                 

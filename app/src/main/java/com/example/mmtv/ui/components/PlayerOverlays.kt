@@ -38,7 +38,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.GroupedMedia
@@ -139,7 +138,7 @@ fun RecentChannelButton(
         border = if (isFocused) null else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            SubcomposeAsyncImage(
+            AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(piconUrl)
                     .crossfade(true)
@@ -149,18 +148,19 @@ fun RecentChannelButton(
                     .fillMaxSize()
                     .alpha(if (isFocused) 0.3f else 0.6f)
                     .padding(12.dp),
-                contentScale = ContentScale.Fit,
-                error = {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (item.type == MediaType.LIVE) Icons.Default.Tv else Icons.Default.Movie,
-                            contentDescription = null,
-                            tint = if (isFocused) Color.Black.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.3f),
-                            modifier = Modifier.size(40.dp)
-                        )
-                    }
-                }
+                contentScale = ContentScale.Fit
             )
+            
+            if (piconUrl == null) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (item.type == MediaType.LIVE) Icons.Default.Tv else Icons.Default.Movie,
+                        contentDescription = null,
+                        tint = if (isFocused) Color.Black.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.3f),
+                        modifier = Modifier.size(40.dp)
+                    )
+                }
+            }
             
             Column(
                 modifier = Modifier
@@ -274,16 +274,23 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                 value = viewModel.getIconForChannel(item.id, item.title)
             }.value
 
-            SubcomposeAsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(piconUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
+            Box(
                 modifier = Modifier.size(56.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
-                contentScale = ContentScale.Fit,
-                error = { Icon(Icons.Default.Tv, null, tint = Color.Gray) }
-            )
+                contentAlignment = Alignment.Center
+            ) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(piconUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit
+                )
+                if (piconUrl == null && item.icon == null) {
+                    Icon(Icons.Default.Tv, null, tint = Color.Gray)
+                }
+            }
             
             Spacer(modifier = Modifier.width(16.dp))
             
@@ -340,20 +347,27 @@ fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: M
     ) {
         Row(modifier = Modifier.padding(24.dp)) {
             if (channel != null) {
-                SubcomposeAsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(piconUrl ?: epg?.icon)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
+                Box(
                     modifier = Modifier
                         .size(80.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color.White.copy(alpha = 0.05f))
                         .padding(8.dp),
-                    contentScale = ContentScale.Fit,
-                    error = { Icon(Icons.Default.Tv, null, tint = Color.Gray, modifier = Modifier.size(40.dp)) }
-                )
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(piconUrl ?: epg?.icon)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                    if (piconUrl == null && epg?.icon == null) {
+                        Icon(Icons.Default.Tv, null, tint = Color.Gray, modifier = Modifier.size(40.dp))
+                    }
+                }
                 Spacer(modifier = Modifier.width(24.dp))
             }
 
@@ -498,20 +512,27 @@ fun QuickInfoOverlay(
                 modifier = Modifier.padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                SubcomposeAsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(piconUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = null,
+                Box(
                     modifier = Modifier
                         .size(70.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color.White.copy(alpha = 0.05f))
                         .padding(8.dp),
-                    contentScale = ContentScale.Fit,
-                    error = { Icon(Icons.Default.Tv, null, tint = Color.Gray) }
-                )
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(piconUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                    if (piconUrl == null) {
+                        Icon(Icons.Default.Tv, null, tint = Color.Gray)
+                    }
+                }
                 
                 Spacer(modifier = Modifier.width(16.dp))
                 
@@ -912,15 +933,23 @@ fun EpgModal(
         ) {
             Column(modifier = Modifier.padding(24.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    SubcomposeAsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(piconUrl)
-                            .crossfade(true)
-                            .build(),
-                        contentDescription = null,
+                    Box(
                         modifier = Modifier.size(50.dp).clip(MaterialTheme.shapes.small),
-                        error = { Icon(Icons.Default.Tv, null, tint = Color.Gray) }
-                    )
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(piconUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                        if (piconUrl == null) {
+                            Icon(Icons.Default.Tv, null, tint = Color.Gray)
+                        }
+                    }
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(text = media.title ?: "Programguide", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White)

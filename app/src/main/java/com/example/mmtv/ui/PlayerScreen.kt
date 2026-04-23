@@ -531,7 +531,9 @@ fun PlayerScreen(
                                         }
                                         showSeekFeedback = true
                                         seekJob?.cancel()
-                                        seekJob = scope.launch { delay(3000); showSeekFeedback = false }
+                                        if (isPlaying) {
+                                            seekJob = scope.launch { delay(3000); if (isPlaying) showSeekFeedback = false }
+                                        }
                                     }
                                     true
                                 } else false
@@ -587,110 +589,24 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // --- MODERN SEEK BAR ---
+        // --- VOD CONTROL OVERLAY ---
         AnimatedVisibility(
-            visible = showSeekFeedback && media?.type != MediaType.LIVE,
-            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp)
+            visible = (showSeekFeedback || !isPlaying) && media?.type != MediaType.LIVE,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+            modifier = Modifier.fillMaxSize()
         ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(0.85f).height(100.dp),
-                color = Color.Black.copy(alpha = 0.8f),
-                shape = RoundedCornerShape(20.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                text = media?.title ?: "",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.widthIn(max = 400.dp)
-                            )
-                            if (accumulatedSeekMs != 0L) {
-                                Text(
-                                    text = seekMessage,
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.ExtraBold
-                                )
-                            }
-                        }
-                        
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (!isPlaying && accumulatedSeekMs == 0L) {
-                                Icon(Icons.Default.Pause, null, tint = Color.White, modifier = Modifier.size(32.dp).padding(end = 12.dp))
-                            }
-                            
-                            var isSubFocused by remember { mutableStateOf(false) }
-                            Surface(
-                                onClick = { overlayState = OverlayState.SUBTITLES },
-                                modifier = Modifier
-                                    .padding(end = 16.dp)
-                                    .focusRequester(subtitleIconFocusRequester)
-                                    .onFocusChanged { 
-                                        isSubFocused = it.isFocused 
-                                        if (it.isFocused) seekJob?.cancel()
-                                        else seekJob = scope.launch { delay(5000); showSeekFeedback = false }
-                                    },
-                                shape = RoundedCornerShape(12.dp),
-                                color = if (isSubFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
-                                contentColor = if (isSubFocused) Color.Black else Color.White
-                            ) {
-                                Text(
-                                    text = "UNDERTEXTER",
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                    style = MaterialTheme.typography.labelLarge.copy(
-                                        fontWeight = FontWeight.ExtraBold,
-                                        letterSpacing = 1.sp,
-                                        fontSize = 14.sp
-                                    ),
-                                    color = if (availableSubtitles.isNotEmpty()) 
-                                            (if (isSubFocused) Color.Black else Color.White) 
-                                          else (if (isSubFocused) Color.Black.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.3f))
-                                )
-                            }
-
-                            Text(
-                                text = "${formatTime(currentPosition)} / ${formatTime(duration)}",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color.LightGray,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                    
-                    Spacer(modifier = Modifier.height(12.dp))
-                    
-                    val progress = if (duration > 0) currentPosition.toFloat() / duration else 0f
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.15f))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(progress.coerceIn(0f, 1f))
-                                .fillMaxHeight()
-                                .background(MaterialTheme.colorScheme.primary)
-                        )
-                    }
-                }
-            }
+            VodControlOverlay(
+                media = media,
+                isPlaying = isPlaying,
+                currentPosition = currentPosition,
+                duration = duration,
+                accumulatedSeekMs = accumulatedSeekMs,
+                seekMessage = seekMessage,
+                availableSubtitles = availableSubtitles,
+                subtitleIconFocusRequester = subtitleIconFocusRequester,
+                onToggleSubtitles = { overlayState = OverlayState.SUBTITLES }
+            )
         }
 
         if (isBuffering) {
@@ -893,4 +809,209 @@ fun PlayerScreen(
         }
     }
 }
+}
+
+@Composable
+fun VodControlOverlay(
+    media: MediaSource?,
+    isPlaying: Boolean,
+    currentPosition: Long,
+    duration: Long,
+    accumulatedSeekMs: Long,
+    seekMessage: String,
+    availableSubtitles: List<Tracks.Group>,
+    subtitleIconFocusRequester: FocusRequester,
+    onToggleSubtitles: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Black.copy(alpha = 0.85f),
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.9f)
+                    ),
+                    startY = 0f,
+                    endY = Float.POSITIVE_INFINITY
+                )
+            )
+    ) {
+        // --- TOP INFO ---
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(48.dp)
+                .widthIn(max = 600.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Movie Poster (Mini)
+                Card(
+                    modifier = Modifier.size(80.dp, 120.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                ) {
+                    SubcomposeAsyncImage(
+                        model = media?.icon,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        error = { Box(Modifier.fillMaxSize().background(Color.DarkGray)) }
+                    )
+                }
+                
+                Spacer(modifier = Modifier.width(24.dp))
+                
+                Column {
+                    Text(
+                        text = media?.title ?: "",
+                        style = MaterialTheme.typography.headlineLarge,
+                        color = Color.White,
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val rating = media?.rating
+                        if (!rating.isNullOrBlank() && rating != "0.0") {
+                            Icon(Icons.Default.Star, null, tint = Color(0xFFFFD700), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = rating, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                            Spacer(modifier = Modifier.width(16.dp))
+                        }
+                        
+                        val genre = media?.genre
+                        if (!genre.isNullOrBlank()) {
+                            Text(text = genre, color = Color.LightGray, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Text(
+                text = media?.plot ?: "Ingen beskrivning tillgänglig.",
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.8f),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 24.sp
+            )
+        }
+
+        // --- CENTER STATE ICON ---
+        Box(modifier = Modifier.align(Alignment.Center)) {
+            if (accumulatedSeekMs != 0L) {
+                Text(
+                    text = seekMessage,
+                    style = MaterialTheme.typography.displayMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Black
+                )
+            } else if (!isPlaying) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.5f),
+                    modifier = Modifier.size(100.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Pause,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.padding(20.dp).fillMaxSize()
+                    )
+                }
+            }
+        }
+
+        // --- BOTTOM CONTROLS ---
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(start = 48.dp, end = 48.dp, bottom = 48.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                Column {
+                    fun formatTime(ms: Long): String {
+                        if (ms < 0) return "00:00"
+                        val totalSeconds = (ms / 1000).toInt()
+                        val hours = totalSeconds / 3600
+                        val minutes = (totalSeconds % 3600) / 60
+                        val seconds = totalSeconds % 60
+                        return if (hours > 0) {
+                            String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
+                        } else {
+                            String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+                        }
+                    }
+
+                    Text(
+                        text = "${formatTime(currentPosition)} / ${formatTime(duration)}",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // Subtitles Button
+                var isSubFocused by remember { mutableStateOf(false) }
+                Surface(
+                    onClick = onToggleSubtitles,
+                    modifier = Modifier
+                        .focusRequester(subtitleIconFocusRequester)
+                        .onFocusChanged { isSubFocused = it.isFocused },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isSubFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
+                    contentColor = if (isSubFocused) Color.Black else Color.White
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Subtitles, null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "UNDERTEXTER",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.sp
+                            ),
+                            color = if (availableSubtitles.isNotEmpty()) 
+                                    (if (isSubFocused) Color.Black else Color.White) 
+                                  else (if (isSubFocused) Color.Black.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.3f))
+                        )
+                    }
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            // Progress Bar
+            val progress = if (duration > 0) currentPosition.toFloat() / duration else 0f
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.2f))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(progress.coerceIn(0f, 1f))
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.primary)
+                )
+            }
+        }
+    }
 }

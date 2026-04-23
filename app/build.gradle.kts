@@ -5,6 +5,8 @@ plugins {
     kotlin("kapt")
 }
 
+val appVersionName = "5.3"
+
 android {
     namespace = "com.example.mmtv"
     compileSdk = 35
@@ -14,7 +16,7 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 13
-        versionName = "5.3"
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -29,11 +31,12 @@ android {
         }
     }
 
-    // Säkrare sätt att sätta namnet på den färdiga APK:n
-    applicationVariants.all {
-        outputs.all {
-            val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
-            output.outputFileName = "MMTV-v${versionName}.apk"
+    // Modernare sätt att sätta namnet på den färdiga APK:n (ersätter applicationVariants)
+    androidComponents {
+        onVariants { variant ->
+            variant.outputs.forEach { output ->
+                output.outputFileName.set("MMTV-v${appVersionName}.apk")
+            }
         }
     }
     

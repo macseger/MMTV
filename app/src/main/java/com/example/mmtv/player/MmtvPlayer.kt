@@ -2,8 +2,8 @@ package com.example.mmtv.player
 
 import android.content.Context
 import androidx.annotation.OptIn
-import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -21,38 +21,35 @@ class MmtvPlayer(private val context: Context) {
     fun createPlayer(): ExoPlayer {
         val loadErrorHandlingPolicy = DefaultLoadErrorHandlingPolicy(3)
         
+        // Pro-inställningar för IPTV (Liknande TiviMate/Perfect Player)
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                30_000, // Min buffer 30s
-                60_000, // Max buffer 60s
-                2_500,  // Buffer for playback 2.5s
-                5_000   // Buffer for playback after rebuffer 5s
+                3_500,  // Min buffert: 3.5s (Håller anslutningen stabil men rapp)
+                15_000, // Max buffert: 15s (Här slutar den ladda för att spara minne)
+                1_000,  // Start-buffert: 1s (Kanalen startar nästan direkt)
+                2_000   // Efter-buffert: 2s (Om den mot förmodan skulle buffra om)
             )
-            .setBackBuffer(30_000, true) // Support back-seeking without redownload
+            .setBackBuffer(0, false)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
         val renderersFactory = DefaultRenderersFactory(context).apply {
             setEnableDecoderFallback(true)
-            setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            // Vi föredrar hårdvaruavkodning för att undvika microlagg
+            setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
         }
 
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(C.USAGE_MEDIA)
-            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-            .build()
-
-        val mediaSourceFactory = DefaultMediaSourceFactory(context)
-            .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
-
         val player = ExoPlayer.Builder(context, renderersFactory)
-            .setMediaSourceFactory(mediaSourceFactory)
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(context)
+                    .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            )
             .setLoadControl(loadControl)
-            .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
-            .setSeekForwardIncrementMs(60000)
-            .setSeekBackIncrementMs(60000)
+            .setDeviceVolumeControlEnabled(true)
             .build()
+        
+        player.repeatMode = Player.REPEAT_MODE_OFF // Säkerställ att den aldrig loopar
         
         this.exoPlayer = player
         return player

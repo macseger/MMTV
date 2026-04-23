@@ -99,7 +99,7 @@ fun HomeScreen(
                 androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
                     if (lastLiveMedia != null && miniPlayer == null) {
                         val player = MmtvPlayer(context).createPlayer().apply {
-                            repeatMode = Player.REPEAT_MODE_ALL
+                            repeatMode = Player.REPEAT_MODE_OFF
                             playWhenReady = true
                             volume = 0f
                             

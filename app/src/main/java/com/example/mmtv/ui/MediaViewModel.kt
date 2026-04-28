@@ -271,8 +271,13 @@ class MediaViewModel(
                     
                     val isDbEmpty = mediaDao.getCountByType(MediaType.LIVE) == 0 
                     if (forceRefresh || isDbEmpty) {
-                        updateStatus = "Synkar kanaler & filmer..."
-                        _repository.syncLibrary(user, pass) // syncLibrary gör även EPG
+                        if (sessionManager.getSyncOnlyLive()) {
+                            updateStatus = "Synkar endast TV-kanaler..."
+                            _repository.syncLiveChannels(user, pass)
+                        } else {
+                            updateStatus = "Synkar hela biblioteket..."
+                            _repository.syncLibrary(user, pass)
+                        }
                         
                         // Ladda in items för de första kategorierna när biblioteket är redo
                         withContext(Dispatchers.Main) {
@@ -280,6 +285,8 @@ class MediaViewModel(
                             if (ppvData.isNotEmpty()) {
                                 loadItemsForCategory(MediaType.LIVE, ppvData.firstOrNull()?.categoryId)
                             }
+                            
+                            // Om vi bara synkade live, kan vi ändå försöka ladda VOD om de fanns i DB sen innan
                             loadItemsForCategory(MediaType.MOVIE, movieData.firstOrNull()?.categoryId)
                             loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
                             

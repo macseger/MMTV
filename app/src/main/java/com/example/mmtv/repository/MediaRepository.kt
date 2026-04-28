@@ -7,6 +7,7 @@ import com.example.mmtv.model.*
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -273,82 +274,94 @@ class MediaRepository(
         }
     }
 
-    suspend fun syncLibrary(user: String, pass: String) = withContext(Dispatchers.IO) {
+    suspend fun syncLiveChannels(user: String, pass: String) = withContext(Dispatchers.IO) {
         try {
-            // Synka Live, Film och Serier parallellt för högre fart
-            val liveJob = async {
-                val liveCats = api.getLiveCategories(user, pass)
-                val liveStreams = api.getLiveStreams(user, pass)
-                val liveEntities = liveStreams.mapIndexed { index, stream ->
-                    val cat = liveCats.find { it.categoryId == stream.categoryId }
-                    val cleanedName = cleanChannelName(stream.name ?: "")
-                    MediaEntity(
-                        id = stream.streamId,
-                        title = cleanedName,
-                        type = MediaType.LIVE,
-                        categoryId = stream.categoryId ?: "",
-                        categoryName = cat?.categoryName ?: "Okänd",
-                        icon = stream.streamIcon,
-                        epgId = stream.epgId,
-                        itemOrder = index,
-                        addedDate = 0L
-                    )
-                }
-                mediaDao.deleteByType(MediaType.LIVE)
-                mediaDao.insertAll(liveEntities)
+            val liveCats = api.getLiveCategories(user, pass)
+            val liveStreams = api.getLiveStreams(user, pass)
+            val liveEntities = liveStreams.mapIndexed { index, stream ->
+                val cat = liveCats.find { it.categoryId == stream.categoryId }
+                val cleanedName = cleanChannelName(stream.name ?: "")
+                MediaEntity(
+                    id = stream.streamId,
+                    title = cleanedName,
+                    type = MediaType.LIVE,
+                    categoryId = stream.categoryId ?: "",
+                    categoryName = cat?.categoryName ?: "Okänd",
+                    icon = stream.streamIcon,
+                    epgId = stream.epgId,
+                    itemOrder = index,
+                    addedDate = 0L
+                )
             }
-
-            val movieJob = async {
-                val movieCats = api.getMovieCategories(user, pass)
-                val movies = api.getMovies(user, pass)
-                val movieEntities = movies.mapIndexed { index, movie ->
-                    val cat = movieCats.find { it.categoryId == movie.categoryId }
-                    MediaEntity(
-                        id = movie.streamId,
-                        title = movie.name ?: "",
-                        type = MediaType.MOVIE,
-                        categoryId = movie.categoryId ?: "",
-                        categoryName = cat?.categoryName ?: "Okänd",
-                        icon = movie.streamIcon,
-                        extension = movie.containerExtension ?: "mp4",
-                        itemOrder = index,
-                        addedDate = parseDateToUnix(movie.added)
-                    )
-                }
-                mediaDao.deleteByType(MediaType.MOVIE)
-                mediaDao.insertAll(movieEntities)
-            }
-
-            val seriesJob = async {
-                val seriesCats = api.getSeriesCategories(user, pass)
-                val seriesItems = api.getSeries(user, pass)
-                val seriesEntities = seriesItems.mapIndexed { index, item ->
-                    val cat = seriesCats.find { it.categoryId == item.categoryId }
-                    MediaEntity(
-                        id = item.seriesId,
-                        title = item.name ?: "",
-                        type = MediaType.SERIES,
-                        categoryId = item.categoryId ?: "",
-                        categoryName = cat?.categoryName ?: "Okänd",
-                        icon = item.cover,
-                        itemOrder = index,
-                        addedDate = parseDateToUnix(item.lastModified)
-                    )
-                }
-                mediaDao.deleteByType(MediaType.SERIES)
-                mediaDao.insertAll(seriesEntities)
-            }
-            
-            liveJob.await()
-            movieJob.await()
-            seriesJob.await()
-            
-            // Sync EPG also
+            mediaDao.deleteByType(MediaType.LIVE)
+            mediaDao.insertAll(liveEntities)
             fetchAndStoreEpg(user, pass)
-            
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    suspend fun syncMovies(user: String, pass: String) = withContext(Dispatchers.IO) {
+        try {
+            val movieCats = api.getMovieCategories(user, pass)
+            val movies = api.getMovies(user, pass)
+            val movieEntities = movies.mapIndexed { index, movie ->
+                val cat = movieCats.find { it.categoryId == movie.categoryId }
+                MediaEntity(
+                    id = movie.streamId,
+                    title = movie.name ?: "",
+                    type = MediaType.MOVIE,
+                    categoryId = movie.categoryId ?: "",
+                    categoryName = cat?.categoryName ?: "Okänd",
+                    icon = movie.streamIcon,
+                    extension = movie.containerExtension ?: "mp4",
+                    itemOrder = index,
+                    addedDate = parseDateToUnix(movie.added)
+                )
+            }
+            mediaDao.deleteByType(MediaType.MOVIE)
+            mediaDao.insertAll(movieEntities)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun syncSeries(user: String, pass: String) = withContext(Dispatchers.IO) {
+        try {
+            val seriesCats = api.getSeriesCategories(user, pass)
+            val seriesItems = api.getSeries(user, pass)
+            val seriesEntities = seriesItems.mapIndexed { index, item ->
+                val cat = seriesCats.find { it.categoryId == item.categoryId }
+                MediaEntity(
+                    id = item.seriesId,
+                    title = item.name ?: "",
+                    type = MediaType.SERIES,
+                    categoryId = item.categoryId ?: "",
+                    categoryName = cat?.categoryName ?: "Okänd",
+                    icon = item.cover,
+                    itemOrder = index,
+                    addedDate = parseDateToUnix(item.lastModified)
+                )
+            }
+            mediaDao.deleteByType(MediaType.SERIES)
+            mediaDao.insertAll(seriesEntities)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    suspend fun syncVodLibrary(user: String, pass: String) = coroutineScope {
+        val movieJob = async { syncMovies(user, pass) }
+        val seriesJob = async { syncSeries(user, pass) }
+        movieJob.await()
+        seriesJob.await()
+    }
+
+    suspend fun syncLibrary(user: String, pass: String) = coroutineScope {
+        val liveJob = async { syncLiveChannels(user, pass) }
+        val vodJob = async { syncVodLibrary(user, pass) }
+        liveJob.await()
+        vodJob.await()
     }
 
     suspend fun fetchAndStoreEpg(user: String, pass: String, forceRefresh: Boolean = false) = withContext(Dispatchers.IO) {

@@ -132,6 +132,14 @@ class SessionManager(context: Context) {
         return prefs.getBoolean("use_tunneling", false)
     }
 
+    fun setSyncOnlyLive(enabled: Boolean) {
+        prefs.edit { putBoolean("sync_only_live", enabled) }
+    }
+
+    fun getSyncOnlyLive(): Boolean {
+        return prefs.getBoolean("sync_only_live", false)
+    }
+
     // Historikhantering
     fun addToHistory(media: MediaSource, episode: Episode? = null) {
         val history = getHistory().toMutableList()

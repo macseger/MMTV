@@ -25,11 +25,13 @@ class DataSyncWorker(
         return try {
             Log.d("DataSyncWorker", "Starting background sync...")
             
-            // Sync all data types
-            repository.getGroupedLive(user, pass, forceRefresh = true)
-            repository.getGroupedMovies(user, pass, forceRefresh = true)
-            repository.getGroupedSeries(user, pass, forceRefresh = true)
-            repository.fetchAndStoreEpg(user, pass, forceRefresh = true)
+            if (sessionManager.getSyncOnlyLive()) {
+                Log.d("DataSyncWorker", "Syncing only Live channels as per setting")
+                repository.syncLiveChannels(user, pass)
+            } else {
+                Log.d("DataSyncWorker", "Syncing full library")
+                repository.syncLibrary(user, pass)
+            }
             
             Log.d("DataSyncWorker", "Background sync completed successfully")
             Result.success()

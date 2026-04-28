@@ -501,6 +501,7 @@ class MainActivity : ComponentActivity() {
                                         var autoPlayEnabled by remember { mutableStateOf(sessionManager.getAutoPlayNext()) }
                                         var useExternalEpg by remember { mutableStateOf(sessionManager.getUseExternalSwedishEpg()) }
                                         var useTunneling by remember { mutableStateOf(sessionManager.getUseTunneling()) }
+                                        var syncOnlyLive by remember { mutableStateOf(sessionManager.getSyncOnlyLive()) }
                                         
                                         SettingsScreen(
                                             username = loginInfo?.second ?: "Okänd",
@@ -508,6 +509,7 @@ class MainActivity : ComponentActivity() {
                                             autoPlayEnabled = autoPlayEnabled,
                                             useExternalEpg = useExternalEpg,
                                             useTunneling = useTunneling,
+                                            syncOnlyLive = syncOnlyLive,
                                             isUpdating = sharedViewModel.isUpdatingBackground,
                                             isCheckingForAppUpdate = sharedViewModel.isCheckingForAppUpdate,
                                             isAppUpToDate = sharedViewModel.isAppUpToDate,
@@ -539,6 +541,10 @@ class MainActivity : ComponentActivity() {
                                             onToggleTunneling = { enabled ->
                                                 useTunneling = enabled
                                                 sessionManager.setUseTunneling(enabled)
+                                            },
+                                            onToggleSyncOnlyLive = { enabled ->
+                                                syncOnlyLive = enabled
+                                                sessionManager.setSyncOnlyLive(enabled)
                                             }
                                         )
                                     }

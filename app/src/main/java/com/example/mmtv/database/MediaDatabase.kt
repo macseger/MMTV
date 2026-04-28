@@ -8,7 +8,7 @@ import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import com.example.mmtv.model.MediaType
 
-@Database(entities = [MediaEntity::class, EpgEntity::class, ChannelEntity::class, PiconEntity::class], version = 11, exportSchema = false)
+@Database(entities = [MediaEntity::class, EpgEntity::class, ChannelEntity::class, PiconEntity::class], version = 12, exportSchema = false)
 @TypeConverters(MediaConverters::class)
 abstract class MediaDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao

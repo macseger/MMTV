@@ -127,8 +127,6 @@ fun PlayerScreen(
     var availableSubtitles by remember { mutableStateOf<List<Tracks.Group>>(emptyList()) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
-    var isUserInteracting by remember { mutableStateOf(false) }
-    var interactionJob by remember { mutableStateOf<Job?>(null) }
     var lastCenterClickTime by remember { mutableLongStateOf(0L) }
     val doubleClickTimeout = 650L
 
@@ -181,8 +179,6 @@ fun PlayerScreen(
 
     fun performSeek(offsetMs: Long, isLongPress: Boolean = false) {
         seekJob?.cancel()
-        interactionJob?.cancel()
-        isUserInteracting = true
         accumulatedSeekMs += offsetMs
         
         val totalSecs = (accumulatedSeekMs.absoluteValue / 1000).toInt()
@@ -205,25 +201,6 @@ fun PlayerScreen(
                 val newPos = (exoPlayer.currentPosition + accumulatedSeekMs).coerceIn(0, dur)
                 exoPlayer.seekTo(newPos)
                 accumulatedSeekMs = 0
-            }
-        }
-
-        seekJob = scope.launch {
-            delay(if (isLongPress) 2000 else 1200)
-            
-            if (!isLongPress) {
-                val dur = exoPlayer.duration
-                if (dur != C.TIME_UNSET) {
-                    val newPos = (exoPlayer.currentPosition + accumulatedSeekMs).coerceIn(0, dur)
-                    exoPlayer.seekTo(newPos)
-                }
-            }
-            accumulatedSeekMs = 0 
-            delay(2000)
-            isUserInteracting = false
-            delay(3000)
-            if (!isLongPressSeeking && !isUserInteracting) {
-                showSeekFeedback = false
             }
         }
     }
@@ -560,9 +537,22 @@ fun PlayerScreen(
                         }
                     }
                     KeyEvent.ACTION_UP -> {
-                        if (nativeEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || 
-                            nativeEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                            isLongPressSeeking = false
+                        val keyCode = nativeEvent.keyCode
+                        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                            if (isLongPressSeeking) {
+                                isLongPressSeeking = false
+                                // Vid long-press seekar vi direkt i ACTION_DOWN, så vi nollställer bara här
+                                accumulatedSeekMs = 0
+                            } else if (overlayState == OverlayState.NONE && media?.type != MediaType.LIVE) {
+                                // För enkla klick, utför sökningen nu när knappen släpps
+                                val dur = exoPlayer.duration
+                                if (dur != C.TIME_UNSET) {
+                                    val newPos = (exoPlayer.currentPosition + accumulatedSeekMs).coerceIn(0, dur)
+                                    exoPlayer.seekTo(newPos)
+                                }
+                                accumulatedSeekMs = 0
+                            }
+
                             seekJob?.cancel()
                             seekJob = scope.launch { delay(2500); showSeekFeedback = false }
                         }

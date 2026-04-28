@@ -22,16 +22,22 @@ class MediaRepository(
     private val gson = Gson()
     private val cacheDir = context.cacheDir
     private val epgParser = EpgParser()
-    private var piconFileCache: Set<String>? = null
+    private var piconFileMap: Map<String, String>? = null
 
-    private fun getPiconFileCache(): Set<String> {
-        val cache = piconFileCache
+    private fun getPiconFileMap(): Map<String, String> {
+        val cache = piconFileMap
         if (cache != null) return cache
         
         val piconsDir = File(context.filesDir, "picons")
-        val files = piconsDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
-        piconFileCache = files
-        return files
+        val map = mutableMapOf<String, String>()
+        piconsDir.listFiles()?.forEach { file ->
+            val cleanName = file.name.substringBeforeLast(".").lowercase().replace(Regex("[^a-z0-9]"), "")
+            if (cleanName.isNotEmpty()) {
+                map[cleanName] = file.absolutePath
+            }
+        }
+        piconFileMap = map
+        return map
     }
 
     suspend fun getLiveCategories(user: String, pass: String, forceRefresh: Boolean = false): List<Category> {
@@ -265,7 +271,7 @@ class MediaRepository(
                     }
                     android.util.Log.d("Picons", "Extraherade $count ikoner.")
                     lastExtractionFile.createNewFile() // Markera att vi är klara
-                    piconFileCache = null // Rensa cachen så den läses om nästa gång
+                    piconFileMap = null // Rensa cachen så den läses om nästa gång
                 }
             }
         } catch (e: Exception) {
@@ -563,32 +569,26 @@ class MediaRepository(
     }
 
     suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
-        val piconFiles = getPiconFileCache()
-        if (piconFiles.isEmpty()) return@withContext null
-
-        val piconsDir = File(context.filesDir, "picons")
+        val piconMap = getPiconFileMap()
         
-        fun findLocalPicon(target: String): String? {
+        fun findLocalPath(target: String): String? {
             if (target.isEmpty()) return null
-            
-            return piconFiles.find { fileName ->
-                val cleanFileName = fileName.substringBeforeLast(".").lowercase().replace(Regex("[^a-z0-9]"), "")
-                cleanFileName == target || cleanFileName.endsWith(target)
-            }?.let { "file://${File(piconsDir, it).absolutePath}" }
+            // 1. Exakt match på rensat namn
+            piconMap[target]?.let { return "file://$it" }
+            // 2. Kolla om något filnamn slutar på target
+            return piconMap.keys.find { it.endsWith(target) }?.let { "file://${piconMap[it]}" }
         }
 
         // 1. Kolla lokalt via kanalnamn
         if (channelName != null) {
             val searchName = getSearchName(channelName)
-            val found = findLocalPicon(searchName)
-            if (found != null) return@withContext found
+            findLocalPath(searchName)?.let { return@withContext it }
         }
 
         // 2. Kolla lokalt via EPG-ID
         if (epgId != null) {
             val cleanEpgId = epgId.lowercase().substringBefore(".").replace(Regex("[^a-z0-9]"), "")
-            val found = findLocalPicon(cleanEpgId)
-            if (found != null) return@withContext found
+            findLocalPath(cleanEpgId)?.let { return@withContext it }
         }
 
         // 3. Fallback till GitHub Picons
@@ -606,7 +606,6 @@ class MediaRepository(
             val githubPicon = mediaDao.getPiconByName(searchName)
             if (githubPicon != null) return@withContext githubPicon.url
         }
-
 
         // 4. Sista utväg: Serverns egen ikon
         if (epgId != null) {

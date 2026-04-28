@@ -117,9 +117,19 @@ fun RecentChannelButton(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val piconUrl = produceState(initialValue = item.icon, key1 = item.id) {
+    val context = LocalContext.current
+    
+    val piconUrl by produceState(initialValue = item.icon, key1 = item.id) {
         value = viewModel.getIconForChannel(item.id, item.title)
-    }.value
+    }
+
+    val imageRequest = remember(piconUrl) {
+        ImageRequest.Builder(context)
+            .data(piconUrl)
+            .crossfade(200)
+            .size(100, 100)
+            .build()
+    }
     
     Surface(
         onClick = onClick,
@@ -139,10 +149,7 @@ fun RecentChannelButton(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(piconUrl)
-                    .crossfade(true)
-                    .build(),
+                model = imageRequest,
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
@@ -150,6 +157,7 @@ fun RecentChannelButton(
                     .padding(12.dp),
                 contentScale = ContentScale.Fit
             )
+            // ... (rest same)
             
             if (piconUrl == null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -243,7 +251,9 @@ fun CategoryListItem(title: String, isSelected: Boolean, modifier: Modifier = Mo
 @Composable
 fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaViewModel, onClick: () -> Unit, modifier: Modifier = Modifier) {
     var hasFocus by remember { mutableStateOf(false) }
+    val context = LocalContext.current
     
+    // Hämta EPG direkt från ViewModel (den lyssnar på fullEpgData internt)
     val epg = viewModel.getEpgForId(item.id, item.title)
 
     val backgroundColor by animateColorAsState(
@@ -253,6 +263,20 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
             else -> Color.Transparent
         }, label = "chBg"
     )
+
+    // Optimering: Förbered picon-url i en produceState men med mindre omfång
+    val piconUrl by produceState(initialValue = item.icon, key1 = item.id) {
+        value = viewModel.getIconForChannel(item.id, item.title)
+    }
+
+    // Optimering: Cacha ImageRequest för att slippa skapa nya objekt under scroll
+    val imageRequest = remember(piconUrl) {
+        ImageRequest.Builder(context)
+            .data(piconUrl)
+            .crossfade(200) // Kortare crossfade för prestanda
+            .size(120, 120) // Begränsa storleken direkt i laddningen
+            .build()
+    }
 
     Surface(
         modifier = modifier
@@ -270,25 +294,18 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
             modifier = Modifier.padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val piconUrl = produceState(initialValue = item.icon, key1 = item.id) {
-                value = viewModel.getIconForChannel(item.id, item.title)
-            }.value
-
             Box(
                 modifier = Modifier.size(56.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(piconUrl)
-                        .crossfade(true)
-                        .build(),
+                    model = imageRequest,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit
                 )
                 if (piconUrl == null && item.icon == null) {
-                    Icon(Icons.Default.Tv, null, tint = Color.Gray)
+                    Icon(Icons.Default.Tv, null, tint = Color.Gray, modifier = Modifier.size(24.dp))
                 }
             }
             
@@ -303,15 +320,15 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                     overflow = TextOverflow.Ellipsis
                 )
                 
-                Text(
-                    text = epg?.title ?: "Ingen programinfo", 
-                    style = MaterialTheme.typography.bodySmall, 
-                    color = if (hasFocus) Color.White else Color.LightGray, 
-                    maxLines = 1, 
-                    overflow = TextOverflow.Ellipsis
-                )
-
                 if (epg != null) {
+                    Text(
+                        text = epg.title ?: "", 
+                        style = MaterialTheme.typography.bodySmall, 
+                        color = if (hasFocus) Color.White else Color.LightGray, 
+                        maxLines = 1, 
+                        overflow = TextOverflow.Ellipsis
+                    )
+
                     val now = System.currentTimeMillis() / 1000
                     val start = epg.startTimestamp ?: 0L
                     val stop = epg.stopTimestamp ?: 0L
@@ -324,6 +341,13 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                             trackColor = Color.White.copy(alpha = 0.1f)
                         )
                     }
+                } else {
+                    Text(
+                        text = "Ingen programinfo", 
+                        style = MaterialTheme.typography.bodySmall, 
+                        color = Color.Gray.copy(alpha = 0.5f), 
+                        maxLines = 1
+                    )
                 }
             }
         }
@@ -332,12 +356,22 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
 
 @Composable
 fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: MediaViewModel) {
+    val context = LocalContext.current
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
-    val piconUrl = produceState(initialValue = channel?.icon, key1 = channel?.id) {
+    
+    val piconUrl by produceState(initialValue = channel?.icon, key1 = channel?.id) {
         if (channel != null) {
             value = viewModel.getIconForChannel(channel.id, channel.title)
         }
-    }.value
+    }
+
+    val imageRequest = remember(piconUrl, epg?.icon) {
+        ImageRequest.Builder(context)
+            .data(piconUrl ?: epg?.icon)
+            .crossfade(300)
+            .size(160, 160)
+            .build()
+    }
     
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -356,10 +390,7 @@ fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: M
                     contentAlignment = Alignment.Center
                 ) {
                     AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(piconUrl ?: epg?.icon)
-                            .crossfade(true)
-                            .build(),
+                        model = imageRequest,
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Fit
@@ -773,7 +804,9 @@ fun SideOverlay(
                         .width(420.dp)
                         .background(Color.Black.copy(alpha = 0.85f))
                 ) {
-                    val currentCategoryTitle = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title ?: ""
+                    val currentCategoryTitle = remember(categories, viewModel.lastLiveCategoryIndex) {
+                        categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title ?: ""
+                    }
                     Text(
                         text = currentCategoryTitle.uppercase(),
                         modifier = Modifier.padding(24.dp),
@@ -785,9 +818,14 @@ fun SideOverlay(
 
                     LazyColumn(
                         state = channelListState,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        // Optimering för Android TV: Spara plats för objekt som inte syns än
+                        contentPadding = PaddingValues(bottom = 100.dp)
                     ) {
-                        itemsIndexed(playlist, key = { index, item -> "${item.id}_$index" }) { _, item ->
+                        itemsIndexed(
+                            items = playlist, 
+                            key = { _, item -> item.id } // Använd stabilt ID som nyckel för bättre prestanda vid scroll
+                        ) { _, item ->
                             ChannelListItem(
                                 item = item,
                                 isSelected = item.id == viewModel.selectedMedia?.id,

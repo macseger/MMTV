@@ -83,6 +83,10 @@ class MediaViewModel(
     val channelToEpgMap = mutableStateMapOf<Int, String>()
     val fullEpgData = mutableStateMapOf<String, List<EpgListing>>()
     private val fetchingEpgIds = mutableSetOf<Int>()
+    
+    // Cache för nuvarande program för att slippa iterera listor i UI-loopen (prestanda på TV)
+    private val currentEpgCache = mutableStateMapOf<Int, EpgListing?>()
+    private val piconCache = mutableStateMapOf<Int, String?>()
 
     var lastLiveCategoryIndex by mutableIntStateOf(0)
     var lastPpvCategoryIndex by mutableIntStateOf(0)
@@ -438,29 +442,39 @@ class MediaViewModel(
     fun getEpgForId(id: Int, name: String? = null): EpgListing? {
         val now = System.currentTimeMillis() / 1000
         
-        // 1. Försök hitta EPG-ID (från minne eller state)
+        // 1. Snabb-cache för nuvarande program
+        val cached = currentEpgCache[id]
+        if (cached != null) {
+            val stop = cached.stopTimestamp ?: 0L
+            if (now < stop) return cached
+        }
+
+        // 2. Försök hitta EPG-ID
         var epgId = channelToEpgMap[id]
         
-        // 2. Om vi har data i cachen, använd den
+        // 3. Om vi har listan i minnet, hitta rätt program
         if (epgId != null) {
             val listings = fullEpgData[epgId]
             if (listings != null) {
-                return listings.find { 
+                val current = listings.find { 
                     val start = it.startTimestamp ?: 0L
                     val stop = it.stopTimestamp ?: 0L
                     start <= now && stop > now 
                 }
+                if (current != null) {
+                    currentEpgCache[id] = current
+                    return current
+                }
             }
         }
 
-        // 3. Om vi saknar data, hämta från DB asynkront
+        // 4. Om vi saknar data, hämta från DB asynkront
         if (!fetchingEpgIds.contains(id)) {
             fetchingEpgIds.add(id)
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    // Om vi inte ens har epgId, leta upp kanalen i DB först
                     if (epgId == null) {
-                        val media = _repository.getAllMediaByType(MediaType.LIVE).find { it.id == id }
+                        val media = mediaDao.getMediaById(id)
                         epgId = media?.epgId
                         if (epgId != null) {
                             withContext(Dispatchers.Main) {
@@ -474,6 +488,11 @@ class MediaViewModel(
                         if (epg.isNotEmpty()) {
                             withContext(Dispatchers.Main) {
                                 fullEpgData[epgId!!] = epg
+                                // Trigga om sökningen nu när vi har data
+                                val current = epg.find { 
+                                    (it.startTimestamp ?: 0L) <= now && (it.stopTimestamp ?: 0L) > now 
+                                }
+                                if (current != null) currentEpgCache[id] = current
                             }
                         }
                     }
@@ -517,8 +536,17 @@ class MediaViewModel(
     }
 
     suspend fun getIconForChannel(id: Int, name: String? = null): String? {
+        val cached = piconCache[id]
+        if (cached != null) return cached
+
         val epgId = channelToEpgMap[id]
-        return _repository.getIconForChannel(epgId, name)
+        val icon = _repository.getIconForChannel(epgId, name)
+        if (icon != null) {
+            withContext(Dispatchers.Main) {
+                piconCache[id] = icon
+            }
+        }
+        return icon
     }
 
     fun refreshDataManually() {

@@ -6,7 +6,7 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "epg_listings",
-    indices = [Index(value = ["epgId", "startTimestamp", "stopTimestamp"])]
+    indices = [Index(value = ["epgId", "startTimestamp", "stopTimestamp"], unique = true)]
 )
 data class EpgEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

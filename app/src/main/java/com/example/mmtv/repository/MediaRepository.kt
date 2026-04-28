@@ -370,14 +370,22 @@ class MediaRepository(
         val now = System.currentTimeMillis()
         val twentyFourHours = 24 * 60 * 60 * 1000L
         
+        val sessionManager = com.example.mmtv.api.SessionManager(context)
+        val useExternalSwedish = sessionManager.getUseExternalSwedishEpg()
         val dbCount = mediaDao.getEpgCount()
-        val useExternalSwedish = com.example.mmtv.api.SessionManager(context).getUseExternalSwedishEpg()
 
         var hasCleared = false
 
+        // Om vi tvingar en uppdatering (t.ex. vid ändring av inställningar), rensa ALLT först
+        // för att garantera att vi inte har kvar data från källor som stängts av.
+        if (forceRefresh) {
+            mediaDao.clearEpg()
+            hasCleared = true
+        }
+
         // 1. Hantera Serverns EPG
         val shouldDownloadServer = forceRefresh || !xmlFile.exists() || (now - xmlFile.lastModified() > twentyFourHours)
-        if (shouldDownloadServer || dbCount == 0) {
+        if (shouldDownloadServer || (dbCount == 0 && !hasCleared)) {
             try {
                 if (shouldDownloadServer) {
                     val responseBody = api.getFullEpg(user, pass)
@@ -403,7 +411,9 @@ class MediaRepository(
                     }
                 }
                 if (xmlFile.exists() && xmlFile.length() > 0) {
-                    val clearFirst = forceRefresh || dbCount == 0
+                    // Om vi redan rensat (pga forceRefresh), behöver parseAndStore inte rensa igen,
+                    // men det skadar inte. Om forceRefresh var false men dbCount var 0, ska vi rensa.
+                    val clearFirst = (forceRefresh || dbCount == 0) && !hasCleared
                     parseAndStore(xmlFile, clearFirst)
                     if (clearFirst) hasCleared = true
                 }
@@ -427,11 +437,18 @@ class MediaRepository(
                     }
 
                     if (swedishXmlFile.exists() && swedishXmlFile.length() > 0) {
+                        // Om vi redan rensat i steg 1, ska vi absolut INTE rensa här,
+                        // annars tar vi bort server-EPG:n vi just laddade in.
                         val clearFirst = forceRefresh && !hasCleared
                         parseAndStore(swedishXmlFile, clearFirst)
                         if (clearFirst) hasCleared = true
                     }
                 } catch (e: Exception) { e.printStackTrace() }
+            }
+        } else {
+            // Om svensk EPG är avstängd, ta bort filen för att spara utrymme och undvika sidoladdning
+            if (swedishXmlFile.exists()) {
+                try { swedishXmlFile.delete() } catch (e: Exception) {}
             }
         }
 

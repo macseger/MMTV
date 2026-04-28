@@ -137,7 +137,7 @@ class SessionManager(context: Context) {
     }
 
     fun getSyncOnlyLive(): Boolean {
-        return prefs.getBoolean("sync_only_live", false)
+        return prefs.getBoolean("sync_only_live", true)
     }
 
     // Historikhantering

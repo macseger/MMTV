@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
 import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.Episode
@@ -45,6 +46,13 @@ fun DetailsScreen(
     val sessionManager = remember { SessionManager(context) }
     val isSeries = media.type == MediaType.SERIES
     val seriesInfo = viewModel.selectedSeriesInfo
+    val movieInfo = viewModel.selectedMovieInfo
+
+    val currentPlot = if (isSeries) (seriesInfo?.info?.plot ?: media.plot) else (movieInfo?.info?.plot ?: media.plot)
+    val currentRating = if (isSeries) (seriesInfo?.info?.rating ?: media.rating) else (movieInfo?.info?.rating ?: media.rating)
+    val currentGenre = if (isSeries) (seriesInfo?.info?.genre ?: media.genre) else (movieInfo?.info?.genre ?: media.genre)
+    val currentDirector = if (isSeries) (seriesInfo?.info?.director ?: media.director) else (movieInfo?.info?.director ?: media.director)
+    val currentCast = if (isSeries) (seriesInfo?.info?.cast ?: media.cast) else (movieInfo?.info?.cast ?: media.cast)
     
     var showResumeDialog by remember { mutableStateOf<ResumeData?>(null) }
     
@@ -56,6 +64,8 @@ fun DetailsScreen(
             // Nollställ vald säsong och hämta ny info
             selectedSeason = null 
             viewModel.loadSeriesInfo(media.id)
+        } else if (media.type == MediaType.MOVIE) {
+            viewModel.loadMovieInfo(media.id)
         }
     }
     
@@ -139,27 +149,46 @@ fun DetailsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            if (!media.rating.isNullOrEmpty()) {
+                            if (!currentRating.isNullOrEmpty()) {
                                 Surface(color = Color(0xFFFFD700), shape = MaterialTheme.shapes.small) {
                                     Text(
-                                        text = " ★ ${media.rating} ",
+                                        text = " ★ $currentRating ",
                                         style = MaterialTheme.typography.labelLarge,
                                         color = Color.Black,
                                         modifier = Modifier.padding(4.dp)
                                     )
                                 }
                             }
-                            Text(text = media.genre ?: "VOD", color = MaterialTheme.colorScheme.primary)
+                            Text(text = currentGenre ?: "VOD", color = MaterialTheme.colorScheme.primary)
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
                         
                         Text(
-                            text = media.plot ?: "Ingen beskrivning tillgänglig.",
+                            text = if (viewModel.isDetailsLoading && currentPlot == null) "Laddar info..." else (currentPlot ?: "Ingen beskrivning tillgänglig."),
                             style = MaterialTheme.typography.bodyLarge,
                             color = Color.White.copy(alpha = 0.8f),
                             maxLines = 6
                         )
+
+                        if (!currentDirector.isNullOrEmpty()) {
+                            Text(
+                                text = "Regissör: $currentDirector",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
+                        }
+                        if (!currentCast.isNullOrEmpty()) {
+                            Text(
+                                text = "Skådespelare: $currentCast",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(top = 4.dp),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(32.dp))
 

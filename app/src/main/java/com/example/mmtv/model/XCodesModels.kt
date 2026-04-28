@@ -63,8 +63,25 @@ data class Series(
     @SerializedName("category_id") val categoryId: String?
 )
 
+data class MovieInfoResponse(
+    val info: MovieInfo?,
+    @SerializedName("movie_data") val movieData: Movie?
+)
+
+data class MovieInfo(
+    val plot: String?,
+    val genre: String?,
+    val cast: String?,
+    val director: String?,
+    val rating: String?,
+    @SerializedName("releasedate") val releaseDate: String?,
+    @SerializedName("movie_image") val movieImage: String?,
+    val duration: String?
+)
+
 // För att hantera säsonger och avsnitt
 data class SeriesInfoResponse(
+    val info: Series?,
     val seasons: List<Season>?,
     val episodes: Map<String, List<Episode>>?
 )

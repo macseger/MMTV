@@ -94,6 +94,7 @@ class MediaViewModel(
     var currentPlaylist by mutableStateOf<List<MediaSource>>(emptyList())
 
     var selectedSeriesInfo by mutableStateOf<SeriesInfoResponse?>(null)
+    var selectedMovieInfo by mutableStateOf<MovieInfoResponse?>(null)
     var isDetailsLoading by mutableStateOf(false)
 
     var searchQuery by mutableStateOf("")
@@ -592,6 +593,7 @@ class MediaViewModel(
 
     fun fetchSeriesDetails(seriesId: Int) {
         if (lastLoadedSeriesId == seriesId) return
+        selectedSeriesInfo = null
         isDetailsLoading = true
         viewModelScope.launch {
             try {
@@ -622,6 +624,22 @@ class MediaViewModel(
 
     fun loadSeriesInfo(seriesId: Int) {
         fetchSeriesDetails(seriesId)
+    }
+
+    fun loadMovieInfo(movieId: Int) {
+        selectedMovieInfo = null
+        isDetailsLoading = true
+        viewModelScope.launch {
+            try {
+                val creds = sessionManager.getLogin() ?: return@launch
+                val info = _repository.api.getMovieInfo(creds.second, creds.third, movieId)
+                selectedMovieInfo = info
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                isDetailsLoading = false
+            }
+        }
     }
 
     fun addToHistory(media: MediaSource, episode: Episode? = null) {

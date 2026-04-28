@@ -41,6 +41,14 @@ interface XCodesApi {
     ): List<Movie>
 
     @GET("player_api.php")
+    suspend fun getMovieInfo(
+        @Query("username") user: String,
+        @Query("password") pass: String,
+        @Query("vod_id") vodId: Int,
+        @Query("action") action: String = "get_vod_info"
+    ): MovieInfoResponse
+
+    @GET("player_api.php")
     suspend fun getSeriesCategories(
         @Query("username") user: String,
         @Query("password") pass: String,

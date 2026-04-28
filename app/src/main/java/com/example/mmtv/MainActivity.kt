@@ -307,6 +307,7 @@ class MainActivity : ComponentActivity() {
                                             groupedList = liveStreamsGrouped,
                                             initialCategoryIndex = sharedViewModel.lastLiveCategoryIndex,
                                             initialMediaId = sharedViewModel.selectedMedia?.id,
+                                            isLive = true,
                                             onCategoryChanged = { index ->
                                                 sharedViewModel.lastLiveCategoryIndex = index
                                                 val category = liveStreamsGrouped.getOrNull(index)
@@ -365,6 +366,7 @@ class MainActivity : ComponentActivity() {
                                         MediaListScreen(
                                             groupedList = movies,
                                             initialCategoryIndex = initialIndex,
+                                            isLive = false,
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastMovieCategoryIndex = index 
                                                 val category = movies.getOrNull(index)
@@ -419,6 +421,7 @@ class MainActivity : ComponentActivity() {
                                         MediaListScreen(
                                             groupedList = series,
                                             initialCategoryIndex = initialIndex,
+                                            isLive = false,
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastSeriesCategoryIndex = index 
                                                 val category = series.getOrNull(index)

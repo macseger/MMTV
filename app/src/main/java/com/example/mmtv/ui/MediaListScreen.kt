@@ -55,6 +55,7 @@ fun MediaListScreen(
     groupedList: List<GroupedMedia>,
     initialCategoryIndex: Int = 0,
     initialMediaId: Int? = null,
+    isLive: Boolean = true, // Explicitly pass if it's Live TV or VOD
     onCategoryChanged: (Int) -> Unit = {},
     onMediaSelected: (MediaSource) -> Unit,
     onToggleFavorite: (MediaSource) -> Unit = {},
@@ -67,8 +68,10 @@ fun MediaListScreen(
     topBarFocusRequester: FocusRequester? = null
 ) {
     var selectedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
-    val selectedCategory = groupedList.getOrNull(selectedCategoryIndex)
-    val isLive = selectedCategory?.items?.firstOrNull()?.type == MediaType.LIVE
+    var debouncedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
+    
+    val selectedCategory = groupedList.getOrNull(debouncedCategoryIndex)
+    // Removed heuristic to avoid issues with empty lists
     
     var focusedMedia by remember { mutableStateOf<MediaSource?>(null) }
     var mediaToShowMenu by remember { mutableStateOf<MediaSource?>(null) }
@@ -79,9 +82,19 @@ fun MediaListScreen(
     val categoryFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val channelFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
 
+    // Debounce category change to avoid jank when scrolling fast
+    LaunchedEffect(selectedCategoryIndex) {
+        if (selectedCategoryIndex != debouncedCategoryIndex) {
+            delay(200) // Debounce time
+            debouncedCategoryIndex = selectedCategoryIndex
+            onCategoryChanged(selectedCategoryIndex)
+        }
+    }
+
     LaunchedEffect(initialCategoryIndex, initialMediaId) {
         delay(100)
         selectedCategoryIndex = initialCategoryIndex
+        debouncedCategoryIndex = initialCategoryIndex
 
         if (initialMediaId != null && isLive) {
             val index = selectedCategory?.items?.indexOfFirst { it.id == initialMediaId } ?: -1
@@ -96,7 +109,7 @@ fun MediaListScreen(
         }
     }
 
-    LaunchedEffect(selectedCategoryIndex) {
+    LaunchedEffect(debouncedCategoryIndex) {
         if (isLive) listState.scrollToItem(0)
         else gridState.scrollToItem(0)
     }
@@ -114,13 +127,12 @@ fun MediaListScreen(
                     categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
                     true
                 } else {
-                    // Från sidebar, gå till TopBar istället för att stänga skärmen
                     if (topBarFocusRequester != null) {
                         topBarFocusRequester.requestFocus()
+                        true
                     } else {
-                        focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up)
+                        false // Let the system handle it (exit screen)
                     }
-                    true
                 }
             } else false
         }
@@ -138,12 +150,9 @@ fun MediaListScreen(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(groupedList.size, key = { index -> groupedList[index].title ?: index }) { index ->
+                items(groupedList.size, key = { index -> groupedList[index].categoryId ?: index }) { index ->
                     val title = groupedList.getOrNull(index)?.title ?: "Kategori"
                     val requester = categoryFocusRequesters.getOrPut(index) { FocusRequester() }
-                    
-                    var lastClickTime by remember { mutableLongStateOf(0L) }
-                    val doubleClickTimeout = 500L
                     
                     CategoryItem(
                         title = title,
@@ -151,15 +160,11 @@ fun MediaListScreen(
                         modifier = Modifier
                             .focusRequester(requester)
                             .onFocusChanged { 
-                                if (it.isFocused && selectedCategoryIndex != index) {
+                                if (it.isFocused) {
                                     selectedCategoryIndex = index
-                                    onCategoryChanged(index)
                                 }
                             }
                             .onKeyEvent {
-                                val isCenterKey = it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 
-                                                 it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER
-                                
                                 if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                                     val firstChannelId = groupedList.getOrNull(index)?.items?.firstOrNull()?.id
                                     if (firstChannelId != null) {
@@ -170,7 +175,6 @@ fun MediaListScreen(
                             },
                         onClick = { 
                             selectedCategoryIndex = index
-                            onCategoryChanged(index)
                         }
                     )
                 }
@@ -193,12 +197,7 @@ fun MediaListScreen(
 
                     LazyColumn(
                         state = listState,
-                        modifier = Modifier.fillMaxSize().onKeyEvent {
-                            if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
-                                true
-                            } else false
-                        }
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         items(selectedCategory?.items ?: emptyList(), key = { it.id }) { media ->
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
@@ -251,20 +250,12 @@ fun MediaListScreen(
                     columns = GridCells.Adaptive(minSize = 124.dp),
                     contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp),
-                    modifier = Modifier.onKeyEvent {
-                        if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                            categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
-                            true
-                        } else false
-                    }
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     val items = selectedCategory?.items ?: emptyList()
                     items(items, key = { it.id }) { media ->
                         val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
-                        val index = items.indexOf(media)
-                        val isFirstInRow = index % 5 == 0 // Rough heuristic for 5 columns
-
+                        
                         MediaCard(
                             media = media,
                             onGetIcon = onGetIcon,
@@ -273,10 +264,12 @@ fun MediaListScreen(
                                 .onFocusChanged { if (it.isFocused) focusedMedia = media }
                                 .onKeyEvent {
                                     if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                        if (isFirstInRow) {
+                                        // Attempt to move focus left. If it fails, go to category sidebar.
+                                        val moved = focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
+                                        if (!moved) {
                                             categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
                                             true
-                                        } else false
+                                        } else true
                                     } else false
                                 },
                             onClick = { onMediaSelected(media) },
@@ -636,8 +629,11 @@ fun MediaCard(
 @Composable
 fun ChannelPlaceholder(title: String, modifier: Modifier = Modifier, isMovie: Boolean = false) {
     val firstLetter = title.firstOrNull()?.uppercase() ?: "?"
+    val colorStart = if (isMovie) Color(0xFF1a2a6c) else Color(0xFF232526)
+    val colorEnd = if (isMovie) Color(0xFFb21f1f) else Color(0xFF414345)
+    
     Box(
-        modifier = modifier.background(Brush.verticalGradient(listOf(Color(0xFF232526), Color(0xFF414345)))),
+        modifier = modifier.background(Brush.verticalGradient(listOf(colorStart, colorEnd))),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -645,5 +641,13 @@ fun ChannelPlaceholder(title: String, modifier: Modifier = Modifier, isMovie: Bo
             style = MaterialTheme.typography.headlineMedium,
             color = Color.White.copy(alpha = 0.5f)
         )
+        if (isMovie) {
+            Icon(
+                imageVector = Icons.Default.VisibilityOff,
+                contentDescription = null,
+                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp).size(16.dp),
+                tint = Color.White.copy(alpha = 0.2f)
+            )
+        }
     }
 }

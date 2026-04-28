@@ -40,23 +40,34 @@ fun PpvScreen(
     topBarFocusRequester: FocusRequester? = null
 ) {
     var selectedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
-    val selectedCategory = groupedList.getOrNull(selectedCategoryIndex)
+    var debouncedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
+    
+    val selectedCategory = groupedList.getOrNull(debouncedCategoryIndex)
     
     val listState = rememberLazyListState()
     val categoryFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val channelFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
 
+    // Debounce category change to avoid jank when scrolling fast
+    LaunchedEffect(selectedCategoryIndex) {
+        if (selectedCategoryIndex != debouncedCategoryIndex) {
+            delay(200) // Debounce time
+            debouncedCategoryIndex = selectedCategoryIndex
+            onCategoryChanged(selectedCategoryIndex)
+        }
+    }
+
     LaunchedEffect(initialCategoryIndex) {
         delay(100)
         selectedCategoryIndex = initialCategoryIndex
+        debouncedCategoryIndex = initialCategoryIndex
         categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
     }
 
-    LaunchedEffect(selectedCategoryIndex) {
+    LaunchedEffect(debouncedCategoryIndex) {
         listState.scrollToItem(0)
     }
 
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var isSidebarFocused by remember { mutableStateOf(false) }
 
     Row(modifier = Modifier
@@ -71,10 +82,10 @@ fun PpvScreen(
                 } else {
                     if (topBarFocusRequester != null) {
                         topBarFocusRequester.requestFocus()
+                        true
                     } else {
-                        focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Up)
+                        false // Let the system handle it
                     }
-                    true
                 }
             } else false
         }
@@ -102,9 +113,8 @@ fun PpvScreen(
                         modifier = Modifier
                             .focusRequester(requester)
                             .onFocusChanged { 
-                                if (it.isFocused && selectedCategoryIndex != index) {
+                                if (it.isFocused) {
                                     selectedCategoryIndex = index
-                                    onCategoryChanged(index)
                                 }
                             }
                             .onKeyEvent {
@@ -118,7 +128,6 @@ fun PpvScreen(
                             },
                         onClick = { 
                             selectedCategoryIndex = index
-                            onCategoryChanged(index)
                         }
                     )
                 }

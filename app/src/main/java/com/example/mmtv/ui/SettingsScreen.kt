@@ -34,7 +34,6 @@ fun SettingsScreen(
     autoPlayEnabled: Boolean,
     useExternalEpg: Boolean,
     useTunneling: Boolean,
-    syncOnlyLive: Boolean,
     isUpdating: Boolean,
     isCheckingForAppUpdate: Boolean,
     isAppUpToDate: Boolean,
@@ -43,6 +42,7 @@ fun SettingsScreen(
     onStartUpdate: () -> Unit,
     onLogout: () -> Unit,
     onRefreshLibrary: () -> Unit,
+    onRefreshTv: () -> Unit,
     onRefreshEpg: () -> Unit,
     onExtractPicons: () -> Unit,
     onOptimizeLibrary: () -> Unit,
@@ -50,8 +50,7 @@ fun SettingsScreen(
     onClearHistory: () -> Unit,
     onToggleAutoPlay: (Boolean) -> Unit,
     onToggleExternalEpg: (Boolean) -> Unit,
-    onToggleTunneling: (Boolean) -> Unit,
-    onToggleSyncOnlyLive: (Boolean) -> Unit
+    onToggleTunneling: (Boolean) -> Unit
 ) {
     val firstButtonFocusRequester = remember { FocusRequester() }
     
@@ -98,7 +97,7 @@ fun SettingsScreen(
                 SettingsAction(
                     title = stringResource(R.string.refresh_library),
                     subtitle = stringResource(R.string.refresh_library_sub),
-                    icon = Icons.Default.Refresh,
+                    icon = Icons.Default.Movie,
                     modifier = Modifier.focusRequester(firstButtonFocusRequester),
                     onClick = onRefreshLibrary
                 )
@@ -108,9 +107,8 @@ fun SettingsScreen(
                 SettingsAction(
                     title = stringResource(R.string.sync_only_live),
                     subtitle = stringResource(R.string.sync_only_live_sub),
-                    icon = Icons.Default.FlashOn,
-                    value = if (syncOnlyLive) stringResource(R.string.on) else stringResource(R.string.off),
-                    onClick = { onToggleSyncOnlyLive(!syncOnlyLive) }
+                    icon = Icons.Default.LiveTv,
+                    onClick = onRefreshTv
                 )
             }
 

@@ -6,10 +6,10 @@
     <string name="section_system">System</string>
     <string name="section_about">Om appen</string>
 
-    <string name="refresh_library">Uppdatera bibliotek</string>
-    <string name="refresh_library_sub">Hämta de senaste filmerna, kanalerna &amp; picons</string>
-    <string name="sync_only_live">Snabb-synk (Endast TV)</string>
-    <string name="sync_only_live_sub">Hämtar endast kanallistor och EPG. Snabbare uppdatering.</string>
+    <string name="refresh_library">Uppdatera film &amp; serier</string>
+    <string name="refresh_library_sub">Hämta de senaste filmerna &amp; serierna</string>
+    <string name="sync_only_live">Uppdatera TV-kanaler</string>
+    <string name="sync_only_live_sub">Hämtar endast kanallistor och EPG</string>
     <string name="refresh_epg">Uppdatera EPG</string>
     <string name="refresh_epg_sub">Uppdatera endast tablå-data (snabbare)</string>
     <string name="external_se_epg">Svensk EPG (epgshare01)</string>

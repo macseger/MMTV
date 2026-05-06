@@ -554,6 +554,78 @@ class MediaViewModel(
         fetchData(creds.second, creds.third, forceRefresh = true)
     }
 
+    fun refreshTvChannels() {
+        viewModelScope.launch {
+            val creds = sessionManager.getLogin() ?: return@launch
+            isUpdatingBackground = true
+            updateStatus = "Uppdaterar TV-kanaler..."
+            
+            withContext(Dispatchers.IO) {
+                _repository.syncLiveChannels(creds.second, creds.third)
+                val liveData = _repository.getJustCategories(MediaType.LIVE, creds.second, creds.third, forceRefresh = true)
+                val allFavs = mediaDao.getFavorites()
+                
+                withContext(Dispatchers.Main) {
+                    val favsForType = allFavs.filter { it.type == MediaType.LIVE }.map { it.toMediaSource() }
+                    uiState = uiState.copy(
+                        liveCategories = listOf(
+                            GroupedMedia(title = "📺 ALLA KANALER", categoryId = "ALL_CHANNELS", items = emptyList()),
+                            GroupedMedia(title = "⭐ FAVORITER", categoryId = "FAVORITES", items = favsForType)
+                        ) + liveData
+                    )
+                    loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
+                }
+            }
+            
+            isUpdatingBackground = false
+            updateStatus = "TV-kanaler uppdaterade!"
+            delay(2000)
+            updateStatus = null
+        }
+    }
+
+    fun refreshVodLibrary() {
+        viewModelScope.launch {
+            val creds = sessionManager.getLogin() ?: return@launch
+            isUpdatingBackground = true
+            updateStatus = "Uppdaterar film & serier..."
+            
+            withContext(Dispatchers.IO) {
+                _repository.syncVodLibrary(creds.second, creds.third)
+                val movieData = _repository.getJustCategories(MediaType.MOVIE, creds.second, creds.third, forceRefresh = true)
+                val seriesData = _repository.getJustCategories(MediaType.SERIES, creds.second, creds.third, forceRefresh = true)
+                val allFavs = mediaDao.getFavorites()
+                val history = sessionManager.getHistory()
+
+                withContext(Dispatchers.Main) {
+                    fun List<GroupedMedia>.withExtras(type: MediaType): List<GroupedMedia> {
+                        val favsForType = allFavs.filter { it.type == type }.map { it.toMediaSource() }
+                        val historyForType = history.filter { it.type == type }
+                        return listOf(
+                            GroupedMedia(title = "🕒 HISTORIK", categoryId = "HISTORY", items = historyForType),
+                            GroupedMedia(title = "⭐ FAVORITER", categoryId = "FAVORITES", items = favsForType)
+                        ) + this
+                    }
+
+                    uiState = uiState.copy(
+                        movieCategories = movieData.withExtras(MediaType.MOVIE),
+                        seriesCategories = seriesData.withExtras(MediaType.SERIES)
+                    )
+
+                    loadItemsForCategory(MediaType.MOVIE, movieData.firstOrNull()?.categoryId)
+                    loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
+                    
+                    _recentlyAdded.value = mediaDao.getRecentlyAdded().map { it.toMediaSource() }
+                }
+            }
+
+            isUpdatingBackground = false
+            updateStatus = "Film & serier uppdaterade!"
+            delay(2000)
+            updateStatus = null
+        }
+    }
+
     fun refreshEpgOnly() {
         viewModelScope.launch {
             val creds = sessionManager.getLogin() ?: return@launch

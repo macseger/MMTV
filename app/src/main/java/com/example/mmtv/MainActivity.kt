@@ -501,15 +501,13 @@ class MainActivity : ComponentActivity() {
                                         var autoPlayEnabled by remember { mutableStateOf(sessionManager.getAutoPlayNext()) }
                                         var useExternalEpg by remember { mutableStateOf(sessionManager.getUseExternalSwedishEpg()) }
                                         var useTunneling by remember { mutableStateOf(sessionManager.getUseTunneling()) }
-                                        var syncOnlyLive by remember { mutableStateOf(sessionManager.getSyncOnlyLive()) }
                                         
                                         SettingsScreen(
                                             username = loginInfo?.second ?: "Okänd",
                                             host = loginInfo?.first ?: "",
                                             autoPlayEnabled = autoPlayEnabled,
-                                            useExternalEpg = useExternalEpg,
+                                                useExternalEpg = useExternalEpg,
                                             useTunneling = useTunneling,
-                                            syncOnlyLive = syncOnlyLive,
                                             isUpdating = sharedViewModel.isUpdatingBackground,
                                             isCheckingForAppUpdate = sharedViewModel.isCheckingForAppUpdate,
                                             isAppUpToDate = sharedViewModel.isAppUpToDate,
@@ -522,7 +520,8 @@ class MainActivity : ComponentActivity() {
                                                     popUpTo("login") { inclusive = true }
                                                 }
                                             },
-                                            onRefreshLibrary = { sharedViewModel.refreshDataManually() },
+                                            onRefreshLibrary = { sharedViewModel.refreshVodLibrary() },
+                                            onRefreshTv = { sharedViewModel.refreshTvChannels() },
                                             onRefreshEpg = { sharedViewModel.refreshEpgOnly() },
                                             onExtractPicons = { sharedViewModel.extractPicons() },
                                             onOptimizeLibrary = { sharedViewModel.performOptimization() },
@@ -541,10 +540,6 @@ class MainActivity : ComponentActivity() {
                                             onToggleTunneling = { enabled ->
                                                 useTunneling = enabled
                                                 sessionManager.setUseTunneling(enabled)
-                                            },
-                                            onToggleSyncOnlyLive = { enabled ->
-                                                syncOnlyLive = enabled
-                                                sessionManager.setSyncOnlyLive(enabled)
                                             }
                                         )
                                     }

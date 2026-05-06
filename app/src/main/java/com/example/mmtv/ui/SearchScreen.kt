@@ -32,7 +32,9 @@ fun SearchScreen(
     val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+        if (viewModel.isTvMode) {
+            focusRequester.requestFocus()
+        }
     }
 
     Column(

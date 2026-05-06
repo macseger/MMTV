@@ -138,7 +138,7 @@ class MainActivity : ComponentActivity() {
                         val topBarLiveFocusRequester = remember { FocusRequester() }
                         
                         LaunchedEffect(Unit) {
-                            if (startDest == "home") {
+                            if (startDest == "home" && sharedViewModel.isTvMode) {
                                 topBarHomeFocusRequester.requestFocus()
                             }
                         }
@@ -283,6 +283,7 @@ class MainActivity : ComponentActivity() {
                                         PpvScreen(
                                             groupedList = ppvCategories,
                                             initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
+                                            isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index ->
                                                 sharedViewModel.lastPpvCategoryIndex = index
                                                 val category = ppvCategories.getOrNull(index)
@@ -308,6 +309,7 @@ class MainActivity : ComponentActivity() {
                                             initialCategoryIndex = sharedViewModel.lastLiveCategoryIndex,
                                             initialMediaId = sharedViewModel.selectedMedia?.id,
                                             isLive = true,
+                                            isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index ->
                                                 sharedViewModel.lastLiveCategoryIndex = index
                                                 val category = liveStreamsGrouped.getOrNull(index)
@@ -336,6 +338,7 @@ class MainActivity : ComponentActivity() {
                                         PpvScreen(
                                             groupedList = ppvCategories,
                                             initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
+                                            isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index ->
                                                 sharedViewModel.lastPpvCategoryIndex = index
                                                 val category = ppvCategories.getOrNull(index)
@@ -367,6 +370,7 @@ class MainActivity : ComponentActivity() {
                                             groupedList = movies,
                                             initialCategoryIndex = initialIndex,
                                             isLive = false,
+                                            isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastMovieCategoryIndex = index 
                                                 val category = movies.getOrNull(index)
@@ -391,6 +395,7 @@ class MainActivity : ComponentActivity() {
                                         PpvScreen(
                                             groupedList = ppvCategories,
                                             initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
+                                            isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index ->
                                                 sharedViewModel.lastPpvCategoryIndex = index
                                                 val category = ppvCategories.getOrNull(index)
@@ -422,6 +427,7 @@ class MainActivity : ComponentActivity() {
                                             groupedList = series,
                                             initialCategoryIndex = initialIndex,
                                             isLive = false,
+                                            isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastSeriesCategoryIndex = index 
                                                 val category = series.getOrNull(index)
@@ -446,6 +452,7 @@ class MainActivity : ComponentActivity() {
                                         PpvScreen(
                                             groupedList = ppvCategories,
                                             initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
+                                            isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index ->
                                                 sharedViewModel.lastPpvCategoryIndex = index
                                                 val category = ppvCategories.getOrNull(index)
@@ -509,8 +516,9 @@ class MainActivity : ComponentActivity() {
                                             username = loginInfo?.second ?: "Okänd",
                                             host = loginInfo?.first ?: "",
                                             autoPlayEnabled = autoPlayEnabled,
-                                                useExternalEpg = useExternalEpg,
+                                            useExternalEpg = useExternalEpg,
                                             useTunneling = useTunneling,
+                                            isTvMode = sharedViewModel.isTvMode,
                                             isUpdating = sharedViewModel.isUpdatingBackground,
                                             isCheckingForAppUpdate = sharedViewModel.isCheckingForAppUpdate,
                                             isAppUpToDate = sharedViewModel.isAppUpToDate,
@@ -543,6 +551,9 @@ class MainActivity : ComponentActivity() {
                                             onToggleTunneling = { enabled ->
                                                 useTunneling = enabled
                                                 sessionManager.setUseTunneling(enabled)
+                                            },
+                                            onToggleTvMode = { enabled ->
+                                                sharedViewModel.toggleTvMode(enabled)
                                             }
                                         )
                                     }

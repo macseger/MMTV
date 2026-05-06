@@ -140,6 +140,15 @@ class SessionManager(context: Context) {
         return prefs.getBoolean("sync_only_live", true)
     }
 
+    fun setTvMode(enabled: Boolean) {
+        prefs.edit { putBoolean("tv_mode", enabled) }
+    }
+
+    fun getTvMode(): Boolean {
+        // Vi sätter standardvärdet till true (TV-läge)
+        return prefs.getBoolean("tv_mode", true)
+    }
+
     // Serie-specifikt: Spara sista spelade avsnittet
     fun saveLastEpisodeId(seriesId: Int, episodeId: String) {
         prefs.edit { putString("last_ep_id_$seriesId", episodeId) }

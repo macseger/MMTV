@@ -48,6 +48,12 @@ class MediaViewModel(
         private set
 
     var isInPipMode by mutableStateOf(false)
+    var isTvMode by mutableStateOf(sessionManager.getTvMode())
+
+    fun toggleTvMode(enabled: Boolean) {
+        isTvMode = enabled
+        sessionManager.setTvMode(enabled)
+    }
 
     fun getOrInitializePlayer(): ExoPlayer {
         if (exoPlayer == null) {

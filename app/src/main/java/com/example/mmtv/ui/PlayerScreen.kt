@@ -36,6 +36,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import coil.compose.AsyncImage
 import androidx.media3.common.C
 import androidx.media3.common.Format
@@ -425,11 +429,78 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
     } else {
+        var dragOffsetY by remember { mutableStateOf(0f) }
+        var dragOffsetX by remember { mutableStateOf(0f) }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
-            .onKeyEvent { keyEvent ->
+                .pointerInput(Unit) {
+                    if (!viewModel.isTvMode) {
+                        detectTapGestures(
+                            onTap = {
+                                if (overlayState != OverlayState.NONE) {
+                                    overlayState = OverlayState.NONE
+                                } else {
+                                    if (media?.type == MediaType.LIVE) {
+                                        overlayState = OverlayState.QUICK_INFO
+                                    } else {
+                                        showSeekFeedback = !showSeekFeedback
+                                        if (showSeekFeedback) {
+                                            seekJob?.cancel()
+                                            seekJob = scope.launch { delay(5000); showSeekFeedback = false }
+                                        }
+                                    }
+                                }
+                            }
+                        )
+                    }
+                }
+                .pointerInput(Unit) {
+                    if (!viewModel.isTvMode) {
+                        detectVerticalDragGestures(
+                            onDragEnd = {
+                                if (media?.type == MediaType.LIVE && playlist.isNotEmpty()) {
+                                    val currentIndex = playlist.indexOfFirst { it.id == media.id }
+                                    if (dragOffsetY > 100) { // Swipe Down -> Previous
+                                        val prevIndex = if (currentIndex > 0) currentIndex - 1 else playlist.size - 1
+                                        onMediaSelected(playlist[prevIndex])
+                                    } else if (dragOffsetY < -100) { // Swipe Up -> Next
+                                        val nextIndex = if (currentIndex < playlist.size - 1) currentIndex + 1 else 0
+                                        onMediaSelected(playlist[nextIndex])
+                                    }
+                                }
+                                dragOffsetY = 0f
+                            },
+                            onVerticalDrag = { change, dragAmount ->
+                                change.consume()
+                                dragOffsetY += dragAmount
+                            }
+                        )
+                    }
+                }
+                .pointerInput(Unit) {
+                    if (!viewModel.isTvMode) {
+                        detectHorizontalDragGestures(
+                            onDragEnd = {
+                                if (media?.type != MediaType.LIVE) {
+                                    if (dragOffsetX > 100) { // Swipe Right -> Forward
+                                        performSeek(30000L)
+                                    } else if (dragOffsetX < -100) { // Swipe Left -> Backward
+                                        performSeek(-30000L)
+                                    }
+                                }
+                                dragOffsetX = 0f
+                            },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                dragOffsetX += dragAmount
+                            }
+                        )
+                    }
+                }
+                .onKeyEvent { keyEvent ->
                 // ... (Key handling logic)
                 val nativeEvent = keyEvent.nativeKeyEvent
                 when (nativeEvent.action) {

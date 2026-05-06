@@ -34,6 +34,7 @@ fun SettingsScreen(
     autoPlayEnabled: Boolean,
     useExternalEpg: Boolean,
     useTunneling: Boolean,
+    isTvMode: Boolean,
     isUpdating: Boolean,
     isCheckingForAppUpdate: Boolean,
     isAppUpToDate: Boolean,
@@ -50,7 +51,8 @@ fun SettingsScreen(
     onClearHistory: () -> Unit,
     onToggleAutoPlay: (Boolean) -> Unit,
     onToggleExternalEpg: (Boolean) -> Unit,
-    onToggleTunneling: (Boolean) -> Unit
+    onToggleTunneling: (Boolean) -> Unit,
+    onToggleTvMode: (Boolean) -> Unit
 ) {
     val firstButtonFocusRequester = remember { FocusRequester() }
     
@@ -67,7 +69,9 @@ fun SettingsScreen(
     }
 
     LaunchedEffect(Unit) {
-        firstButtonFocusRequester.requestFocus()
+        if (isTvMode) {
+            firstButtonFocusRequester.requestFocus()
+        }
     }
 
     Box(modifier = Modifier
@@ -206,6 +210,16 @@ fun SettingsScreen(
             }
 
             item { SectionHeader(stringResource(R.string.section_system)) }
+
+            item {
+                SettingsAction(
+                    title = if (isTvMode) "TV-läge" else "Telefon-läge",
+                    subtitle = if (isTvMode) "Anpassat för fjärrkontroll" else "Anpassat för pekskärm",
+                    icon = if (isTvMode) Icons.Default.Tv else Icons.Default.Smartphone,
+                    value = if (isTvMode) "TV" else "MOBIL",
+                    onClick = { onToggleTvMode(!isTvMode) }
+                )
+            }
 
             item {
                 val title = when {

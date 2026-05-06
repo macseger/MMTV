@@ -430,7 +430,9 @@ fun DetailsScreen(
         )
         
         LaunchedEffect(Unit) {
-            continueFocusRequester.requestFocus()
+            if (viewModel.isTvMode) {
+                continueFocusRequester.requestFocus()
+            }
         }
     }
 }

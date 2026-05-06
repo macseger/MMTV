@@ -56,6 +56,7 @@ fun MediaListScreen(
     initialCategoryIndex: Int = 0,
     initialMediaId: Int? = null,
     isLive: Boolean = true, // Explicitly pass if it's Live TV or VOD
+    isTvMode: Boolean = true,
     onCategoryChanged: (Int) -> Unit = {},
     onMediaSelected: (MediaSource) -> Unit,
     onToggleFavorite: (MediaSource) -> Unit = {},
@@ -96,16 +97,18 @@ fun MediaListScreen(
         selectedCategoryIndex = initialCategoryIndex
         debouncedCategoryIndex = initialCategoryIndex
 
-        if (initialMediaId != null && isLive) {
-            val index = selectedCategory?.items?.indexOfFirst { it.id == initialMediaId } ?: -1
-            if (index != -1) {
-                listState.scrollToItem(index)
-                channelFocusRequesters[initialMediaId]?.requestFocus()
+        if (isTvMode) {
+            if (initialMediaId != null && isLive) {
+                val index = selectedCategory?.items?.indexOfFirst { it.id == initialMediaId } ?: -1
+                if (index != -1) {
+                    listState.scrollToItem(index)
+                    channelFocusRequesters[initialMediaId]?.requestFocus()
+                } else {
+                    categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+                }
             } else {
                 categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
             }
-        } else {
-            categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
         }
     }
 

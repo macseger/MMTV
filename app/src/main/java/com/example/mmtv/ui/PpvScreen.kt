@@ -34,6 +34,7 @@ import com.example.mmtv.model.MediaSource
 fun PpvScreen(
     groupedList: List<GroupedMedia>,
     initialCategoryIndex: Int = 0,
+    isTvMode: Boolean = true,
     onCategoryChanged: (Int) -> Unit = {},
     onMediaSelected: (MediaSource) -> Unit,
     onGetIcon: suspend (Int, String?) -> String? = { _, _ -> null },
@@ -61,7 +62,9 @@ fun PpvScreen(
         delay(100)
         selectedCategoryIndex = initialCategoryIndex
         debouncedCategoryIndex = initialCategoryIndex
-        categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+        if (isTvMode) {
+            categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+        }
     }
 
     LaunchedEffect(debouncedCategoryIndex) {

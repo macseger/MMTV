@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Ändrat till ett mörkt tema för att slippa vit startskärm -->
-    <style name="Theme.MMTV" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.MMTV" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">#000000</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowFullscreen">true</item>

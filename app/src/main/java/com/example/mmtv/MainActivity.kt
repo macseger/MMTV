@@ -1,7 +1,7 @@
 package com.example.mmtv
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
@@ -50,7 +50,7 @@ import java.util.concurrent.TimeUnit
 import android.app.PictureInPictureParams
 import android.util.Rational
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     private lateinit var sharedViewModel: MediaViewModel
 

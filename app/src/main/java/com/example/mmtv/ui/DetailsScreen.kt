@@ -47,6 +47,44 @@ fun DetailsScreen(
     val isSeries = media.type == MediaType.SERIES
     val seriesInfo = viewModel.selectedSeriesInfo
     val movieInfo = viewModel.selectedMovieInfo
+    val lastWatchedEpId = remember(media.id) { sessionManager.getLastEpisodeId(media.id) }
+
+    val continueData = remember(seriesInfo, lastWatchedEpId) {
+        if (!isSeries || seriesInfo?.episodes == null || seriesInfo.episodes.isEmpty()) return@remember null
+        
+        var foundEp: Episode? = null
+        var foundSeason: String? = null
+        var foundIndex: Int = -1
+        
+        if (lastWatchedEpId != null) {
+            for ((sKey, episodes) in seriesInfo.episodes) {
+                val idx = episodes.indexOfFirst { it.id == lastWatchedEpId }
+                if (idx != -1) {
+                    foundEp = episodes[idx]
+                    foundSeason = sKey
+                    foundIndex = idx + 1
+                    break
+                }
+            }
+        }
+        
+        if (foundEp == null) {
+            val sortedSeasons = seriesInfo.episodes.keys.sortedBy { it.toIntOrNull() ?: 999 }
+            val firstSeasonKey = sortedSeasons.firstOrNull()
+            if (firstSeasonKey != null) {
+                val firstEp = seriesInfo.episodes[firstSeasonKey]?.firstOrNull()
+                if (firstEp != null) {
+                    foundEp = firstEp
+                    foundSeason = firstSeasonKey
+                    foundIndex = 1
+                }
+            }
+        }
+        
+        if (foundEp != null) {
+            Triple(foundEp, foundSeason, foundIndex)
+        } else null
+    }
 
     val currentPlot = if (isSeries) (seriesInfo?.info?.plot ?: media.plot) else (movieInfo?.info?.plot ?: media.plot)
     val currentRating = if (isSeries) (seriesInfo?.info?.rating ?: media.rating) else (movieInfo?.info?.rating ?: media.rating)
@@ -213,6 +251,31 @@ fun DetailsScreen(
                                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text("SPELA FILM", style = MaterialTheme.typography.titleMedium)
+                                }
+                            } else if (continueData != null) {
+                                val (ep, sNum, eNum) = continueData
+                                val btnText = if (lastWatchedEpId == null) "SPELA AVSNITT 1" 
+                                              else "FORTSÄTT (S$sNum A$eNum)"
+                                
+                                var playBtnFocus by remember { mutableStateOf(false) }
+                                Button(
+                                    onClick = { 
+                                        val pos = sessionManager.getPlaybackPosition(ep.id ?: "0")
+                                        if (pos > 10000) {
+                                            showResumeDialog = ResumeData(null, ep, pos)
+                                        } else {
+                                            onPlayEpisode(ep, false)
+                                        }
+                                    },
+                                    modifier = Modifier.height(56.dp).onFocusChanged { playBtnFocus = it.isFocused },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (playBtnFocus) Color.White else MaterialTheme.colorScheme.primary,
+                                        contentColor = if (playBtnFocus) Color.Black else Color.White
+                                    )
+                                ) {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(btnText, style = MaterialTheme.typography.titleMedium)
                                 }
                             }
 

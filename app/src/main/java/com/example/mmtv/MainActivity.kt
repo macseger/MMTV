@@ -478,6 +478,9 @@ class MainActivity : ComponentActivity() {
                                                         val streamUrl = "${h}/series/${u}/${p}/${ep.id}.${ep.containerExtension ?: "mp4"}"
                                                         val encodedUrl = URLEncoder.encode(streamUrl, StandardCharsets.UTF_8.toString())
                                                         
+                                                        // Spara att detta var det senaste avsnittet vi tittade på i denna serie
+                                                        sessionManager.saveLastEpisodeId(media.id, ep.id ?: "0")
+                                                        
                                                         // VIKTIGT: Vi sparar vilket avsnitt som spelas i ViewModel
                                                         // men vi låter selectedMedia vara kvar som serien så att
                                                         // DetailsScreen inte tappar bort sig vid bakåtnavigering.

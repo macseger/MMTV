@@ -140,6 +140,15 @@ class SessionManager(context: Context) {
         return prefs.getBoolean("sync_only_live", true)
     }
 
+    // Serie-specifikt: Spara sista spelade avsnittet
+    fun saveLastEpisodeId(seriesId: Int, episodeId: String) {
+        prefs.edit { putString("last_ep_id_$seriesId", episodeId) }
+    }
+
+    fun getLastEpisodeId(seriesId: Int): String? {
+        return prefs.getString("last_ep_id_$seriesId", null)
+    }
+
     // Historikhantering
     fun addToHistory(media: MediaSource, episode: Episode? = null) {
         val history = getHistory().toMutableList()

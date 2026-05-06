@@ -1,5 +1,5 @@
 [versions]
-agp = "9.2.0"
+agp = "9.2.1"
 coreKtx = "1.15.0"
 junit = "4.13.2"
 junitVersion = "1.2.1"
@@ -18,7 +18,7 @@ tvMaterial = "1.0.0"
 coreSplashScreen = "1.0.1"
 securityCrypto = "1.1.0"
 workRuntimeKtx = "2.11.2"
-ksp = "2.2.10-2.0.2"
+ksp = "2.3.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

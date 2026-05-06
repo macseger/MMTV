@@ -95,20 +95,20 @@ fun SettingsScreen(
 
             item {
                 SettingsAction(
-                    title = stringResource(R.string.refresh_library),
-                    subtitle = stringResource(R.string.refresh_library_sub),
-                    icon = Icons.Default.Movie,
+                    title = stringResource(R.string.sync_only_live),
+                    subtitle = stringResource(R.string.sync_only_live_sub),
+                    icon = Icons.Default.LiveTv,
                     modifier = Modifier.focusRequester(firstButtonFocusRequester),
-                    onClick = onRefreshLibrary
+                    onClick = onRefreshTv
                 )
             }
 
             item {
                 SettingsAction(
-                    title = stringResource(R.string.sync_only_live),
-                    subtitle = stringResource(R.string.sync_only_live_sub),
-                    icon = Icons.Default.LiveTv,
-                    onClick = onRefreshTv
+                    title = stringResource(R.string.refresh_library),
+                    subtitle = stringResource(R.string.refresh_library_sub),
+                    icon = Icons.Default.Movie,
+                    onClick = onRefreshLibrary
                 )
             }
 

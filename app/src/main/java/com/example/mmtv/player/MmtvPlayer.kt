@@ -49,15 +49,15 @@ class MmtvPlayer(private val context: Context) {
                 .build()
         }
 
-        //DataSource factory med User-Agent VLC för att matcha ApiClient och hjälpa vissa servrar att leverera rätt format/encoding
+        // DataSource factory med User-Agent TiviMate - servrar är ofta extremt optimerade för denna UA
         val dataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("VLC")
+            .setUserAgent("TiviMate/5.1.0 (Linux; Android 11)")
             .setAllowCrossProtocolRedirects(true)
 
         val player = ExoPlayer.Builder(context, renderersFactory)
             .setTrackSelector(trackSelector)
             .setMediaSourceFactory(
-                DefaultMediaSourceFactory(context, DefaultExtractorsFactory())
+                DefaultMediaSourceFactory(context)
                     .setDataSourceFactory(dataSourceFactory)
                     .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             )

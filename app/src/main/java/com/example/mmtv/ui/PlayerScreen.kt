@@ -406,10 +406,15 @@ fun PlayerScreen(
                     useController = false
                     keepScreenOn = true
                     // Anpassa undertexternas utseende och tvinga dem att använda systemets inställningar
-                    // vilket ofta löser problem med teckenkodning och saknade glyphs.
+                    // vilket ofta löser problem med teckenkodning och saknade glyphs på Android TV.
                     subtitleView?.apply {
-                        setApplyEmbeddedStyles(false) // Ignorera inbäddad styling för att undvika konstiga encoding-krockar
+                        setApplyEmbeddedStyles(false)
+                        setUserDefaultStyle()
+                        setUserDefaultTextSize()
                         setBottomPaddingFraction(0.1f)
+                        // Tvinga CANVAS-rendering istället för WEB (som är standard i Media3)
+                        // WEB-motorn är strikt med UTF-8, medan CANVAS är mer förlåtande.
+                        setViewType(androidx.media3.ui.SubtitleView.VIEW_TYPE_CANVAS)
                     }
                 } 
             },
@@ -577,10 +582,15 @@ fun PlayerScreen(
                     useController = false
                     keepScreenOn = true
                     // Anpassa undertexternas utseende och tvinga dem att använda systemets inställningar
-                    // vilket ofta löser problem med teckenkodning och saknade glyphs.
+                    // vilket ofta löser problem med teckenkodning och saknade glyphs på Android TV.
                     subtitleView?.apply {
-                        setApplyEmbeddedStyles(false) // Ignorera inbäddad styling för att undvika konstiga encoding-krockar
+                        setApplyEmbeddedStyles(false)
+                        setUserDefaultStyle()
+                        setUserDefaultTextSize()
                         setBottomPaddingFraction(0.1f)
+                        // Tvinga CANVAS-rendering istället för WEB (som är standard i Media3)
+                        // WEB-motorn är strikt med UTF-8, medan CANVAS är mer förlåtande.
+                        setViewType(androidx.media3.ui.SubtitleView.VIEW_TYPE_CANVAS)
                     }
                 } 
             },

@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -151,13 +152,15 @@ fun DetailsScreen(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(48.dp)
+            contentPadding = PaddingValues(top = 48.dp, bottom = 80.dp, start = 48.dp, end = 48.dp)
         ) {
             item {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                    // Ytterligare minskning av omslaget för att ge mer plats åt info och listor
                     Card(
-                        modifier = Modifier.width(260.dp).aspectRatio(0.7f),
-                        elevation = CardDefaults.cardElevation(16.dp)
+                        modifier = Modifier.width(180.dp).aspectRatio(0.67f),
+                        elevation = CardDefaults.cardElevation(16.dp),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A)), contentAlignment = Alignment.Center) {
                             AsyncImage(
@@ -176,56 +179,66 @@ fun DetailsScreen(
                         Text(
                             text = media.title ?: "Okänd titel",
                             style = MaterialTheme.typography.headlineLarge.copy(
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 42.sp
+                                fontWeight = FontWeight.Black,
+                                fontSize = 36.sp,
+                                letterSpacing = (-0.5).sp
                             ),
-                            color = Color.White
+                            color = Color.White,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
                         )
                         
                         Row(
-                            modifier = Modifier.padding(vertical = 8.dp),
+                            modifier = Modifier.padding(vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            if (!currentRating.isNullOrEmpty()) {
-                                Surface(color = Color(0xFFFFD700), shape = MaterialTheme.shapes.small) {
+                            if (!currentRating.isNullOrEmpty() && currentRating != "0.0") {
+                                Surface(
+                                    color = Color(0xFFFFD700), 
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
                                     Text(
                                         text = " ★ $currentRating ",
-                                        style = MaterialTheme.typography.labelLarge,
+                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                                         color = Color.Black,
-                                        modifier = Modifier.padding(4.dp)
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
                             }
-                            Text(text = currentGenre ?: "VOD", color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                text = currentGenre ?: "VOD", 
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium)
+                            )
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
-                        
                         Text(
                             text = if (viewModel.isDetailsLoading && currentPlot == null) "Laddar info..." else (currentPlot ?: "Ingen beskrivning tillgänglig."),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Color.White.copy(alpha = 0.8f),
-                            maxLines = 6
+                            style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 26.sp),
+                            color = Color.White.copy(alpha = 0.7f),
+                            maxLines = 5,
+                            overflow = TextOverflow.Ellipsis
                         )
 
-                        if (!currentDirector.isNullOrEmpty()) {
-                            Text(
-                                text = "Regissör: $currentDirector",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = Color.Gray,
-                                modifier = Modifier.padding(top = 8.dp)
-                            )
-                        }
-                        if (!currentCast.isNullOrEmpty()) {
-                            Text(
-                                text = "Skådespelare: $currentCast",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray,
-                                modifier = Modifier.padding(top = 4.dp),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                        if (!currentDirector.isNullOrEmpty() || !currentCast.isNullOrEmpty()) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            if (!currentDirector.isNullOrEmpty()) {
+                                Text(
+                                    text = "Regissör: $currentDirector",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray
+                                )
+                            }
+                            if (!currentCast.isNullOrEmpty()) {
+                                Text(
+                                    text = "Skådespelare: $currentCast",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color.Gray,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(32.dp))
@@ -242,7 +255,8 @@ fun DetailsScreen(
                                             onPlayMovie(media, false)
                                         }
                                     },
-                                    modifier = Modifier.height(56.dp).width(200.dp).onFocusChanged { playBtnFocus = it.isFocused },
+                                    modifier = Modifier.height(52.dp).width(200.dp).onFocusChanged { playBtnFocus = it.isFocused },
+                                    shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = if (playBtnFocus) Color.White else MaterialTheme.colorScheme.primary,
                                         contentColor = if (playBtnFocus) Color.Black else Color.White
@@ -250,7 +264,7 @@ fun DetailsScreen(
                                 ) {
                                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("SPELA FILM", style = MaterialTheme.typography.titleMedium)
+                                    Text("SPELA FILM", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                                 }
                             } else if (continueData != null) {
                                 val (ep, sNum, eNum) = continueData
@@ -267,7 +281,8 @@ fun DetailsScreen(
                                             onPlayEpisode(ep, false)
                                         }
                                     },
-                                    modifier = Modifier.height(56.dp).onFocusChanged { playBtnFocus = it.isFocused },
+                                    modifier = Modifier.height(52.dp).onFocusChanged { playBtnFocus = it.isFocused },
+                                    shape = RoundedCornerShape(12.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = if (playBtnFocus) Color.White else MaterialTheme.colorScheme.primary,
                                         contentColor = if (playBtnFocus) Color.Black else Color.White
@@ -275,7 +290,7 @@ fun DetailsScreen(
                                 ) {
                                     Icon(Icons.Default.PlayArrow, contentDescription = null)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text(btnText, style = MaterialTheme.typography.titleMedium)
+                                    Text(btnText, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
                                 }
                             }
 
@@ -283,20 +298,28 @@ fun DetailsScreen(
                             var favBtnFocus by remember { mutableStateOf(false) }
                             OutlinedButton(
                                 onClick = { onToggleFavorite(media) },
-                                modifier = Modifier.height(56.dp).onFocusChanged { favBtnFocus = it.isFocused },
+                                modifier = Modifier.height(52.dp).onFocusChanged { favBtnFocus = it.isFocused },
+                                shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(
                                     containerColor = if (favBtnFocus) Color.White.copy(alpha = 0.1f) else Color.Transparent,
                                     contentColor = if (favBtnFocus) Color.White else Color.Gray
                                 ),
-                                border = if (favBtnFocus) ButtonDefaults.outlinedButtonBorder.copy(brush = Brush.linearGradient(listOf(Color.White, Color.White))) else ButtonDefaults.outlinedButtonBorder
+                                border = androidx.compose.foundation.BorderStroke(
+                                    2.dp, 
+                                    if (favBtnFocus) Color.White else Color.White.copy(alpha = 0.2f)
+                                )
                             ) {
                                 Icon(
                                     imageVector = if (media.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                     contentDescription = null,
-                                    tint = if (media.isFavorite) Color.Red else if (favBtnFocus) Color.White else Color.Gray
+                                    tint = if (media.isFavorite) Color.Red else if (favBtnFocus) Color.White else Color.Gray,
+                                    modifier = Modifier.size(20.dp)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text(if (media.isFavorite) "FAVORIT" else "LÄGG TILL", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    if (media.isFavorite) "FAVORIT" else "LÄGG TILL", 
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                )
                             }
                         }
                     }
@@ -304,11 +327,11 @@ fun DetailsScreen(
             }
 
             if (isSeries) {
-                item { Spacer(modifier = Modifier.height(32.dp)) }
+                item { Spacer(modifier = Modifier.height(48.dp)) }
                 
                 if (viewModel.isDetailsLoading) {
                     item {
-                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
                     }
@@ -317,13 +340,14 @@ fun DetailsScreen(
                     item {
                         Text(
                             text = "SÄSONGER",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Color.Gray,
-                            modifier = Modifier.padding(bottom = 8.dp)
+                            style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(bottom = 16.dp)
                         )
                         LazyRow(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = PaddingValues(bottom = 8.dp)
                         ) {
                             // Vi försöker använda 'seasons' listan för ordning och namn, annars 'episodes' nycklar
                             val seasonList = if (seriesInfo.seasons != null && seriesInfo.seasons.isNotEmpty()) {

@@ -57,8 +57,11 @@ import kotlinx.coroutines.delay
 fun CastButton(modifier: Modifier = Modifier) {
     AndroidView(
         factory = { context ->
-            MediaRouteButton(context).apply {
-                CastButtonFactory.setUpMediaRouteButton(context, this)
+            // Use a ContextThemeWrapper to provide a non-translucent background theme
+            // which MediaRouteButton needs for contrast calculations.
+            val themedContext = android.view.ContextThemeWrapper(context, androidx.appcompat.R.style.Theme_AppCompat_NoActionBar)
+            MediaRouteButton(themedContext).apply {
+                CastButtonFactory.setUpMediaRouteButton(themedContext, this)
             }
         },
         modifier = modifier

@@ -684,6 +684,13 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        // --- PHONE MODE CAST BUTTON ---
+        if (!viewModel.isTvMode) {
+            Box(modifier = Modifier.fillMaxSize().padding(32.dp)) {
+                CastButton(modifier = Modifier.size(40.dp).align(Alignment.TopEnd))
+            }
+        }
+
         // --- VOD CONTROL OVERLAY ---
         AnimatedVisibility(
             visible = (showSeekFeedback || !isPlaying) && media?.type != MediaType.LIVE,
@@ -700,6 +707,7 @@ fun PlayerScreen(
                 seekMessage = seekMessage,
                 availableSubtitles = availableSubtitles,
                 subtitleIconFocusRequester = subtitleIconFocusRequester,
+                isTvMode = viewModel.isTvMode,
                 onToggleSubtitles = { overlayState = OverlayState.SUBTITLES }
             )
         }
@@ -918,6 +926,7 @@ fun VodControlOverlay(
     seekMessage: String,
     availableSubtitles: List<Tracks.Group>,
     subtitleIconFocusRequester: FocusRequester,
+    isTvMode: Boolean = true,
     onToggleSubtitles: () -> Unit
 ) {
     Box(
@@ -1064,8 +1073,13 @@ fun VodControlOverlay(
                     )
                 }
 
-                // Subtitles Button
-                var isSubFocused by remember { mutableStateOf(false) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (!isTvMode) {
+                        CastButton(modifier = Modifier.size(40.dp).padding(end = 16.dp))
+                    }
+
+                    // Subtitles Button
+                    var isSubFocused by remember { mutableStateOf(false) }
                 Surface(
                     onClick = onToggleSubtitles,
                     modifier = Modifier
@@ -1093,6 +1107,7 @@ fun VodControlOverlay(
                         )
                     }
                 }
+            }
             }
             
             Spacer(modifier = Modifier.height(16.dp))

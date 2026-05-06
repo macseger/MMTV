@@ -78,6 +78,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        // Initialize CastContext
+        try {
+            com.google.android.gms.cast.framework.CastContext.getSharedInstance(this)
+        } catch (e: Exception) {}
+
         enableEdgeToEdge()
         
         setContent {

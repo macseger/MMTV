@@ -37,6 +37,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.mediarouter.app.MediaRouteButton
+import com.google.android.gms.cast.framework.CastButtonFactory
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.mmtv.model.EpgListing
@@ -49,6 +52,18 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.*
 import kotlinx.coroutines.delay
+
+@Composable
+fun CastButton(modifier: Modifier = Modifier) {
+    AndroidView(
+        factory = { context ->
+            MediaRouteButton(context).apply {
+                CastButtonFactory.setUpMediaRouteButton(context, this)
+            }
+        },
+        modifier = modifier
+    )
+}
 
 @Composable
 fun TechnicalTag(text: String) {

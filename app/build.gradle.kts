@@ -84,6 +84,9 @@ dependencies {
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.media3.cast)
+    implementation(libs.play.services.cast.framework)
+    implementation(libs.androidx.mediarouter)
 
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)

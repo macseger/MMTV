@@ -1,6 +1,7 @@
 package com.example.mmtv.ui.components
 
 import android.view.KeyEvent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -14,7 +15,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -267,12 +267,14 @@ fun CategoryListItem(title: String, isSelected: Boolean, modifier: Modifier = Mo
 }
 
 @Composable
-fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaViewModel, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaViewModel, now: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
     var hasFocus by remember { mutableStateOf(false) }
     val context = LocalContext.current
     
-    // Hämta EPG direkt från ViewModel (den lyssnar på fullEpgData internt)
-    val epg = viewModel.getEpgForId(item.id, item.title)
+    // Optimering: Använd produceState för att undvika side-effects i kompositionen
+    val epg by produceState<EpgListing?>(initialValue = null, key1 = item.id) {
+        value = viewModel.getEpgForId(item.id, item.title)
+    }
 
     val backgroundColor by animateColorAsState(
         targetValue = when {
@@ -338,18 +340,18 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                     overflow = TextOverflow.Ellipsis
                 )
                 
-                if (epg != null) {
+                val currentEpg = epg
+                if (currentEpg != null) {
                     Text(
-                        text = epg.title ?: "", 
+                        text = currentEpg.title ?: "", 
                         style = MaterialTheme.typography.bodySmall, 
                         color = if (hasFocus) Color.White else Color.LightGray, 
                         maxLines = 1, 
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    val now = System.currentTimeMillis() / 1000
-                    val start = epg.startTimestamp ?: 0L
-                    val stop = epg.stopTimestamp ?: 0L
+                    val start = currentEpg.startTimestamp ?: 0L
+                    val stop = currentEpg.stopTimestamp ?: 0L
                     if (now in start..stop) {
                         val progress = (now - start).toFloat() / (stop - start).toFloat()
                         LinearProgressIndicator(
@@ -507,7 +509,16 @@ fun QuickInfoOverlay(
     onFocusAction: () -> Unit,
     onBlurAction: () -> Unit
 ) {
-    val epg = produceState(initialValue = null as EpgListing?, key1 = media.id) {
+    // Ticker för att uppdatera klocka och framsteg
+    var currentTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(10000) // Uppdatera var 10:e sekund
+            currentTime = System.currentTimeMillis()
+        }
+    }
+
+    val epg = produceState(initialValue = null as EpgListing?, key1 = media.id, key2 = currentTime / 60000) {
         value = viewModel.getEpgForId(media.id, media.title)
     }.value
 
@@ -517,7 +528,9 @@ fun QuickInfoOverlay(
     
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     val dateFormatter = remember { DateTimeFormatter.ofPattern("EEE d MMM").withLocale(Locale("sv", "SE")).withZone(ZoneId.systemDefault()) }
-    val history = viewModel.uiState.history.filter { it.type == MediaType.LIVE }.take(10)
+    val history = remember(viewModel.uiState.history) { 
+        viewModel.uiState.history.filter { it.type == MediaType.LIVE }.take(10)
+    }
 
     Column(
         modifier = Modifier
@@ -541,7 +554,7 @@ fun QuickInfoOverlay(
             )
             
             Text(
-                text = "${dateFormatter.format(Instant.now())}  ${timeFormatter.format(Instant.now())}",
+                text = "${dateFormatter.format(Instant.ofEpochMilli(currentTime))}  ${timeFormatter.format(Instant.ofEpochMilli(currentTime))}",
                 style = MaterialTheme.typography.labelLarge,
                 color = Color.White.copy(alpha = 0.6f),
                 fontWeight = FontWeight.Bold
@@ -605,7 +618,7 @@ fun QuickInfoOverlay(
                     if (epg != null) {
                         val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
                         val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
-                        val now = System.currentTimeMillis() / 1000
+                        val now = currentTime / 1000
                         val duration = (epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0)
                         val elapsed = now - (epg.startTimestamp ?: 0)
                         val remaining = (epg.stopTimestamp ?: 0) - now
@@ -620,7 +633,7 @@ fun QuickInfoOverlay(
                             Box(modifier = Modifier.width(1.dp).height(12.dp).background(Color.Gray))
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "${remaining / 60} min kvar",
+                                text = "${(remaining / 60).coerceAtLeast(0)} min kvar",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -752,6 +765,37 @@ fun SideOverlay(
     onOverlayStateChange: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    if (isVisible) {
+        BackHandler {
+            if (overlayState == "CHANNELS") {
+                onOverlayStateChange("CATEGORIES")
+            } else {
+                onDismiss()
+            }
+        }
+    }
+
+    // Ticker för att uppdatera EPG-visning
+    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    LaunchedEffect(isVisible) {
+        if (isVisible) {
+            while (true) {
+                delay(30000)
+                now = System.currentTimeMillis() / 1000
+            }
+        }
+    }
+
+    // Hantera fokus när vi byter till kanallistan
+    LaunchedEffect(overlayState) {
+        if (overlayState == "CHANNELS" && isVisible) {
+            val selectedId = viewModel.selectedMedia?.id
+            if (selectedId != null) {
+                channelFocusRequesters[selectedId]?.requestFocus()
+            }
+        }
+    }
+
     AnimatedVisibility(
         visible = isVisible,
         enter = slideInHorizontally(
@@ -851,6 +895,7 @@ fun SideOverlay(
                                 item = item,
                                 isSelected = item.id == viewModel.selectedMedia?.id,
                                 viewModel = viewModel,
+                                now = now,
                                 modifier = Modifier
                                     .focusRequester(channelFocusRequesters.getOrPut(item.id) { FocusRequester() })
                                     .onFocusChanged { if (it.isFocused) onFocusedChannelChanged(item) }
@@ -884,8 +929,7 @@ fun SideOverlay(
                             }
                         }.value
                         
-                        val now = System.currentTimeMillis() / 1000
-                        val upcomingEpg = remember(fullEpg, focusedChannel) { 
+                        val upcomingEpg = remember(fullEpg, focusedChannel, now) { 
                             fullEpg.filter { (it.stopTimestamp ?: 0) > now } 
                         }
 
@@ -953,6 +997,8 @@ fun EpgModal(
     epgFocusRequester: FocusRequester,
     onClose: () -> Unit
 ) {
+    BackHandler { onClose() }
+    
     val fullEpg = produceState(initialValue = emptyList<EpgListing>(), key1 = media.id) {
         value = viewModel.getFullEpgForId(media.id, media.title)
     }.value
@@ -972,13 +1018,7 @@ fun EpgModal(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.85f))
-            .onKeyEvent { 
-                if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                    onClose()
-                    true
-                } else false
-            },
+            .background(Color.Black.copy(alpha = 0.85f)),
         contentAlignment = Alignment.Center
     ) {
         Card(
@@ -1027,18 +1067,21 @@ fun EpgModal(
                         CircularProgressIndicator()
                     }
                 } else {
-                    val now = System.currentTimeMillis() / 1000
-                    val futureEpg = remember(fullEpg) { fullEpg.filter { (it.stopTimestamp ?: 0) > now } }
+                    val futureEpg = remember(fullEpg) { 
+                        val nowTs = System.currentTimeMillis() / 1000
+                        fullEpg.filter { (it.stopTimestamp ?: 0) > nowTs } 
+                    }
                     
                     LazyColumn(
                         state = epgListState,
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        itemsIndexed(futureEpg, key = { _, epg -> "${epg.id}_${epg.startTimestamp}" }) { index, epg ->
+                        itemsIndexed(futureEpg, key = { _, epg -> "${epg.id ?: ""}_${epg.startTimestamp ?: 0}" }) { index, epg ->
                             var isItemFocused by remember { mutableStateOf(false) }
                             val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
                             val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
-                            val isCurrent = (epg.startTimestamp ?: 0) <= now && (epg.stopTimestamp ?: 0) > now
+                            val nowTs = System.currentTimeMillis() / 1000
+                            val isCurrent = (epg.startTimestamp ?: 0) <= nowTs && (epg.stopTimestamp ?: 0) > nowTs
                             
                             Surface(
                                 modifier = Modifier

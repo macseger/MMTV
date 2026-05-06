@@ -490,6 +490,18 @@ fun PlayerScreen(
                                     } else if (dragOffsetX < -100) { // Swipe Left -> Backward
                                         performSeek(-30000L)
                                     }
+                                } else {
+                                    // Live TV: Swipe Right to open channels
+                                    if (dragOffsetX > 100) {
+                                        overlayState = OverlayState.CHANNELS
+                                    } else if (dragOffsetX < -100) {
+                                        // Swipe Left to maybe close or show subtitles
+                                        if (overlayState == OverlayState.NONE) {
+                                            overlayState = OverlayState.SUBTITLES
+                                        } else {
+                                            overlayState = OverlayState.NONE
+                                        }
+                                    }
                                 }
                                 dragOffsetX = 0f
                             },

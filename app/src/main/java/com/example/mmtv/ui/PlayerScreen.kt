@@ -405,6 +405,12 @@ fun PlayerScreen(
                     player = exoPlayer
                     useController = false
                     keepScreenOn = true
+                    // Anpassa undertexternas utseende och tvinga dem att använda systemets inställningar
+                    // vilket ofta löser problem med teckenkodning och saknade glyphs.
+                    subtitleView?.apply {
+                        setApplyEmbeddedStyles(false) // Ignorera inbäddad styling för att undvika konstiga encoding-krockar
+                        setBottomPaddingFraction(0.1f)
+                    }
                 } 
             },
             update = { view -> 
@@ -570,6 +576,12 @@ fun PlayerScreen(
                     player = exoPlayer
                     useController = false
                     keepScreenOn = true
+                    // Anpassa undertexternas utseende och tvinga dem att använda systemets inställningar
+                    // vilket ofta löser problem med teckenkodning och saknade glyphs.
+                    subtitleView?.apply {
+                        setApplyEmbeddedStyles(false) // Ignorera inbäddad styling för att undvika konstiga encoding-krockar
+                        setBottomPaddingFraction(0.1f)
+                    }
                 } 
             },
             update = { view -> 

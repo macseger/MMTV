@@ -8,9 +8,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.extractor.DefaultExtractorsFactory
 import com.example.mmtv.api.SessionManager
 
 @OptIn(UnstableApi::class)
@@ -47,10 +49,16 @@ class MmtvPlayer(private val context: Context) {
                 .build()
         }
 
+        //DataSource factory med User-Agent VLC för att matcha ApiClient och hjälpa vissa servrar att leverera rätt format/encoding
+        val dataSourceFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("VLC")
+            .setAllowCrossProtocolRedirects(true)
+
         val player = ExoPlayer.Builder(context, renderersFactory)
             .setTrackSelector(trackSelector)
             .setMediaSourceFactory(
-                DefaultMediaSourceFactory(context)
+                DefaultMediaSourceFactory(context, DefaultExtractorsFactory())
+                    .setDataSourceFactory(dataSourceFactory)
                     .setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             )
             .setLoadControl(loadControl)

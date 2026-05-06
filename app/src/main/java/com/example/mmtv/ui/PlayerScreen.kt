@@ -491,9 +491,9 @@ fun PlayerScreen(
                                         performSeek(-30000L)
                                     }
                                 } else {
-                                    // Live TV: Swipe Right to open channels
+                                    // Live TV: Swipe Right to open categories/channels
                                     if (dragOffsetX > 100) {
-                                        overlayState = OverlayState.CHANNELS
+                                        overlayState = OverlayState.CATEGORIES
                                     } else if (dragOffsetX < -100) {
                                         // Swipe Left to maybe close or show subtitles
                                         if (overlayState == OverlayState.NONE) {

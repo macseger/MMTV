@@ -792,7 +792,10 @@ fun SideOverlay(
                                             true
                                         } else false
                                     },
-                                onClick = { onOverlayStateChange("CHANNELS") }
+                                onClick = { 
+                                    onCategorySelected(index)
+                                    onOverlayStateChange("CHANNELS") 
+                                }
                             )
                         }
                     }

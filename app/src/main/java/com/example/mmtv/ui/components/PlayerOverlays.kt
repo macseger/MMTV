@@ -53,6 +53,17 @@ import java.time.format.DateTimeFormatter
 import java.util.*
 import kotlinx.coroutines.delay
 
+data class EpgUiItem(
+    val id: String,
+    val title: String,
+    val description: String,
+    val startText: String,
+    val stopText: String,
+    val isCurrent: Boolean,
+    val startTimestamp: Long,
+    val stopTimestamp: Long
+)
+
 @Composable
 fun CastButton(modifier: Modifier = Modifier) {
     AndroidView(
@@ -137,7 +148,7 @@ fun RecentChannelButton(
     var isFocused by remember { mutableStateOf(false) }
     val context = LocalContext.current
     
-    val piconUrl = viewModel.getIconForId(item.id, item.title) ?: item.icon
+    val piconUrl = remember(item.id) { viewModel.getIconForId(item.id, item.title) ?: item.icon }
 
     val imageRequest = remember(piconUrl) {
         ImageRequest.Builder(context)
@@ -169,11 +180,10 @@ fun RecentChannelButton(
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
-                    .alpha(if (isFocused) 0.3f else 0.6f)
+                    .graphicsLayer { alpha = if (isFocused) 0.3f else 0.6f }
                     .padding(12.dp),
                 contentScale = ContentScale.Fit
             )
-            // ... (rest same)
             
             if (piconUrl == null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -264,8 +274,12 @@ fun CategoryListItem(title: String, isSelected: Boolean, viewModel: MediaViewMod
                 modifier = Modifier
                     .width(4.dp)
                     .height(24.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(if (isSelected || hasFocus) viewModel.currentThemeColor else Color.Transparent)
+                    .graphicsLayer {
+                        clip = true
+                        shape = RoundedCornerShape(2.dp)
+                        alpha = if (isSelected || hasFocus) 1f else 0f
+                    }
+                    .background(viewModel.currentThemeColor)
             )
             Text(
                 text = title, 
@@ -287,9 +301,8 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
     var hasFocus by remember { mutableStateOf(false) }
     val context = LocalContext.current
     
-    // Direktläsning från ViewModel-state för max prestanda
-    val epg = viewModel.getEpgForId(item.id, item.title)
-    val piconUrl = viewModel.getIconForId(item.id, item.title) ?: item.icon
+    val epg = remember(item.id, now) { viewModel.getEpgForId(item.id, item.title) }
+    val piconUrl = remember(item.id) { viewModel.getIconForId(item.id, item.title) ?: item.icon }
 
     val backgroundColor by animateColorAsState(
         targetValue = when {
@@ -297,17 +310,16 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
             isSelected -> viewModel.currentThemeColor.copy(alpha = 0.2f)
             else -> Color.Transparent
         }, 
-        animationSpec = tween(200),
+        animationSpec = tween(150),
         label = "chBg"
     )
     
     val scale by animateFloatAsState(
         targetValue = if (hasFocus) 1.03f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
         label = "chScale"
     )
 
-    // Optimering: Cacha ImageRequest
     val imageRequest = remember(piconUrl) {
         ImageRequest.Builder(context)
             .data(piconUrl)
@@ -338,7 +350,14 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                modifier = Modifier.size(60.dp).clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
+                modifier = Modifier
+                    .size(60.dp)
+                    .graphicsLayer {
+                        clip = true
+                        shape = RoundedCornerShape(6.dp)
+                    }
+                    .background(Color.White.copy(alpha = 0.05f))
+                    .padding(4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 AsyncImage(
@@ -363,18 +382,17 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                     overflow = TextOverflow.Ellipsis
                 )
                 
-                val currentEpg = epg
-                if (currentEpg != null) {
+                if (epg != null) {
                     Text(
-                        text = currentEpg.title ?: "", 
+                        text = epg.title ?: "", 
                         style = MaterialTheme.typography.bodyMedium, 
                         color = if (hasFocus) Color.White else Color.LightGray, 
                         maxLines = 1, 
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    val start = currentEpg.startTimestamp ?: 0L
-                    val stop = currentEpg.stopTimestamp ?: 0L
+                    val start = epg.startTimestamp ?: 0L
+                    val stop = epg.stopTimestamp ?: 0L
                     if (now in start..stop) {
                         val progress = (now - start).toFloat() / (stop - start).toFloat()
                         LinearProgressIndicator(
@@ -718,7 +736,7 @@ fun QuickInfoOverlay(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            item {
+            item(contentType = "action") {
                 ActionButton(
                     icon = Icons.Default.Menu,
                     label = "TV-guide",
@@ -735,7 +753,7 @@ fun QuickInfoOverlay(
                 )
             }
             
-            item {
+            item(contentType = "action") {
                 val isFav = favorites.any { it.id == media.id }
                 ActionButton(
                     icon = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -747,7 +765,11 @@ fun QuickInfoOverlay(
                 )
             }
 
-            itemsIndexed(history, key = { _, item -> "history_${item.id}" }) { _, historyItem ->
+            itemsIndexed(
+                items = history, 
+                key = { _, item -> "history_${item.id}" },
+                contentType = { _, _ -> "recent_channel" }
+            ) { _, historyItem ->
                 RecentChannelButton(
                     item = historyItem,
                     viewModel = viewModel,
@@ -873,7 +895,11 @@ fun SideOverlay(
                             .background(Color.Black.copy(alpha = 0.95f))
                             .padding(vertical = 16.dp, horizontal = 8.dp)
                     ) {
-                        itemsIndexed(categories, key = { index, category -> category.categoryId ?: "cat_$index" }) { index, category ->
+                        itemsIndexed(
+                            items = categories, 
+                            key = { index, category -> category.categoryId ?: "cat_$index" },
+                            contentType = { _, _ -> "category" }
+                        ) { index, category ->
                             val isSelected = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title == category.title
                             CategoryListItem(
                                 title = category.title ?: "",
@@ -932,7 +958,8 @@ fun SideOverlay(
                     ) {
                         itemsIndexed(
                             items = playlist, 
-                            key = { _, item -> item.id } // Använd stabilt ID som nyckel för bättre prestanda vid scroll
+                            key = { _, item -> item.id }, // Använd stabilt ID som nyckel för bättre prestanda vid scroll
+                            contentType = { _, _ -> "channel" }
                         ) { _, item ->
                             ChannelListItem(
                                 item = item,
@@ -990,7 +1017,11 @@ fun SideOverlay(
                                 modifier = Modifier.padding(bottom = 12.dp)
                             )
                             LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                                itemsIndexed(upcomingEpg, key = { _, epg -> "${epg.id}_${epg.startTimestamp}" }) { idx, epg ->
+                                itemsIndexed(
+                                    items = upcomingEpg, 
+                                    key = { _, epg -> "${epg.id}_${epg.startTimestamp}" },
+                                    contentType = { _, _ -> "mini_epg" }
+                                ) { idx, epg ->
                                     MiniProgramGuideItem(
                                         epg = epg,
                                         isCurrent = idx == 0 && (epg.startTimestamp ?: 0) <= now,
@@ -1047,9 +1078,27 @@ fun EpgModal(
     BackHandler { onClose() }
     
     val fullEpg = viewModel.getFullEpgForId(media.id, media.title)
-    
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
-    val piconUrl = viewModel.getIconForId(media.id, media.title) ?: media.icon
+    val piconUrl = remember(media.id) { viewModel.getIconForId(media.id, media.title) ?: media.icon }
+
+    // För-beräkna och formatera EPG-data för att undvika tungt jobb i listan
+    val formattedEpg = remember(fullEpg) {
+        val nowTs = System.currentTimeMillis() / 1000
+        fullEpg.filter { (it.stopTimestamp ?: 0) > nowTs }.map { epg ->
+            val startTs = epg.startTimestamp ?: 0L
+            val stopTs = epg.stopTimestamp ?: 0L
+            EpgUiItem(
+                id = "${epg.id ?: ""}_$startTs",
+                title = epg.title ?: "",
+                description = epg.description ?: "",
+                startText = timeFormatter.format(Instant.ofEpochSecond(startTs)),
+                stopText = timeFormatter.format(Instant.ofEpochSecond(stopTs)),
+                isCurrent = startTs <= nowTs && stopTs > nowTs,
+                startTimestamp = startTs,
+                stopTimestamp = stopTs
+            )
+        }
+    }
 
     LaunchedEffect(fullEpg) {
         if (fullEpg.isNotEmpty()) {
@@ -1076,7 +1125,7 @@ fun EpgModal(
             Column(modifier = Modifier.padding(24.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
-                        modifier = Modifier.size(50.dp).clip(MaterialTheme.shapes.small),
+                        modifier = Modifier.size(50.dp).graphicsLayer { clip = true; shape = RoundedCornerShape(8.dp) },
                         contentAlignment = Alignment.Center
                     ) {
                         AsyncImage(
@@ -1110,21 +1159,17 @@ fun EpgModal(
                         CircularProgressIndicator()
                     }
                 } else {
-                    val futureEpg = remember(fullEpg) { 
-                        val nowTs = System.currentTimeMillis() / 1000
-                        fullEpg.filter { (it.stopTimestamp ?: 0) > nowTs } 
-                    }
-                    
                     LazyColumn(
                         state = epgListState,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(bottom = 32.dp)
                     ) {
-                        itemsIndexed(futureEpg, key = { _, epg -> "${epg.id ?: ""}_${epg.startTimestamp ?: 0}" }) { index, epg ->
+                        itemsIndexed(
+                            items = formattedEpg, 
+                            key = { _, item -> item.id },
+                            contentType = { _, _ -> "epg_item" }
+                        ) { index, epg ->
                             var isItemFocused by remember { mutableStateOf(false) }
-                            val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
-                            val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
-                            val nowTs = System.currentTimeMillis() / 1000
-                            val isCurrent = (epg.startTimestamp ?: 0) <= nowTs && (epg.stopTimestamp ?: 0) > nowTs
                             
                             Surface(
                                 modifier = Modifier
@@ -1134,24 +1179,24 @@ fun EpgModal(
                                     .clickable { /* Focusable */ }
                                     .padding(vertical = 4.dp),
                                 color = if (isItemFocused) viewModel.currentThemeColor.copy(alpha = 0.25f)
-                                        else if (isCurrent) Color.White.copy(alpha = 0.05f)
+                                        else if (epg.isCurrent) Color.White.copy(alpha = 0.05f)
                                         else Color.Transparent,
                                 shape = MaterialTheme.shapes.medium
                             ) {
                                 Row(modifier = Modifier.padding(16.dp)) {
                                     Column(modifier = Modifier.width(120.dp)) {
-                                        Text(text = start, style = MaterialTheme.typography.titleMedium, color = if (isCurrent) viewModel.currentThemeColor else Color.White, fontWeight = FontWeight.Bold)
-                                        Text(text = stop, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                                        Text(text = epg.startText, style = MaterialTheme.typography.titleMedium, color = if (epg.isCurrent) viewModel.currentThemeColor else Color.White, fontWeight = FontWeight.Bold)
+                                        Text(text = epg.stopText, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                                     }
                                     
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = epg.title ?: "", 
+                                            text = epg.title, 
                                             style = MaterialTheme.typography.titleLarge, 
-                                            fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.Bold,
-                                            color = if (isCurrent) viewModel.currentThemeColor else Color.White
+                                            fontWeight = if (epg.isCurrent) FontWeight.ExtraBold else FontWeight.Bold,
+                                            color = if (epg.isCurrent) viewModel.currentThemeColor else Color.White
                                         )
-                                        if (!epg.description.isNullOrBlank()) {
+                                        if (epg.description.isNotBlank()) {
                                             Text(
                                                 text = epg.description, 
                                                 style = MaterialTheme.typography.bodyMedium, 

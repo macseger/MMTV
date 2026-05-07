@@ -5,21 +5,25 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
 import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.MediaSource
@@ -29,6 +33,105 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.*
 import kotlinx.coroutines.launch
+
+@Composable
+fun EpgPreviewSection(
+    focusedEpg: EpgListing?,
+    focusedChannel: MediaSource?,
+    viewModel: MediaViewModel
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(220.dp)
+            .background(Color(0xFF0A0A0A))
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        // Preview Window (Left)
+        Surface(
+            modifier = Modifier
+                .aspectRatio(16f / 9f)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
+            color = Color.Black
+        ) {
+            val exoPlayer = viewModel.exoPlayer
+            if (exoPlayer != null) {
+                AndroidView(
+                    factory = { ctx ->
+                        androidx.media3.ui.PlayerView(ctx).apply {
+                            player = exoPlayer
+                            useController = false
+                            layoutParams = android.view.ViewGroup.LayoutParams(
+                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.PlayArrow, null, tint = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.size(48.dp))
+                }
+            }
+        }
+
+        // Details (Right)
+        Column(modifier = Modifier.weight(1f)) {
+            if (focusedEpg != null) {
+                Text(
+                    text = focusedEpg.title ?: "",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Black,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                
+                val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
+                val start = Instant.ofEpochSecond(focusedEpg.startTimestamp ?: 0).atZone(ZoneId.systemDefault()).toLocalTime()
+                val stop = Instant.ofEpochSecond(focusedEpg.stopTimestamp ?: 0).atZone(ZoneId.systemDefault()).toLocalTime()
+                val duration = ((focusedEpg.stopTimestamp ?: 0) - (focusedEpg.startTimestamp ?: 0)) / 60
+                
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                    Text(
+                        text = "${start.format(timeFormatter)} - ${stop.format(timeFormatter)}",
+                        color = viewModel.currentThemeColor,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(text = "$duration min", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                    if (focusedChannel != null) {
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(text = focusedChannel.title ?: "", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = focusedEpg.description ?: "Ingen beskrivning tillgänglig.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.LightGray,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis
+                )
+            } else {
+                Text(
+                    text = focusedChannel?.title ?: "Välj ett program",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White,
+                    fontWeight = FontWeight.Black
+                )
+                Text("Ingen information tillgänglig", color = Color.Gray)
+            }
+        }
+    }
+}
 
 @Composable
 fun EpgGrid(
@@ -41,87 +144,155 @@ fun EpgGrid(
     
     val themeColor = viewModel.currentThemeColor
     val now = remember { System.currentTimeMillis() / 1000 }
-    
-    // Synkroniserad horisontell scroll för hela rutnätet
-    val horizontalScrollState = rememberScrollState()
+    val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
     
-    // Vi visar 24 timmar, startar för 2 timmar sedan för att se vad som precis slutat
-    val startTime = remember { ((now / 1800) * 1800) - 7200 } 
+    var focusedEpg by remember { mutableStateOf<EpgListing?>(null) }
+    var focusedChannel by remember { mutableStateOf<MediaSource?>(null) }
+
+    val horizontalScrollState = rememberScrollState()
+    
+    // Vi visar 24 timmar, startar för 1 timme sedan
+    val startTime = remember { ((now / 1800) * 1800) - 3600 } 
     val timeStep = 30 * 60 // 30 minuters block
     val totalSteps = 48 // 24 timmar
-    val pixelsPerMinute = 8f // Skala för bredd
+    val pixelsPerMinute = 12f // Skala för bredd (DP per minut)
     
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
     
     // Scrolla till nuvarande tid vid start
     LaunchedEffect(Unit) {
-        val initialScroll = (120 * pixelsPerMinute).toInt() // 120 minuter (2 timmar)
-        horizontalScrollState.scrollTo(initialScroll)
+        val initialScrollDp = (60 * pixelsPerMinute).dp
+        with(density) {
+            horizontalScrollState.scrollTo(initialScrollDp.toPx().toInt())
+        }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.98f))) {
-        Column {
-            // HEADER: Tidslinje (Följer med i horisontell scroll)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(60.dp)
-                    .background(Color(0xFF1A1A1A))
-                    .drawWithContent {
-                        drawContent()
-                        // Markör för "NU"
-                        val nowX = (now - startTime) / 60 * pixelsPerMinute
-                        drawLine(
-                            color = themeColor,
-                            start = androidx.compose.ui.geometry.Offset(nowX + 250f - horizontalScrollState.value, 0f),
-                            end = androidx.compose.ui.geometry.Offset(nowX + 250f - horizontalScrollState.value, 10000f),
-                            strokeWidth = 2.dp.toPx()
-                        )
-                    }
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF050505))) {
+        // 1. TOP SECTION: Preview & Info
+        EpgPreviewSection(focusedEpg = focusedEpg, focusedChannel = focusedChannel, viewModel = viewModel)
+
+        // 2. DATE & TIME BAR
+        val dateFormatter = remember { DateTimeFormatter.ofPattern("EEEE d MMMM", Locale("sv", "SE")) }
+        val dateText = remember(now) { Instant.ofEpochSecond(now).atZone(ZoneId.systemDefault()).format(dateFormatter) }
+        
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .background(Brush.verticalGradient(listOf(Color(0xFF1A1A1A), Color.Black)))
+                .padding(horizontal = 24.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = dateText.uppercase(),
+                color = Color.Gray,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = Instant.ofEpochSecond(now).atZone(ZoneId.systemDefault()).format(timeFormatter),
+                color = themeColor,
+                fontWeight = FontWeight.Black,
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
+
+        // 3. GRID HEADER: Timeline
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .background(Color(0xFF0F0F0F))
+        ) {
+            Box(
+                modifier = Modifier.width(300.dp).fillMaxHeight().background(Color.Black),
+                contentAlignment = Alignment.Center
             ) {
-                // Hörnbox (ovanför kanallogotyperna)
-                Box(
-                    modifier = Modifier.width(250.dp).fillMaxHeight().background(Color.Black),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("KANALER", color = themeColor, fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 2.sp)
-                }
-                
-                // Tidsskalan
-                Row(modifier = Modifier.horizontalScroll(horizontalScrollState, enabled = false)) {
-                    repeat(totalSteps) { i ->
-                        val time = Instant.ofEpochSecond(startTime + (i * timeStep))
-                            .atZone(ZoneId.systemDefault())
-                            .toLocalTime()
-                        
-                        Box(
-                            modifier = Modifier.width((30 * pixelsPerMinute).dp).fillMaxHeight(),
-                            contentAlignment = Alignment.CenterStart
-                        ) {
-                            Text(
-                                text = time.format(timeFormatter),
-                                color = if (i == 4) themeColor else Color.Gray,
-                                fontSize = 16.sp,
-                                fontWeight = if (i == 4) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.padding(start = 8.dp)
-                            )
-                        }
+                Text("KANALER", color = Color.DarkGray, fontWeight = FontWeight.Black, fontSize = 11.sp, letterSpacing = 2.sp)
+            }
+            
+            Row(modifier = Modifier.horizontalScroll(horizontalScrollState, enabled = false)) {
+                repeat(totalSteps) { i ->
+                    val timeTs = startTime + (i * timeStep)
+                    val time = Instant.ofEpochSecond(timeTs).atZone(ZoneId.systemDefault()).toLocalTime()
+                    val isNowBlock = now in timeTs until (timeTs + timeStep)
+                    
+                    Box(
+                        modifier = Modifier
+                            .width((30 * pixelsPerMinute).dp)
+                            .fillMaxHeight()
+                            .border(0.5.dp, Color.White.copy(alpha = 0.05f)),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Text(
+                            text = time.format(timeFormatter),
+                            color = if (isNowBlock) themeColor else Color.Gray,
+                            fontSize = 14.sp,
+                            fontWeight = if (isNowBlock) FontWeight.Bold else FontWeight.Normal,
+                            modifier = Modifier.padding(start = 12.dp)
+                        )
                     }
                 }
             }
-            
-            // GRID: Kanaler + Program
+        }
+        
+        // 4. GRID BODY: Channels + Programs
+        Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(channels) { channel ->
+                itemsIndexed(channels, key = { _, ch -> ch.id }) { index, channel ->
                     EpgRow(
+                        index = index + 1,
                         channel = channel,
                         viewModel = viewModel,
                         startTime = startTime,
                         themeColor = themeColor,
                         pixelsPerMinute = pixelsPerMinute,
                         horizontalScrollState = horizontalScrollState,
-                        onChannelSelected = onChannelSelected
+                        onChannelSelected = onChannelSelected,
+                        onProgramFocused = { epg -> 
+                            focusedEpg = epg
+                            focusedChannel = channel
+                            
+                            val progStart = epg.startTimestamp ?: 0L
+                            val progStop = epg.stopTimestamp ?: 0L
+                            val startDp = ((progStart - startTime) / 60 * pixelsPerMinute).dp
+                            val stopDp = ((progStop - startTime) / 60 * pixelsPerMinute).dp
+                            
+                            coroutineScope.launch {
+                                val currentScrollDp = with(density) { horizontalScrollState.value.toDp() }
+                                val viewportWidthDp = 1280.dp - 300.dp // Antagande HD bredd minus kanalerna
+                                
+                                if (startDp < (currentScrollDp + 10.dp)) {
+                                    horizontalScrollState.animateScrollTo(with(density) { (startDp - 10.dp).toPx().toInt() })
+                                } else if (stopDp > (currentScrollDp + viewportWidthDp - 10.dp)) {
+                                    horizontalScrollState.animateScrollTo(with(density) { (stopDp - viewportWidthDp + 10.dp).toPx().toInt() })
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+            
+            // "NU"-indikator
+            Canvas(modifier = Modifier.fillMaxSize().padding(start = 300.dp)) {
+                val nowX = (now - startTime).toFloat() / 60f * pixelsPerMinute
+                val scrollOffset = horizontalScrollState.value.toFloat()
+                val xPos = nowX * density.density - scrollOffset
+                
+                if (xPos >= 0 && xPos < size.width) {
+                    drawLine(
+                        color = themeColor,
+                        start = androidx.compose.ui.geometry.Offset(xPos, 0f),
+                        end = androidx.compose.ui.geometry.Offset(xPos, size.height),
+                        strokeWidth = 2.dp.toPx()
+                    )
+                    drawCircle(
+                        color = themeColor,
+                        radius = 4.dp.toPx(),
+                        center = androidx.compose.ui.geometry.Offset(xPos, 0f)
                     )
                 }
             }
@@ -131,13 +302,15 @@ fun EpgGrid(
 
 @Composable
 fun EpgRow(
+    index: Int,
     channel: MediaSource,
     viewModel: MediaViewModel,
     startTime: Long,
     themeColor: Color,
     pixelsPerMinute: Float,
     horizontalScrollState: ScrollState,
-    onChannelSelected: (MediaSource) -> Unit
+    onChannelSelected: (MediaSource) -> Unit,
+    onProgramFocused: (EpgListing) -> Unit
 ) {
     val epgList = viewModel.getFullEpgForId(channel.id, channel.title)
     val piconUrl = viewModel.getIconForId(channel.id, channel.title) ?: channel.icon
@@ -145,47 +318,67 @@ fun EpgRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(90.dp)
-            .border(0.5.dp, Color.White.copy(alpha = 0.05f))
+            .height(72.dp)
+            .border(0.5.dp, Color.White.copy(alpha = 0.03f))
     ) {
-        // Kanal-info (Fast vänsterkolumn)
         Surface(
             onClick = { onChannelSelected(channel) },
-            modifier = Modifier.width(250.dp).fillMaxHeight(),
-            color = Color(0xFF121212)
+            modifier = Modifier.width(300.dp).fillMaxHeight(),
+            color = Color.Black
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(horizontal = 16.dp)
             ) {
-                AsyncImage(
-                    model = piconUrl,
-                    contentDescription = null,
-                    modifier = Modifier.size(50.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.03f)),
-                    contentScale = ContentScale.Fit
+                Text(
+                    text = index.toString(),
+                    color = Color.Gray,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.width(30.dp)
                 )
-                Spacer(modifier = Modifier.width(16.dp))
+                
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Color.White.copy(alpha = 0.05f))
+                        .padding(4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AsyncImage(
+                        model = piconUrl,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit
+                    )
+                    if (piconUrl == null) {
+                        Icon(Icons.Default.Tv, null, tint = Color.DarkGray, modifier = Modifier.size(24.dp))
+                    }
+                }
+                
+                Spacer(modifier = Modifier.width(12.dp))
+                
                 Text(
                     text = channel.title ?: "",
                     color = Color.White,
                     fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
         }
         
-        // Program-slots
         Row(
             modifier = Modifier
                 .fillMaxHeight()
                 .horizontalScroll(horizontalScrollState, enabled = false)
-                .background(Color.Black)
+                .background(Color(0xFF080808))
         ) {
             if (epgList.isEmpty()) {
-                Box(modifier = Modifier.width(3000.dp).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
-                    Text("Ingen programinfo", color = Color.DarkGray, modifier = Modifier.padding(24.dp))
+                Box(modifier = Modifier.width(2000.dp).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
+                    Text("Ingen programinfo", color = Color.DarkGray, modifier = Modifier.padding(24.dp), fontSize = 14.sp)
                 }
             } else {
                 epgList.forEach { epg ->
@@ -193,14 +386,17 @@ fun EpgRow(
                     val progStop = epg.stopTimestamp ?: 0L
                     
                     if (progStop > startTime) {
-                        val durationMin = (progStop - (if (progStart < startTime) startTime else progStart)) / 60
+                        val displayStart = if (progStart < startTime) startTime else progStart
+                        val durationMin = (progStop - displayStart) / 60
                         val width = (durationMin * pixelsPerMinute).dp
 
                         if (width > 1.dp) {
                             ProgramBlock(
                                 epg = epg,
                                 width = width,
-                                themeColor = themeColor
+                                themeColor = themeColor,
+                                onFocused = onProgramFocused,
+                                onClick = { onChannelSelected(channel) }
                             )
                         }
                     }
@@ -211,54 +407,67 @@ fun EpgRow(
 }
 
 @Composable
-fun ProgramBlock(epg: EpgListing, width: Dp, themeColor: Color) {
+fun ProgramBlock(
+    epg: EpgListing, 
+    width: Dp, 
+    themeColor: Color,
+    onFocused: (EpgListing) -> Unit,
+    onClick: () -> Unit
+) {
     var isFocused by remember { mutableStateOf(false) }
     val now = System.currentTimeMillis() / 1000
     val isLive = (epg.startTimestamp ?: 0) <= now && (epg.stopTimestamp ?: 0) > now
     
     Surface(
-        onClick = { /* Kan lägga till detaljer här */ },
+        onClick = onClick,
         modifier = Modifier
             .width(width)
             .fillMaxHeight()
-            .padding(1.dp)
-            .onFocusChanged { isFocused = it.isFocused },
+            .padding(0.5.dp)
+            .onFocusChanged { 
+                isFocused = it.isFocused
+                if (it.isFocused) onFocused(epg)
+            },
         color = when {
-            isFocused -> themeColor.copy(alpha = 0.4f)
-            isLive -> Color.White.copy(alpha = 0.08f)
-            else -> Color(0xFF1A1A1A)
+            isFocused -> Color(0xFFCEF154) // TiviMate Gul-Grön fokusfärg
+            isLive -> Color.White.copy(alpha = 0.05f)
+            else -> Color.Transparent
         },
         shape = RoundedCornerShape(2.dp),
-        border = if (isFocused) BorderStroke(2.dp, Color.White) else null
+        border = if (isFocused) BorderStroke(2.dp, Color.White) else BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f))
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
             Text(
                 text = epg.title ?: "Inget namn",
-                color = if (isFocused) Color.White else if (isLive) themeColor else Color.LightGray,
+                color = if (isFocused) Color.Black else if (isLive) themeColor else Color.White.copy(alpha = 0.9f),
                 fontSize = 14.sp,
                 fontWeight = if (isLive || isFocused) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             
-            val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
-            val start = Instant.ofEpochSecond(epg.startTimestamp ?: 0).atZone(ZoneId.systemDefault()).toLocalTime()
-            val stop = Instant.ofEpochSecond(epg.stopTimestamp ?: 0).atZone(ZoneId.systemDefault()).toLocalTime()
-            
-            Text(
-                text = "${start.format(timeFormatter)} - ${stop.format(timeFormatter)}",
-                color = if (isFocused) Color.White.copy(alpha = 0.7f) else Color.Gray,
-                fontSize = 12.sp
-            )
+            if (width > 80.dp) {
+                val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
+                val start = Instant.ofEpochSecond(epg.startTimestamp ?: 0).atZone(ZoneId.systemDefault()).toLocalTime()
+                
+                Text(
+                    text = start.format(timeFormatter),
+                    color = if (isFocused) Color.Black.copy(alpha = 0.6f) else Color.Gray,
+                    fontSize = 12.sp
+                )
+            }
             
             if (isLive && width > 100.dp) {
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 val progress = (now - (epg.startTimestamp ?: 0)).toFloat() / ((epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0))
                 LinearProgressIndicator(
                     progress = { progress.coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth().height(2.dp).clip(RoundedCornerShape(1.dp)),
-                    color = themeColor,
-                    trackColor = Color.White.copy(alpha = 0.1f)
+                    color = if (isFocused) Color.Black else themeColor,
+                    trackColor = if (isFocused) Color.Black.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
                 )
             }
         }

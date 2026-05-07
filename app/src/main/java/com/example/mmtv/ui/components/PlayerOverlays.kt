@@ -225,12 +225,12 @@ fun SubtitleOptionItem(label: String, isSelected: Boolean, modifier: Modifier = 
 }
 
 @Composable
-fun CategoryListItem(title: String, isSelected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun CategoryListItem(title: String, isSelected: Boolean, viewModel: MediaViewModel, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var hasFocus by remember { mutableStateOf(false) }
     
     val backgroundColor by animateColorAsState(
-        targetValue = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) 
-                    else if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) 
+        targetValue = if (hasFocus) viewModel.currentThemeColor.copy(alpha = 0.7f) 
+                    else if (isSelected) viewModel.currentThemeColor.copy(alpha = 0.2f) 
                     else Color.Transparent,
         animationSpec = tween(200),
         label = "catBg"
@@ -265,7 +265,7 @@ fun CategoryListItem(title: String, isSelected: Boolean, modifier: Modifier = Mo
                     .width(4.dp)
                     .height(24.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(if (isSelected || hasFocus) MaterialTheme.colorScheme.primary else Color.Transparent)
+                    .background(if (isSelected || hasFocus) viewModel.currentThemeColor else Color.Transparent)
             )
             Text(
                 text = title, 
@@ -293,8 +293,8 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
 
     val backgroundColor by animateColorAsState(
         targetValue = when {
-            hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-            isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+            hasFocus -> viewModel.currentThemeColor.copy(alpha = 0.6f)
+            isSelected -> viewModel.currentThemeColor.copy(alpha = 0.2f)
             else -> Color.Transparent
         }, 
         animationSpec = tween(200),
@@ -380,7 +380,7 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                         LinearProgressIndicator(
                             progress = { progress.coerceIn(0f, 1f) },
                             modifier = Modifier.padding(top = 6.dp).fillMaxWidth().height(4.dp).clip(CircleShape),
-                            color = MaterialTheme.colorScheme.primary,
+                            color = viewModel.currentThemeColor,
                             trackColor = Color.White.copy(alpha = 0.1f)
                         )
                     }
@@ -454,7 +454,7 @@ fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: M
                         fontWeight = FontWeight.Black
                     )
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 8.dp)) {
-                        Text(text = "$start - $stop", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                        Text(text = "$start - $stop", color = viewModel.currentThemeColor, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                         Spacer(modifier = Modifier.width(16.dp))
                         Text(text = "$duration min", color = Color.Gray)
                         if (channel != null) {
@@ -484,7 +484,7 @@ fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: M
 }
 
 @Composable
-fun MiniProgramGuideItem(epg: EpgListing, isCurrent: Boolean) {
+fun MiniProgramGuideItem(epg: EpgListing, isCurrent: Boolean, themeColor: Color) {
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
 
@@ -495,7 +495,7 @@ fun MiniProgramGuideItem(epg: EpgListing, isCurrent: Boolean) {
         Text(
             text = start,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Gray,
+            color = if (isCurrent) themeColor else Color.Gray,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.width(64.dp)
         )
@@ -649,7 +649,7 @@ fun QuickInfoOverlay(
                             Text(
                                 text = "${(remaining / 60).coerceAtLeast(0)} min kvar",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary
+                                color = viewModel.currentThemeColor
                             )
                         }
                         
@@ -667,7 +667,7 @@ fun QuickInfoOverlay(
                                     modifier = Modifier
                                         .fillMaxWidth(progress)
                                         .fillMaxHeight()
-                                        .background(MaterialTheme.colorScheme.primary)
+                                        .background(viewModel.currentThemeColor)
                                 )
                             }
                         }
@@ -878,6 +878,7 @@ fun SideOverlay(
                             CategoryListItem(
                                 title = category.title ?: "",
                                 isSelected = isSelected,
+                                viewModel = viewModel,
                                 modifier = Modifier
                                     .focusRequester(categoryFocusRequesters.getOrPut(index) { FocusRequester() })
                                     .onFocusChanged {
@@ -918,7 +919,7 @@ fun SideOverlay(
                         text = currentCategoryTitle.uppercase(),
                         modifier = Modifier.padding(24.dp),
                         style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = viewModel.currentThemeColor,
                         fontWeight = FontWeight.Black,
                         letterSpacing = 2.sp
                     )
@@ -992,7 +993,8 @@ fun SideOverlay(
                                 itemsIndexed(upcomingEpg, key = { _, epg -> "${epg.id}_${epg.startTimestamp}" }) { idx, epg ->
                                     MiniProgramGuideItem(
                                         epg = epg,
-                                        isCurrent = idx == 0 && (epg.startTimestamp ?: 0) <= now
+                                        isCurrent = idx == 0 && (epg.startTimestamp ?: 0) <= now,
+                                        themeColor = viewModel.currentThemeColor
                                     )
                                 }
                             }
@@ -1093,7 +1095,7 @@ fun EpgModal(
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(text = media.title ?: "Programguide", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                        Text(text = "Kommande program", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                        Text(text = "Kommande program", style = MaterialTheme.typography.bodyMedium, color = viewModel.currentThemeColor)
                     }
                     Spacer(modifier = Modifier.weight(1f))
                     IconButton(onClick = onClose) { 
@@ -1131,14 +1133,14 @@ fun EpgModal(
                                     .onFocusChanged { isItemFocused = it.isFocused }
                                     .clickable { /* Focusable */ }
                                     .padding(vertical = 4.dp),
-                                color = if (isItemFocused) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                                color = if (isItemFocused) viewModel.currentThemeColor.copy(alpha = 0.25f)
                                         else if (isCurrent) Color.White.copy(alpha = 0.05f)
                                         else Color.Transparent,
                                 shape = MaterialTheme.shapes.medium
                             ) {
                                 Row(modifier = Modifier.padding(16.dp)) {
                                     Column(modifier = Modifier.width(120.dp)) {
-                                        Text(text = start, style = MaterialTheme.typography.titleMedium, color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.White, fontWeight = FontWeight.Bold)
+                                        Text(text = start, style = MaterialTheme.typography.titleMedium, color = if (isCurrent) viewModel.currentThemeColor else Color.White, fontWeight = FontWeight.Bold)
                                         Text(text = stop, style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                                     }
                                     
@@ -1147,7 +1149,7 @@ fun EpgModal(
                                             text = epg.title ?: "", 
                                             style = MaterialTheme.typography.titleLarge, 
                                             fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.Bold,
-                                            color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.White
+                                            color = if (isCurrent) viewModel.currentThemeColor else Color.White
                                         )
                                         if (!epg.description.isNullOrBlank()) {
                                             Text(

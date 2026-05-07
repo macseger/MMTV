@@ -56,6 +56,7 @@ import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.Episode
 import com.example.mmtv.ui.components.*
+import com.example.mmtv.ui.components.EpgGrid
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -63,7 +64,7 @@ import java.util.*
 import kotlin.math.absoluteValue
 
 enum class OverlayState {
-    NONE, CHANNELS, CATEGORIES, SUBTITLES, QUICK_INFO, EPG_INFO
+    NONE, CHANNELS, CATEGORIES, SUBTITLES, QUICK_INFO, EPG_INFO, FULL_EPG
 }
 
 @OptIn(UnstableApi::class)
@@ -289,6 +290,8 @@ fun PlayerScreen(
         focusManager.clearFocus()
         if (media != null) {
             viewModel.addToHistory(media, if (isSeries) viewModel.playingEpisode else null)
+            val icon = viewModel.getIconForId(media.id, media.title) ?: media.icon
+            viewModel.updateThemeColorFromIcon(icon)
         }
         if (media?.type == MediaType.LIVE) {
             viewModel.setLiveCategoryByMediaId(media.id)
@@ -621,6 +624,10 @@ fun PlayerScreen(
                                 }
                                 true
                             }
+                            KeyEvent.KEYCODE_GUIDE, KeyEvent.KEYCODE_M -> {
+                                overlayState = OverlayState.FULL_EPG
+                                true
+                            }
                             KeyEvent.KEYCODE_BACK -> {
                                 when (overlayState) {
                                     OverlayState.NONE -> onBackPressed()
@@ -709,13 +716,14 @@ fun PlayerScreen(
                 availableSubtitles = availableSubtitles,
                 subtitleIconFocusRequester = subtitleIconFocusRequester,
                 isTvMode = viewModel.isTvMode,
+                themeColor = viewModel.currentThemeColor,
                 onToggleSubtitles = { overlayState = OverlayState.SUBTITLES }
             )
         }
 
         if (isBuffering) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(64.dp), strokeWidth = 6.dp)
+                CircularProgressIndicator(color = viewModel.currentThemeColor, modifier = Modifier.size(64.dp), strokeWidth = 6.dp)
             }
         }
 
@@ -765,7 +773,7 @@ fun PlayerScreen(
                 shape = RoundedCornerShape(16.dp),
                 color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.85f),
                 contentColor = if (isFocused) Color.Black else Color.White,
-                border = if (isFocused) null else androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                border = if (isFocused) null else androidx.compose.foundation.BorderStroke(2.dp, viewModel.currentThemeColor.copy(alpha = 0.5f)),
                 tonalElevation = 12.dp
             ) {
                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -784,13 +792,13 @@ fun PlayerScreen(
                     }
                     Spacer(modifier = Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(text = "SE NÄSTA AVSNITT", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.2.sp), color = if (isFocused) Color.Black.copy(alpha = 0.7f) else MaterialTheme.colorScheme.primary)
+                        Text(text = "SE NÄSTA AVSNITT", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Black, letterSpacing = 1.2.sp), color = if (isFocused) Color.Black.copy(alpha = 0.7f) else viewModel.currentThemeColor)
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(text = nextEpisode?.title ?: "Nästa avsnitt", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val remainingSecs = ((duration - currentPosition) / 1000).coerceAtLeast(0)
                         Text(text = "Avslutas om $remainingSecs s", style = MaterialTheme.typography.bodySmall, color = if (isFocused) Color.Black.copy(alpha = 0.5f) else Color.Gray)
                     }
-                    Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(32.dp), tint = if (isFocused) Color.Black else MaterialTheme.colorScheme.primary)
+                    Icon(Icons.AutoMirrored.Filled.NavigateNext, null, modifier = Modifier.size(32.dp), tint = if (isFocused) Color.Black else viewModel.currentThemeColor)
                 }
             }
             
@@ -875,6 +883,18 @@ fun PlayerScreen(
             )
         }
 
+        if (overlayState == OverlayState.FULL_EPG) {
+            EpgGrid(
+                channels = playlist,
+                viewModel = viewModel,
+                onChannelSelected = { 
+                    overlayState = OverlayState.NONE
+                    onMediaSelected(it) 
+                },
+                onClose = { overlayState = OverlayState.NONE }
+            )
+        }
+
         // --- SUBTITLES ---
         AnimatedVisibility(
             visible = overlayState == OverlayState.SUBTITLES,
@@ -934,6 +954,7 @@ fun VodControlOverlay(
     availableSubtitles: List<Tracks.Group>,
     subtitleIconFocusRequester: FocusRequester,
     isTvMode: Boolean = true,
+    themeColor: Color = Color(0xFF2196F3),
     onToggleSubtitles: () -> Unit
 ) {
     Box(
@@ -1027,7 +1048,7 @@ fun VodControlOverlay(
                 Text(
                     text = seekMessage,
                     style = MaterialTheme.typography.displayMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = themeColor,
                     fontWeight = FontWeight.Black
                 )
             } else if (!isPlaying) {
@@ -1093,7 +1114,7 @@ fun VodControlOverlay(
                         .focusRequester(subtitleIconFocusRequester)
                         .onFocusChanged { isSubFocused = it.isFocused },
                     shape = RoundedCornerShape(12.dp),
-                    color = if (isSubFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
+                    color = if (isSubFocused) themeColor else Color.White.copy(alpha = 0.1f),
                     contentColor = if (isSubFocused) Color.Black else Color.White
                 ) {
                     Row(
@@ -1132,7 +1153,7 @@ fun VodControlOverlay(
                     modifier = Modifier
                         .fillMaxWidth(progress.coerceIn(0f, 1f))
                         .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.primary)
+                        .background(themeColor)
                 )
             }
         }

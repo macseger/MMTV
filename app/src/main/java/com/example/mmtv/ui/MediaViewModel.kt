@@ -22,6 +22,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import androidx.palette.graphics.Palette
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.net.URL
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 
 data class MediaUiState(
     val liveCategories: List<GroupedMedia> = emptyList(),
@@ -108,6 +114,38 @@ class MediaViewModel(
     var isDetailsLoading by mutableStateOf(false)
 
     var searchQuery by mutableStateOf("")
+
+    var currentThemeColor by mutableStateOf(Color(0xFF2196F3)) // Standard Blå
+        private set
+
+    fun updateThemeColorFromIcon(iconUrl: String?) {
+        if (iconUrl.isNullOrBlank()) {
+            currentThemeColor = Color(0xFF2196F3)
+            return
+        }
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val url = URL(iconUrl)
+                val connection = url.openConnection()
+                connection.connectTimeout = 3000
+                connection.readTimeout = 3000
+                val inputStream = connection.getInputStream()
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                
+                if (bitmap != null) {
+                    val palette = Palette.from(bitmap).generate()
+                    // Vi letar efter en livlig färg (Vibrant), annars tar vi den dominerande
+                    val colorInt = palette.getVibrantColor(palette.getDominantColor(0xFF2196F3.toInt()))
+                    withContext(Dispatchers.Main) {
+                        currentThemeColor = Color(colorInt)
+                    }
+                }
+            } catch (e: Exception) {
+                // Vid fel behåller vi förra eller kör standard
+            }
+        }
+    }
 
     var updateStatus by mutableStateOf<String?>(null)
         private set

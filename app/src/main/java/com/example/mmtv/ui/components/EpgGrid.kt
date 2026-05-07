@@ -46,18 +46,18 @@ fun EpgPreviewSection(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(200.dp)
+            .height(180.dp)
             .background(Color(0xFF0A0A0A))
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(24.dp)
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         // Preview Window (Left)
         Surface(
             modifier = Modifier
                 .aspectRatio(16f / 9f)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
+                .clip(RoundedCornerShape(6.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(6.dp)),
             color = Color.Black
         ) {
             val exoPlayer = viewModel.exoPlayer
@@ -77,7 +77,7 @@ fun EpgPreviewSection(
                 )
             } else {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.PlayArrow, null, tint = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.size(48.dp))
+                    Icon(Icons.Default.PlayArrow, null, tint = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.size(40.dp))
                 }
             }
         }
@@ -87,7 +87,7 @@ fun EpgPreviewSection(
             if (focusedEpg != null) {
                 Text(
                     text = focusedEpg.title ?: "",
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.titleLarge,
                     color = Color.White,
                     fontWeight = FontWeight.Black,
                     maxLines = 1,
@@ -99,38 +99,38 @@ fun EpgPreviewSection(
                 val stop = Instant.ofEpochSecond(focusedEpg.stopTimestamp ?: 0).atZone(ZoneId.systemDefault()).toLocalTime()
                 val duration = ((focusedEpg.stopTimestamp ?: 0) - (focusedEpg.startTimestamp ?: 0)) / 60
                 
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
                     Text(
                         text = "${start.format(timeFormatter)} - ${stop.format(timeFormatter)}",
-                        color = viewModel.currentThemeColor,
+                        color = Color(0xFF64B5F6),
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
                     )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(text = "$duration min", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(text = "$duration min", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                     if (focusedChannel != null) {
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text(text = focusedChannel.title ?: "", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(text = focusedChannel.title ?: "", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                     }
                 }
                 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 
                 Text(
                     text = focusedEpg.description ?: "Ingen beskrivning tillgänglig.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.LightGray,
-                    maxLines = 4,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
             } else {
                 Text(
                     text = focusedChannel?.title ?: "Välj ett program",
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = MaterialTheme.typography.titleLarge,
                     color = Color.White,
                     fontWeight = FontWeight.Black
                 )
-                Text("Ingen information tillgänglig", color = Color.Gray)
+                Text("Ingen information tillgänglig", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -145,7 +145,7 @@ fun EpgGrid(
 ) {
     BackHandler { onClose() }
     
-    val themeColor = viewModel.currentThemeColor
+    val themeColor = Color(0xFF2196F3) // Discreet Blue
     val now = remember { System.currentTimeMillis() / 1000 }
     val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
@@ -160,20 +160,18 @@ fun EpgGrid(
     val startTime = remember { ((now / 1800) * 1800) - 3600 } 
     val timeStep = 30 * 60 // 30 minuters block
     val totalSteps = 48 // 24 timmar
-    val pixelsPerMinute = 12f // Skala för bredd (DP per minut)
+    val pixelsPerMinute = 12f 
     
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
     
     val initialFocusRequester = remember { FocusRequester() }
 
-    // Scrolla till nuvarande tid och sätt initialt fokus
     LaunchedEffect(Unit) {
         val initialScrollDp = (60 * pixelsPerMinute).dp
         with(density) {
             horizontalScrollState.scrollTo(initialScrollDp.toPx().toInt())
         }
         
-        // Scrolla listan till vald kanal
         val initialIdx = channels.indexOfFirst { it.id == viewModel.selectedMedia?.id }.coerceAtLeast(0)
         if (initialIdx > 0) {
             listState.scrollToItem(initialIdx)
@@ -194,7 +192,7 @@ fun EpgGrid(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(44.dp)
+                .height(36.dp)
                 .background(Brush.verticalGradient(listOf(Color(0xFF1A1A1A), Color.Black)))
                 .padding(horizontal = 24.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -202,7 +200,7 @@ fun EpgGrid(
             Text(
                 text = dateText.uppercase(),
                 color = Color.Gray,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.sp
             )
@@ -211,7 +209,7 @@ fun EpgGrid(
                 text = Instant.ofEpochSecond(now).atZone(ZoneId.systemDefault()).format(timeFormatter),
                 color = themeColor,
                 fontWeight = FontWeight.Black,
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.labelLarge
             )
         }
 
@@ -219,14 +217,14 @@ fun EpgGrid(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(40.dp)
+                .height(32.dp)
                 .background(Color(0xFF0F0F0F))
         ) {
             Box(
-                modifier = Modifier.width(300.dp).fillMaxHeight().background(Color.Black),
+                modifier = Modifier.width(260.dp).fillMaxHeight().background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
-                Text("KANALER", color = Color.DarkGray, fontWeight = FontWeight.Black, fontSize = 11.sp, letterSpacing = 2.sp)
+                Text("KANALER", color = Color.DarkGray, fontWeight = FontWeight.Black, fontSize = 10.sp, letterSpacing = 2.sp)
             }
             
             Row(modifier = Modifier.horizontalScroll(horizontalScrollState, enabled = false)) {
@@ -245,7 +243,7 @@ fun EpgGrid(
                         Text(
                             text = time.format(timeFormatter),
                             color = if (isNowBlock) themeColor else Color.Gray,
-                            fontSize = 14.sp,
+                            fontSize = 12.sp,
                             fontWeight = if (isNowBlock) FontWeight.Bold else FontWeight.Normal,
                             modifier = Modifier.padding(start = 12.dp)
                         )
@@ -281,7 +279,7 @@ fun EpgGrid(
                             
                             coroutineScope.launch {
                                 val currentScrollDp = with(density) { horizontalScrollState.value.toDp() }
-                                val viewportWidthDp = 980.dp // Ungefärlig bredd på programdelen
+                                val viewportWidthDp = 980.dp 
                                 
                                 if (startDp < (currentScrollDp + 10.dp)) {
                                     horizontalScrollState.animateScrollTo(with(density) { (startDp - 20.dp).toPx().toInt() })
@@ -295,22 +293,17 @@ fun EpgGrid(
             }
             
             // "NU"-indikator
-            Canvas(modifier = Modifier.fillMaxSize().padding(start = 300.dp)) {
+            Canvas(modifier = Modifier.fillMaxSize().padding(start = 260.dp)) {
                 val nowX = (now - startTime).toFloat() / 60f * pixelsPerMinute
                 val scrollOffset = horizontalScrollState.value.toFloat()
                 val xPos = nowX * density.density - scrollOffset
                 
                 if (xPos >= 0 && xPos < size.width) {
                     drawLine(
-                        color = themeColor,
+                        color = themeColor.copy(alpha = 0.5f),
                         start = androidx.compose.ui.geometry.Offset(xPos, 0f),
                         end = androidx.compose.ui.geometry.Offset(xPos, size.height),
-                        strokeWidth = 2.dp.toPx()
-                    )
-                    drawCircle(
-                        color = themeColor,
-                        radius = 4.dp.toPx(),
-                        center = androidx.compose.ui.geometry.Offset(xPos, 0f)
+                        strokeWidth = 1.dp.toPx()
                     )
                 }
             }
@@ -338,36 +331,36 @@ fun EpgRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(72.dp)
+            .height(52.dp)
             .border(0.5.dp, Color.White.copy(alpha = 0.03f))
     ) {
         var isChannelFocused by remember { mutableStateOf(false) }
         Surface(
             onClick = { onChannelSelected(channel) },
             modifier = Modifier
-                .width(300.dp)
+                .width(260.dp)
                 .fillMaxHeight()
                 .onFocusChanged { isChannelFocused = it.isFocused },
-            color = if (isChannelFocused) Color.White.copy(alpha = 0.15f) else Color.Black
+            color = if (isChannelFocused) themeColor.copy(alpha = 0.1f) else Color.Black
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                modifier = Modifier.padding(horizontal = 12.dp)
             ) {
                 Text(
                     text = index.toString(),
                     color = if (isChannelFocused) Color.White else Color.Gray,
-                    fontSize = 14.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.width(30.dp)
+                    modifier = Modifier.width(24.dp)
                 )
                 
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(Color.White.copy(alpha = 0.05f))
-                        .padding(4.dp),
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(Color.White.copy(alpha = 0.03f))
+                        .padding(3.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     AsyncImage(
@@ -377,16 +370,16 @@ fun EpgRow(
                         contentScale = ContentScale.Fit
                     )
                     if (piconUrl == null) {
-                        Icon(Icons.Default.Tv, null, tint = Color.DarkGray, modifier = Modifier.size(24.dp))
+                        Icon(Icons.Default.Tv, null, tint = Color.DarkGray, modifier = Modifier.size(18.dp))
                     }
                 }
                 
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 
                 Text(
                     text = channel.title ?: "",
                     color = Color.White,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -402,7 +395,7 @@ fun EpgRow(
         ) {
             if (epgList.isEmpty()) {
                 Box(modifier = Modifier.width(2000.dp).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
-                    Text("Ingen programinfo", color = Color.DarkGray, modifier = Modifier.padding(24.dp), fontSize = 14.sp)
+                    Text("Ingen programinfo", color = Color.DarkGray, modifier = Modifier.padding(16.dp), fontSize = 13.sp)
                 }
             } else {
                 epgList.forEach { epg ->
@@ -456,21 +449,21 @@ fun ProgramBlock(
                 if (it.isFocused) onFocused(epg)
             },
         color = when {
-            isFocused -> Color(0xFFCEF154) // TiviMate Gul-Grön
-            isLive -> Color.White.copy(alpha = 0.05f)
+            isFocused -> themeColor.copy(alpha = 0.25f) // Discreet Light Blue
+            isLive -> Color.White.copy(alpha = 0.04f)
             else -> Color.Transparent
         },
-        shape = RoundedCornerShape(2.dp),
-        border = if (isFocused) BorderStroke(2.dp, Color.White) else BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f))
+        shape = RoundedCornerShape(1.dp),
+        border = if (isFocused) BorderStroke(1.5.dp, themeColor.copy(alpha = 0.8f)) else BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f))
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.Center
         ) {
             Text(
                 text = epg.title ?: "Inget namn",
-                color = if (isFocused) Color.Black else if (isLive) themeColor else Color.White.copy(alpha = 0.9f),
-                fontSize = 14.sp,
+                color = if (isFocused) Color.White else if (isLive) themeColor else Color.White.copy(alpha = 0.8f),
+                fontSize = 13.sp,
                 fontWeight = if (isLive || isFocused) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -482,19 +475,19 @@ fun ProgramBlock(
                 
                 Text(
                     text = start.format(timeFormatter),
-                    color = if (isFocused) Color.Black.copy(alpha = 0.6f) else Color.Gray,
-                    fontSize = 12.sp
+                    color = if (isFocused) Color.White.copy(alpha = 0.6f) else Color.Gray,
+                    fontSize = 11.sp
                 )
             }
             
             if (isLive && width > 100.dp) {
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 val progress = (now - (epg.startTimestamp ?: 0)).toFloat() / ((epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0))
                 LinearProgressIndicator(
                     progress = { progress.coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth().height(2.dp).clip(RoundedCornerShape(1.dp)),
-                    color = if (isFocused) Color.Black else themeColor,
-                    trackColor = if (isFocused) Color.Black.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
+                    color = if (isFocused) Color.White else themeColor,
+                    trackColor = Color.White.copy(alpha = 0.1f)
                 )
             }
         }

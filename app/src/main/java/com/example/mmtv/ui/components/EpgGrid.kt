@@ -73,7 +73,10 @@ fun EpgPreviewSection(
                             )
                         }
                     },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    onRelease = { view ->
+                        view.player = null
+                    }
                 )
             } else {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

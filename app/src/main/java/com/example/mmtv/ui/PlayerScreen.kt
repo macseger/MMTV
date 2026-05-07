@@ -430,8 +430,14 @@ fun PlayerScreen(
                 } 
             },
             update = { view -> 
-                if (view.player != exoPlayer) view.player = exoPlayer
-                view.onResume()
+                if (overlayState != OverlayState.FULL_EPG) {
+                    if (view.player != exoPlayer) view.player = exoPlayer
+                    view.onResume()
+                } else {
+                    // Koppla bort spelaren från huvudvyn när EPG-tidslinjen är öppen
+                    // för att undvika konflikter med dess förhandsvisning.
+                    view.player = null
+                }
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -696,8 +702,14 @@ fun PlayerScreen(
                 } 
             },
             update = { view -> 
-                if (view.player != exoPlayer) view.player = exoPlayer
-                view.onResume()
+                if (overlayState != OverlayState.FULL_EPG) {
+                    if (view.player != exoPlayer) view.player = exoPlayer
+                    view.onResume()
+                } else {
+                    // Koppla bort spelaren från huvudvyn när EPG-tidslinjen är öppen
+                    // för att undvika konflikter med dess förhandsvisning.
+                    view.player = null
+                }
             },
             modifier = Modifier.fillMaxSize()
         )

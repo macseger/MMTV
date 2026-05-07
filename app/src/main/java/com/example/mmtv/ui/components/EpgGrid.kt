@@ -13,6 +13,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -32,6 +34,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -43,7 +46,7 @@ fun EpgPreviewSection(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(220.dp)
+            .height(200.dp)
             .background(Color(0xFF0A0A0A))
             .padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(24.dp)
@@ -151,6 +154,7 @@ fun EpgGrid(
     var focusedChannel by remember { mutableStateOf<MediaSource?>(null) }
 
     val horizontalScrollState = rememberScrollState()
+    val listState = rememberLazyListState()
     
     // Vi visar 24 timmar, startar för 1 timme sedan
     val startTime = remember { ((now / 1800) * 1800) - 3600 } 
@@ -160,12 +164,23 @@ fun EpgGrid(
     
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
     
-    // Scrolla till nuvarande tid vid start
+    val initialFocusRequester = remember { FocusRequester() }
+
+    // Scrolla till nuvarande tid och sätt initialt fokus
     LaunchedEffect(Unit) {
         val initialScrollDp = (60 * pixelsPerMinute).dp
         with(density) {
             horizontalScrollState.scrollTo(initialScrollDp.toPx().toInt())
         }
+        
+        // Scrolla listan till vald kanal
+        val initialIdx = channels.indexOfFirst { it.id == viewModel.selectedMedia?.id }.coerceAtLeast(0)
+        if (initialIdx > 0) {
+            listState.scrollToItem(initialIdx)
+        }
+        
+        delay(300)
+        initialFocusRequester.requestFocus()
     }
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFF050505))) {
@@ -241,8 +256,10 @@ fun EpgGrid(
         
         // 4. GRID BODY: Channels + Programs
         Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 itemsIndexed(channels, key = { _, ch -> ch.id }) { index, channel ->
+                    val isInitialTarget = channel.id == viewModel.selectedMedia?.id || (viewModel.selectedMedia == null && index == 0)
+                    
                     EpgRow(
                         index = index + 1,
                         channel = channel,
@@ -251,6 +268,7 @@ fun EpgGrid(
                         themeColor = themeColor,
                         pixelsPerMinute = pixelsPerMinute,
                         horizontalScrollState = horizontalScrollState,
+                        initialFocusRequester = if (isInitialTarget) initialFocusRequester else null,
                         onChannelSelected = onChannelSelected,
                         onProgramFocused = { epg -> 
                             focusedEpg = epg
@@ -263,12 +281,12 @@ fun EpgGrid(
                             
                             coroutineScope.launch {
                                 val currentScrollDp = with(density) { horizontalScrollState.value.toDp() }
-                                val viewportWidthDp = 1280.dp - 300.dp // Antagande HD bredd minus kanalerna
+                                val viewportWidthDp = 980.dp // Ungefärlig bredd på programdelen
                                 
                                 if (startDp < (currentScrollDp + 10.dp)) {
-                                    horizontalScrollState.animateScrollTo(with(density) { (startDp - 10.dp).toPx().toInt() })
+                                    horizontalScrollState.animateScrollTo(with(density) { (startDp - 20.dp).toPx().toInt() })
                                 } else if (stopDp > (currentScrollDp + viewportWidthDp - 10.dp)) {
-                                    horizontalScrollState.animateScrollTo(with(density) { (stopDp - viewportWidthDp + 10.dp).toPx().toInt() })
+                                    horizontalScrollState.animateScrollTo(with(density) { (stopDp - viewportWidthDp + 20.dp).toPx().toInt() })
                                 }
                             }
                         }
@@ -309,22 +327,28 @@ fun EpgRow(
     themeColor: Color,
     pixelsPerMinute: Float,
     horizontalScrollState: ScrollState,
+    initialFocusRequester: FocusRequester?,
     onChannelSelected: (MediaSource) -> Unit,
     onProgramFocused: (EpgListing) -> Unit
 ) {
     val epgList = viewModel.getFullEpgForId(channel.id, channel.title)
     val piconUrl = viewModel.getIconForId(channel.id, channel.title) ?: channel.icon
-    
+    val now = System.currentTimeMillis() / 1000
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .height(72.dp)
             .border(0.5.dp, Color.White.copy(alpha = 0.03f))
     ) {
+        var isChannelFocused by remember { mutableStateOf(false) }
         Surface(
             onClick = { onChannelSelected(channel) },
-            modifier = Modifier.width(300.dp).fillMaxHeight(),
-            color = Color.Black
+            modifier = Modifier
+                .width(300.dp)
+                .fillMaxHeight()
+                .onFocusChanged { isChannelFocused = it.isFocused },
+            color = if (isChannelFocused) Color.White.copy(alpha = 0.15f) else Color.Black
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -332,7 +356,7 @@ fun EpgRow(
             ) {
                 Text(
                     text = index.toString(),
-                    color = Color.Gray,
+                    color = if (isChannelFocused) Color.White else Color.Gray,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.width(30.dp)
@@ -391,10 +415,12 @@ fun EpgRow(
                         val width = (durationMin * pixelsPerMinute).dp
 
                         if (width > 1.dp) {
+                            val isLive = now in (epg.startTimestamp ?: 0)..(epg.stopTimestamp ?: 0)
                             ProgramBlock(
                                 epg = epg,
                                 width = width,
                                 themeColor = themeColor,
+                                modifier = if (isLive && initialFocusRequester != null) Modifier.focusRequester(initialFocusRequester) else Modifier,
                                 onFocused = onProgramFocused,
                                 onClick = { onChannelSelected(channel) }
                             )
@@ -411,6 +437,7 @@ fun ProgramBlock(
     epg: EpgListing, 
     width: Dp, 
     themeColor: Color,
+    modifier: Modifier = Modifier,
     onFocused: (EpgListing) -> Unit,
     onClick: () -> Unit
 ) {
@@ -420,7 +447,7 @@ fun ProgramBlock(
     
     Surface(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
             .width(width)
             .fillMaxHeight()
             .padding(0.5.dp)
@@ -429,7 +456,7 @@ fun ProgramBlock(
                 if (it.isFocused) onFocused(epg)
             },
         color = when {
-            isFocused -> Color(0xFFCEF154) // TiviMate Gul-Grön fokusfärg
+            isFocused -> Color(0xFFCEF154) // TiviMate Gul-Grön
             isLive -> Color.White.copy(alpha = 0.05f)
             else -> Color.Transparent
         },

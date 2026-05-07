@@ -398,6 +398,9 @@ fun PlayerScreen(
                     viewModel.getFullEpgForId(media.id, media.title)
                 }
             }
+            OverlayState.FULL_EPG -> {
+                // EpgGrid hanterar sitt eget fokus internt
+            }
             else -> { 
                 delay(50)
                 mainFocusRequester.safeFocus() 

@@ -274,8 +274,10 @@ class MediaViewModel(
                 // SLÄPP IN ANVÄNDAREN NU!
                 onComplete?.invoke(true)
                 
-                // 2. Fortsätt med resten i bakgrunden
+                // 2. Fortsätt med resten i bakgrunden efter en kort delay för att prioritera UI-rendering
                 launch(Dispatchers.IO) {
+                    delay(1500) // Ge UI:t tid att rita upp sig själv först
+                    
                     // Lokala ikoner i bakgrunden
                     _repository.extractPiconsIfNeeded()
                     
@@ -292,6 +294,9 @@ class MediaViewModel(
                         // Ladda in items för de första kategorierna när biblioteket är redo
                         withContext(Dispatchers.Main) {
                             loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
+                            // Prefetch EPG för första kategorin
+                            prefetchEpgForCategory(0)
+
                             if (ppvData.isNotEmpty()) {
                                 loadItemsForCategory(MediaType.LIVE, ppvData.firstOrNull()?.categoryId)
                             }
@@ -308,6 +313,9 @@ class MediaViewModel(
                         // DB inte tom, ladda in items direkt
                         withContext(Dispatchers.Main) {
                             loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
+                            // Prefetch EPG för första kategorin
+                            prefetchEpgForCategory(0)
+
                             if (ppvData.isNotEmpty()) {
                                 loadItemsForCategory(MediaType.LIVE, ppvData.firstOrNull()?.categoryId)
                             }
@@ -358,6 +366,8 @@ class MediaViewModel(
                 // Om detta är den aktuella spellistan i PlayerScreen, uppdatera den
                 if (uiState.liveCategories.getOrNull(lastLiveCategoryIndex)?.categoryId == categoryId) {
                     currentPlaylist = items
+                    // Prefetch EPG för den nyss laddade kategorin
+                    prefetchEpgForCategory(lastLiveCategoryIndex)
                 }
             }
 
@@ -433,14 +443,32 @@ class MediaViewModel(
 
     fun prefetchEpgForCategory(categoryIndex: Int) {
         val category = uiState.liveStreamsGrouped.getOrNull(categoryIndex) ?: return
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
+            // För-cacha picons också
             category.items.forEach { item ->
-                if (item.epgId != null && !fullEpgData.containsKey(item.epgId)) {
-                    val epg = _repository.getEpgForChannel(item.epgId, item.title)
-                    if (epg.isNotEmpty()) {
-                        fullEpgData[item.epgId] = epg
+                if (!piconCache.containsKey(item.id)) {
+                    val icon = _repository.getIconForChannel(item.epgId, item.title)
+                    if (icon != null) {
+                        withContext(Dispatchers.Main) {
+                            piconCache[item.id] = icon
+                        }
                     }
                 }
+            }
+            
+            // Batcha EPG-hämtningar för att inte sänka prestandan
+            category.items.chunked(20).forEach { batch ->
+                batch.forEach { item ->
+                    if (item.epgId != null && !fullEpgData.containsKey(item.epgId)) {
+                        val epg = _repository.getEpgForChannel(item.epgId, item.title)
+                        if (epg.isNotEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                fullEpgData[item.epgId] = epg
+                            }
+                        }
+                    }
+                }
+                delay(200) // Ge andra processer plats
             }
         }
     }
@@ -456,7 +484,7 @@ class MediaViewModel(
         }
 
         // 2. Försök hitta EPG-ID
-        var epgId = channelToEpgMap[id]
+        val epgId = channelToEpgMap[id]
         
         // 3. Om vi har listan i minnet, hitta rätt program
         if (epgId != null) {
@@ -479,22 +507,19 @@ class MediaViewModel(
             fetchingEpgIds.add(id)
             viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    if (epgId == null) {
+                    // Om vi inte har epgId, försök hitta det via MediaEntity först
+                    val finalEpgId = epgId ?: run {
                         val media = mediaDao.getMediaById(id)
-                        epgId = media?.epgId
-                        if (epgId != null) {
-                            withContext(Dispatchers.Main) {
-                                channelToEpgMap[id] = epgId!!
-                            }
+                        media?.epgId?.also {
+                            withContext(Dispatchers.Main) { channelToEpgMap[id] = it }
                         }
                     }
                     
-                    if (epgId != null) {
-                        val epg = _repository.getEpgForChannel(epgId!!, name)
+                    if (finalEpgId != null) {
+                        val epg = _repository.getEpgForChannel(finalEpgId, name)
                         if (epg.isNotEmpty()) {
                             withContext(Dispatchers.Main) {
-                                fullEpgData[epgId!!] = epg
-                                // Trigga om sökningen nu när vi har data
+                                fullEpgData[finalEpgId] = epg
                                 val current = epg.find { 
                                     (it.startTimestamp ?: 0L) <= now && (it.stopTimestamp ?: 0L) > now 
                                 }
@@ -502,6 +527,8 @@ class MediaViewModel(
                             }
                         }
                     }
+                } catch (e: Exception) {
+                    // Logga fel om behövligt
                 } finally {
                     fetchingEpgIds.remove(id)
                 }
@@ -539,6 +566,26 @@ class MediaViewModel(
             }
             emptyList()
         }
+    }
+
+    fun getIconForId(id: Int, name: String? = null): String? {
+        val cached = piconCache[id]
+        if (cached != null) return cached
+
+        if (!fetchingEpgIds.contains(id)) { // Återanvänd fetchingEpgIds för enkelhet eller skapa ny set
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val epgId = channelToEpgMap[id]
+                    val icon = _repository.getIconForChannel(epgId, name)
+                    if (icon != null) {
+                        withContext(Dispatchers.Main) {
+                            piconCache[id] = icon
+                        }
+                    }
+                } catch (e: Exception) {}
+            }
+        }
+        return null
     }
 
     suspend fun getIconForChannel(id: Int, name: String? = null): String? {

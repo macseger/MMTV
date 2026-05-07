@@ -3,6 +3,7 @@ package com.example.mmtv.ui
 import android.view.KeyEvent
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
@@ -363,7 +364,7 @@ fun PlayerScreen(
                 val currentCategoryIndex = viewModel.lastLiveCategoryIndex.coerceAtLeast(0)
                 if (categories.isNotEmpty()) {
                     categoryListState.scrollToItem(currentCategoryIndex)
-                    delay(150)
+                    delay(60) // Reducerad för snabbare känsla
                     categoryFocusRequesters[currentCategoryIndex]?.safeFocus()
                 }
             }
@@ -372,7 +373,7 @@ fun PlayerScreen(
                     val index = playlist.indexOfFirst { it.id == media?.id }.coerceAtLeast(0)
                     scope.launch {
                         channelListState.scrollToItem(index)
-                        delay(50)
+                        delay(60) // Reducerad för snabbare känsla
                         channelFocusRequesters[playlist.getOrNull(index)?.id ?: -1]?.safeFocus()
                     }
                     if (media != null) focusedChannel = media
@@ -381,12 +382,12 @@ fun PlayerScreen(
             OverlayState.QUICK_INFO -> {
                 resetAutoHideTimer()
                 scope.launch {
-                    delay(100)
+                    delay(60)
                     tvGuideFocusRequester.safeFocus()
                 }
             }
             OverlayState.SUBTITLES -> {
-                delay(100)
+                delay(60)
                 subtitleFocusRequesters[0]?.safeFocus()
             }
             OverlayState.EPG_INFO -> {
@@ -806,8 +807,14 @@ fun PlayerScreen(
         // --- OVERLAYS ---
         AnimatedVisibility(
             visible = overlayState == OverlayState.QUICK_INFO && media != null,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            enter = slideInVertically(
+                initialOffsetY = { it },
+                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
+            ) + fadeIn(),
+            exit = slideOutVertically(
+                targetOffsetY = { it },
+                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
+            ) + fadeOut(),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             media?.let { 

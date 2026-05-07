@@ -23,21 +23,30 @@ class MediaRepository(
     private val cacheDir = context.cacheDir
     private val epgParser = EpgParser()
     private var piconFileMap: Map<String, String>? = null
+    private val piconMapLock = Any()
 
     private fun getPiconFileMap(): Map<String, String> {
-        val cache = piconFileMap
-        if (cache != null) return cache
-        
-        val piconsDir = File(context.filesDir, "picons")
-        val map = mutableMapOf<String, String>()
-        piconsDir.listFiles()?.forEach { file ->
-            val cleanName = file.name.substringBeforeLast(".").lowercase().replace(Regex("[^a-z0-9]"), "")
-            if (cleanName.isNotEmpty()) {
-                map[cleanName] = file.absolutePath
+        synchronized(piconMapLock) {
+            val cache = piconFileMap
+            if (cache != null) return cache
+            
+            val piconsDir = File(context.filesDir, "picons")
+            if (!piconsDir.exists()) return emptyMap()
+
+            val map = mutableMapOf<String, String>()
+            piconsDir.listFiles()?.forEach { file ->
+                val name = file.name
+                val lastDot = name.lastIndexOf('.')
+                if (lastDot > 0) {
+                    val cleanName = name.substring(0, lastDot).lowercase().replace(Regex("[^a-z0-9]"), "")
+                    if (cleanName.isNotEmpty()) {
+                        map[cleanName] = file.absolutePath
+                    }
+                }
             }
+            piconFileMap = map
+            return map
         }
-        piconFileMap = map
-        return map
     }
 
     suspend fun getLiveCategories(user: String, pass: String, forceRefresh: Boolean = false): List<Category> {

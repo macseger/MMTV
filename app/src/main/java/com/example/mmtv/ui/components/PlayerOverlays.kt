@@ -3,8 +3,7 @@ package com.example.mmtv.ui.components
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,6 +27,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.ContentScale
@@ -137,15 +137,13 @@ fun RecentChannelButton(
     var isFocused by remember { mutableStateOf(false) }
     val context = LocalContext.current
     
-    val piconUrl by produceState(initialValue = item.icon, key1 = item.id) {
-        value = viewModel.getIconForChannel(item.id, item.title)
-    }
+    val piconUrl = viewModel.getIconForId(item.id, item.title) ?: item.icon
 
     val imageRequest = remember(piconUrl) {
         ImageRequest.Builder(context)
             .data(piconUrl)
             .crossfade(200)
-            .size(100, 100)
+            .size(120, 120)
             .build()
     }
     
@@ -229,36 +227,54 @@ fun SubtitleOptionItem(label: String, isSelected: Boolean, modifier: Modifier = 
 @Composable
 fun CategoryListItem(title: String, isSelected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var hasFocus by remember { mutableStateOf(false) }
+    
     val backgroundColor by animateColorAsState(
-        targetValue = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) 
+        targetValue = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) 
                     else if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) 
                     else Color.Transparent,
+        animationSpec = tween(200),
         label = "catBg"
     )
+    
+    val scale by animateFloatAsState(
+        targetValue = if (hasFocus) 1.02f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
+        label = "catScale"
+    )
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(56.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .onFocusChanged { hasFocus = it.isFocused }
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null,
                 onClick = { onClick() }
             ), 
-        color = backgroundColor
+        color = backgroundColor,
+        shape = RoundedCornerShape(8.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
                     .width(4.dp)
-                    .fillMaxHeight()
-                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(if (isSelected || hasFocus) MaterialTheme.colorScheme.primary else Color.Transparent)
             )
             Text(
                 text = title, 
                 modifier = Modifier.padding(horizontal = 20.dp), 
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal), 
-                color = if (isSelected || hasFocus) Color.White else Color.LightGray, 
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = if (isSelected || hasFocus) FontWeight.Bold else FontWeight.Normal,
+                    letterSpacing = if (hasFocus) 0.5.sp else 0.sp
+                ), 
+                color = if (hasFocus) Color.White else if (isSelected) Color.White.copy(alpha = 0.9f) else Color.LightGray, 
                 maxLines = 1, 
                 overflow = TextOverflow.Ellipsis
             )
@@ -271,51 +287,58 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
     var hasFocus by remember { mutableStateOf(false) }
     val context = LocalContext.current
     
-    // Optimering: Använd produceState för att undvika side-effects i kompositionen
-    val epg by produceState<EpgListing?>(initialValue = null, key1 = item.id) {
-        value = viewModel.getEpgForId(item.id, item.title)
-    }
+    // Direktläsning från ViewModel-state för max prestanda
+    val epg = viewModel.getEpgForId(item.id, item.title)
+    val piconUrl = viewModel.getIconForId(item.id, item.title) ?: item.icon
 
     val backgroundColor by animateColorAsState(
         targetValue = when {
-            hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-            isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+            hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+            isSelected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
             else -> Color.Transparent
-        }, label = "chBg"
+        }, 
+        animationSpec = tween(200),
+        label = "chBg"
+    )
+    
+    val scale by animateFloatAsState(
+        targetValue = if (hasFocus) 1.03f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium),
+        label = "chScale"
     )
 
-    // Optimering: Förbered picon-url i en produceState men med mindre omfång
-    val piconUrl by produceState(initialValue = item.icon, key1 = item.id) {
-        value = viewModel.getIconForChannel(item.id, item.title)
-    }
-
-    // Optimering: Cacha ImageRequest för att slippa skapa nya objekt under scroll
+    // Optimering: Cacha ImageRequest
     val imageRequest = remember(piconUrl) {
         ImageRequest.Builder(context)
             .data(piconUrl)
-            .crossfade(200) // Kortare crossfade för prestanda
-            .size(120, 120) // Begränsa storleken direkt i laddningen
+            .crossfade(100) 
+            .size(120, 120)
             .build()
     }
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(72.dp)
+            .height(76.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .onFocusChanged { hasFocus = it.isFocused }
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null,
                 onClick = { onClick() }
             ),
-        color = backgroundColor
+        color = backgroundColor,
+        shape = RoundedCornerShape(8.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                modifier = Modifier.size(56.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
+                modifier = Modifier.size(60.dp).clip(RoundedCornerShape(6.dp)).background(Color.White.copy(alpha = 0.05f)).padding(4.dp),
                 contentAlignment = Alignment.Center
             ) {
                 AsyncImage(
@@ -334,7 +357,7 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = item.title ?: "", 
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), 
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold), 
                     color = Color.White, 
                     maxLines = 1, 
                     overflow = TextOverflow.Ellipsis
@@ -344,7 +367,7 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                 if (currentEpg != null) {
                     Text(
                         text = currentEpg.title ?: "", 
-                        style = MaterialTheme.typography.bodySmall, 
+                        style = MaterialTheme.typography.bodyMedium, 
                         color = if (hasFocus) Color.White else Color.LightGray, 
                         maxLines = 1, 
                         overflow = TextOverflow.Ellipsis
@@ -356,7 +379,7 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                         val progress = (now - start).toFloat() / (stop - start).toFloat()
                         LinearProgressIndicator(
                             progress = { progress.coerceIn(0f, 1f) },
-                            modifier = Modifier.padding(top = 4.dp).fillMaxWidth().height(3.dp).clip(CircleShape),
+                            modifier = Modifier.padding(top = 6.dp).fillMaxWidth().height(4.dp).clip(CircleShape),
                             color = MaterialTheme.colorScheme.primary,
                             trackColor = Color.White.copy(alpha = 0.1f)
                         )
@@ -379,11 +402,7 @@ fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: M
     val context = LocalContext.current
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
-    val piconUrl by produceState(initialValue = channel?.icon, key1 = channel?.id) {
-        if (channel != null) {
-            value = viewModel.getIconForChannel(channel.id, channel.title)
-        }
-    }
+    val piconUrl = if (channel != null) viewModel.getIconForId(channel.id, channel.title) else null
 
     val imageRequest = remember(piconUrl, epg?.icon) {
         ImageRequest.Builder(context)
@@ -518,13 +537,8 @@ fun QuickInfoOverlay(
         }
     }
 
-    val epg = produceState(initialValue = null as EpgListing?, key1 = media.id, key2 = currentTime / 60000) {
-        value = viewModel.getEpgForId(media.id, media.title)
-    }.value
-
-    val piconUrl = produceState(initialValue = media.icon, key1 = media.id) {
-        value = viewModel.getIconForChannel(media.id, media.title)
-    }.value
+    val epg = viewModel.getEpgForId(media.id, media.title)
+    val piconUrl = viewModel.getIconForId(media.id, media.title) ?: media.icon
     
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     val dateFormatter = remember { DateTimeFormatter.ofPattern("EEE d MMM").withLocale(Locale("sv", "SE")).withZone(ZoneId.systemDefault()) }
@@ -809,19 +823,27 @@ fun SideOverlay(
         visible = isVisible,
         enter = slideInHorizontally(
             initialOffsetX = { -it },
-            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
-        ) + fadeIn(animationSpec = tween(400)),
+            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
+        ) + fadeIn(animationSpec = tween(300)),
         exit = slideOutHorizontally(
             targetOffsetX = { -it },
-            animationSpec = tween(durationMillis = 400, easing = FastOutSlowInEasing)
-        ) + fadeOut(animationSpec = tween(400)),
+            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
+        ) + fadeOut(animationSpec = tween(300)),
         modifier = Modifier.fillMaxSize()
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.6f))
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color.Black.copy(alpha = 0.95f),
+                                Color.Black.copy(alpha = 0.6f),
+                                Color.Transparent
+                            )
+                        )
+                    )
                     .clickable(
                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                         indication = null,
@@ -834,8 +856,14 @@ fun SideOverlay(
                 
                 AnimatedVisibility(
                     visible = showCategories,
-                    enter = slideInHorizontally(initialOffsetX = { -it }) + fadeIn(),
-                    exit = slideOutHorizontally(targetOffsetX = { -it }) + fadeOut()
+                    enter = slideInHorizontally(
+                        initialOffsetX = { -it },
+                        animationSpec = spring(stiffness = Spring.StiffnessMedium)
+                    ) + fadeIn(),
+                    exit = slideOutHorizontally(
+                        targetOffsetX = { -it },
+                        animationSpec = spring(stiffness = Spring.StiffnessMedium)
+                    ) + fadeOut()
                 ) {
                     LazyColumn(
                         state = categoryListState,
@@ -843,7 +871,7 @@ fun SideOverlay(
                             .fillMaxHeight()
                             .width(280.dp)
                             .background(Color.Black.copy(alpha = 0.95f))
-                            .padding(vertical = 16.dp)
+                            .padding(vertical = 16.dp, horizontal = 8.dp)
                     ) {
                         itemsIndexed(categories, key = { index, category -> category.categoryId ?: "cat_$index" }) { index, category ->
                             val isSelected = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title == category.title
@@ -876,7 +904,12 @@ fun SideOverlay(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(420.dp)
-                        .background(Color.Black.copy(alpha = 0.85f))
+                        .background(
+                            Brush.horizontalGradient(
+                                0.0f to Color.Black.copy(alpha = 0.9f),
+                                1.0f to Color.Black.copy(alpha = 0.7f)
+                            )
+                        )
                 ) {
                     val currentCategoryTitle = remember(categories, viewModel.lastLiveCategoryIndex) {
                         categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title ?: ""
@@ -927,16 +960,21 @@ fun SideOverlay(
                             .weight(1f)
                             .padding(32.dp)
                     ) {
-                        val currentEpg = viewModel.getEpgForId(focusedChannel?.id ?: 0, focusedChannel?.title)
-                        ModernProgramDetailBox(epg = currentEpg, channel = focusedChannel, viewModel = viewModel)
+                        AnimatedContent(
+                            targetState = focusedChannel,
+                            transitionSpec = {
+                                fadeIn(animationSpec = tween(300)) togetherWith 
+                                fadeOut(animationSpec = tween(300))
+                            },
+                            label = "detailAnim"
+                        ) { targetChannel ->
+                            val currentEpg = viewModel.getEpgForId(targetChannel?.id ?: 0, targetChannel?.title)
+                            ModernProgramDetailBox(epg = currentEpg, channel = targetChannel, viewModel = viewModel)
+                        }
 
                         Spacer(modifier = Modifier.height(32.dp))
 
-                        val fullEpg = produceState(initialValue = emptyList<EpgListing>(), key1 = focusedChannel?.id) {
-                            focusedChannel?.let {
-                                value = viewModel.getFullEpgForId(it.id, it.title)
-                            }
-                        }.value
+                        val fullEpg = focusedChannel?.let { viewModel.getFullEpgForId(it.id, it.title) } ?: emptyList()
                         
                         val upcomingEpg = remember(fullEpg, focusedChannel, now) { 
                             fullEpg.filter { (it.stopTimestamp ?: 0) > now } 
@@ -969,9 +1007,7 @@ fun SideOverlay(
                         contentAlignment = Alignment.Center
                     ) {
                         focusedChannel?.let { channel ->
-                            val piconUrl = produceState(initialValue = channel.icon, key1 = channel.id) {
-                                value = viewModel.getIconForChannel(channel.id, channel.title)
-                            }.value
+                            val piconUrl = viewModel.getIconForId(channel.id, channel.title) ?: channel.icon
 
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 AsyncImage(
@@ -1008,14 +1044,10 @@ fun EpgModal(
 ) {
     BackHandler { onClose() }
     
-    val fullEpg = produceState(initialValue = emptyList<EpgListing>(), key1 = media.id) {
-        value = viewModel.getFullEpgForId(media.id, media.title)
-    }.value
+    val fullEpg = viewModel.getFullEpgForId(media.id, media.title)
     
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
-    val piconUrl = produceState(initialValue = media.icon, key1 = media.id) {
-        value = viewModel.getIconForChannel(media.id, media.title)
-    }.value
+    val piconUrl = viewModel.getIconForId(media.id, media.title) ?: media.icon
 
     LaunchedEffect(fullEpg) {
         if (fullEpg.isNotEmpty()) {

@@ -797,7 +797,7 @@ fun PlayerScreen(
                 if (showNextEpisodeButton) {
                     delay(2500)
                     if (showNextEpisodeButton && overlayState == OverlayState.NONE) {
-                        nextEpisodeButtonFocusRequester.requestFocus()
+                        nextEpisodeButtonFocusRequester.safeFocus()
                     }
                 }
             }

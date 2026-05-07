@@ -789,9 +789,18 @@ fun SideOverlay(
     // Hantera fokus när vi byter till kanallistan
     LaunchedEffect(overlayState) {
         if (overlayState == "CHANNELS" && isVisible) {
-            val selectedId = viewModel.selectedMedia?.id
-            if (selectedId != null) {
-                channelFocusRequesters[selectedId]?.requestFocus()
+            val targetId = if (playlist.any { it.id == viewModel.selectedMedia?.id }) {
+                viewModel.selectedMedia?.id
+            } else {
+                playlist.firstOrNull()?.id
+            }
+
+            if (targetId != null) {
+                // Vänta lite så att listan hinner rendera och FocusRequesters kopplas till UI:t
+                delay(100)
+                runCatching { 
+                    channelFocusRequesters[targetId]?.requestFocus()
+                }
             }
         }
     }

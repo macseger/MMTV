@@ -92,6 +92,10 @@ fun MediaListScreen(
         }
     }
 
+    fun FocusRequester.safeFocus() {
+        runCatching { this.requestFocus() }
+    }
+
     LaunchedEffect(initialCategoryIndex, initialMediaId) {
         delay(100)
         selectedCategoryIndex = initialCategoryIndex
@@ -102,12 +106,13 @@ fun MediaListScreen(
                 val index = selectedCategory?.items?.indexOfFirst { it.id == initialMediaId } ?: -1
                 if (index != -1) {
                     listState.scrollToItem(index)
-                    channelFocusRequesters[initialMediaId]?.requestFocus()
+                    delay(50)
+                    channelFocusRequesters[initialMediaId]?.safeFocus()
                 } else {
-                    categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+                    categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
                 }
             } else {
-                categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+                categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
             }
         }
     }
@@ -127,11 +132,11 @@ fun MediaListScreen(
             if (it.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK && 
                 it.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
                 if (!isSidebarFocused) {
-                    categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+                    categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
                     true
                 } else {
                     if (topBarFocusRequester != null) {
-                        topBarFocusRequester.requestFocus()
+                        topBarFocusRequester.safeFocus()
                         true
                     } else {
                         false // Let the system handle it (exit screen)
@@ -171,7 +176,7 @@ fun MediaListScreen(
                                 if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                                     val firstChannelId = groupedList.getOrNull(index)?.items?.firstOrNull()?.id
                                     if (firstChannelId != null) {
-                                        channelFocusRequesters[firstChannelId]?.requestFocus()
+                                        channelFocusRequesters[firstChannelId]?.safeFocus()
                                         true
                                     } else false
                                 } else false
@@ -216,7 +221,7 @@ fun MediaListScreen(
                                     } }
                                     .onKeyEvent { 
                                         if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                            categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+                                            categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
                                             true
                                         } else false
                                     },
@@ -270,7 +275,7 @@ fun MediaListScreen(
                                         // Attempt to move focus left. If it fails, go to category sidebar.
                                         val moved = focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
                                         if (!moved) {
-                                            categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+                                            categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
                                             true
                                         } else true
                                     } else false

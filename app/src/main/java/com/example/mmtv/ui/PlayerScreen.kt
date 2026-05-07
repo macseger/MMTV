@@ -553,7 +553,11 @@ fun PlayerScreen(
                         }
                             KeyEvent.KEYCODE_DPAD_DOWN -> {
                                 if (overlayState == OverlayState.NONE) {
-                                    overlayState = OverlayState.SUBTITLES
+                                    if (media?.type == MediaType.LIVE) {
+                                        overlayState = OverlayState.FULL_EPG
+                                    } else {
+                                        overlayState = OverlayState.SUBTITLES
+                                    }
                                     true
                                 } else false
                             }

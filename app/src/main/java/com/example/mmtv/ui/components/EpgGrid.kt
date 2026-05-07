@@ -1,5 +1,6 @@
 package com.example.mmtv.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -9,10 +10,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -20,10 +25,10 @@ import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.ui.MediaViewModel
 import java.time.Instant
-import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun EpgGrid(
@@ -32,38 +37,73 @@ fun EpgGrid(
     onChannelSelected: (MediaSource) -> Unit,
     onClose: () -> Unit
 ) {
+    BackHandler { onClose() }
+    
     val themeColor = viewModel.currentThemeColor
     val now = remember { System.currentTimeMillis() / 1000 }
     
-    // Vi visar 24 timmar, startar för 2 timmar sedan
+    // Synkroniserad horisontell scroll för hela rutnätet
+    val horizontalScrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
+    
+    // Vi visar 24 timmar, startar för 2 timmar sedan för att se vad som precis slutat
     val startTime = remember { ((now / 1800) * 1800) - 7200 } 
     val timeStep = 30 * 60 // 30 minuters block
     val totalSteps = 48 // 24 timmar
+    val pixelsPerMinute = 8f // Skala för bredd
     
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
     
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.95f))) {
+    // Scrolla till nuvarande tid vid start
+    LaunchedEffect(Unit) {
+        val initialScroll = (120 * pixelsPerMinute).toInt() // 120 minuter (2 timmar)
+        horizontalScrollState.scrollTo(initialScroll)
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.98f))) {
         Column {
-            // Header: Tidslinje
-            Row(modifier = Modifier.fillMaxWidth().height(50.dp).background(Color(0xFF1A1A1A))) {
-                Spacer(modifier = Modifier.width(200.dp)) // Plats för kanalnamn
+            // HEADER: Tidslinje (Följer med i horisontell scroll)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(60.dp)
+                    .background(Color(0xFF1A1A1A))
+                    .drawWithContent {
+                        drawContent()
+                        // Markör för "NU"
+                        val nowX = (now - startTime) / 60 * pixelsPerMinute
+                        drawLine(
+                            color = themeColor,
+                            start = androidx.compose.ui.geometry.Offset(nowX + 250f - horizontalScrollState.value, 0f),
+                            end = androidx.compose.ui.geometry.Offset(nowX + 250f - horizontalScrollState.value, 10000f),
+                            strokeWidth = 2.dp.toPx()
+                        )
+                    }
+            ) {
+                // Hörnbox (ovanför kanallogotyperna)
+                Box(
+                    modifier = Modifier.width(250.dp).fillMaxHeight().background(Color.Black),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("KANALER", color = themeColor, fontWeight = FontWeight.Black, fontSize = 12.sp, letterSpacing = 2.sp)
+                }
                 
-                val scrollState = rememberScrollState()
-                
-                Row(modifier = Modifier.horizontalScroll(scrollState)) {
+                // Tidsskalan
+                Row(modifier = Modifier.horizontalScroll(horizontalScrollState, enabled = false)) {
                     repeat(totalSteps) { i ->
                         val time = Instant.ofEpochSecond(startTime + (i * timeStep))
                             .atZone(ZoneId.systemDefault())
                             .toLocalTime()
                         
                         Box(
-                            modifier = Modifier.width(200.dp).fillMaxHeight(),
+                            modifier = Modifier.width((30 * pixelsPerMinute).dp).fillMaxHeight(),
                             contentAlignment = Alignment.CenterStart
                         ) {
                             Text(
                                 text = time.format(timeFormatter),
-                                color = Color.Gray,
-                                fontSize = 14.sp,
+                                color = if (i == 4) themeColor else Color.Gray,
+                                fontSize = 16.sp,
+                                fontWeight = if (i == 4) FontWeight.Bold else FontWeight.Normal,
                                 modifier = Modifier.padding(start = 8.dp)
                             )
                         }
@@ -71,7 +111,7 @@ fun EpgGrid(
                 }
             }
             
-            // Grid: Kanaler + Program
+            // GRID: Kanaler + Program
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 items(channels) { channel ->
                     EpgRow(
@@ -79,6 +119,8 @@ fun EpgGrid(
                         viewModel = viewModel,
                         startTime = startTime,
                         themeColor = themeColor,
+                        pixelsPerMinute = pixelsPerMinute,
+                        horizontalScrollState = horizontalScrollState,
                         onChannelSelected = onChannelSelected
                     )
                 }
@@ -93,6 +135,8 @@ fun EpgRow(
     viewModel: MediaViewModel,
     startTime: Long,
     themeColor: Color,
+    pixelsPerMinute: Float,
+    horizontalScrollState: ScrollState,
     onChannelSelected: (MediaSource) -> Unit
 ) {
     val epgList = viewModel.getFullEpgForId(channel.id, channel.title)
@@ -101,30 +145,30 @@ fun EpgRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(80.dp)
+            .height(90.dp)
             .border(0.5.dp, Color.White.copy(alpha = 0.05f))
     ) {
         // Kanal-info (Fast vänsterkolumn)
         Surface(
             onClick = { onChannelSelected(channel) },
-            modifier = Modifier.width(200.dp).fillMaxHeight(),
+            modifier = Modifier.width(250.dp).fillMaxHeight(),
             color = Color(0xFF121212)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(8.dp)
+                modifier = Modifier.padding(16.dp)
             ) {
                 AsyncImage(
                     model = piconUrl,
                     contentDescription = null,
-                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(4.dp)),
+                    modifier = Modifier.size(50.dp).clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.03f)),
                     contentScale = ContentScale.Fit
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(16.dp))
                 Text(
                     text = channel.title ?: "",
                     color = Color.White,
-                    fontSize = 14.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -132,42 +176,33 @@ fun EpgRow(
             }
         }
         
-        // Program-slots (Scrollbar horisontellt)
-        // OBS: Detta är en förenklad grid. I en riktig TV-guide 
-        // beräknas bredden baserat på (stopptid - starttid).
-        val horizontalScrollState = rememberScrollState()
-        
+        // Program-slots
         Row(
             modifier = Modifier
                 .fillMaxHeight()
-                .horizontalScroll(horizontalScrollState)
+                .horizontalScroll(horizontalScrollState, enabled = false)
                 .background(Color.Black)
         ) {
             if (epgList.isEmpty()) {
-                Box(modifier = Modifier.width(2000.dp).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
-                    Text("Ingen programinformation tillgänglig", color = Color.DarkGray, modifier = Modifier.padding(16.dp))
+                Box(modifier = Modifier.width(3000.dp).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
+                    Text("Ingen programinfo", color = Color.DarkGray, modifier = Modifier.padding(24.dp))
                 }
             } else {
-                // Filtrera och rita ut program som matchar vårt tidsfönster
                 epgList.forEach { epg ->
                     val progStart = epg.startTimestamp ?: 0L
                     val progStop = epg.stopTimestamp ?: 0L
                     
                     if (progStop > startTime) {
-                        val durationMin = (progStop - progStart) / 60
-                        val width = (durationMin * 6.66).dp // Skala: 1 min = 6.66dp (200dp per 30 min)
-                        
-                        // Beräkna offset om programmet startade före vår starttid
-                        val displayWidth = if (progStart < startTime) {
-                            val overlapMin = (progStop - startTime) / 60
-                            (overlapMin * 6.66).dp
-                        } else width
+                        val durationMin = (progStop - (if (progStart < startTime) startTime else progStart)) / 60
+                        val width = (durationMin * pixelsPerMinute).dp
 
-                        ProgramBlock(
-                            epg = epg,
-                            width = displayWidth,
-                            themeColor = themeColor
-                        )
+                        if (width > 1.dp) {
+                            ProgramBlock(
+                                epg = epg,
+                                width = width,
+                                themeColor = themeColor
+                            )
+                        }
                     }
                 }
             }
@@ -176,37 +211,56 @@ fun EpgRow(
 }
 
 @Composable
-fun ProgramBlock(epg: EpgListing, width: androidx.compose.ui.unit.Dp, themeColor: Color) {
+fun ProgramBlock(epg: EpgListing, width: Dp, themeColor: Color) {
     var isFocused by remember { mutableStateOf(false) }
+    val now = System.currentTimeMillis() / 1000
+    val isLive = (epg.startTimestamp ?: 0) <= now && (epg.stopTimestamp ?: 0) > now
     
     Surface(
-        onClick = { /* Visa info? */ },
+        onClick = { /* Kan lägga till detaljer här */ },
         modifier = Modifier
             .width(width)
             .fillMaxHeight()
-            .padding(1.dp),
-        color = if (isFocused) themeColor.copy(alpha = 0.3f) else Color(0xFF222222),
+            .padding(1.dp)
+            .onFocusChanged { isFocused = it.isFocused },
+        color = when {
+            isFocused -> themeColor.copy(alpha = 0.4f)
+            isLive -> Color.White.copy(alpha = 0.08f)
+            else -> Color(0xFF1A1A1A)
+        },
         shape = RoundedCornerShape(2.dp),
-        border = if (isFocused) BorderStroke(2.dp, themeColor) else null
+        border = if (isFocused) BorderStroke(2.dp, Color.White) else null
     ) {
-        Column(modifier = Modifier.padding(8.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Text(
                 text = epg.title ?: "Inget namn",
-                color = Color.White,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
+                color = if (isFocused) Color.White else if (isLive) themeColor else Color.LightGray,
+                fontSize = 14.sp,
+                fontWeight = if (isLive || isFocused) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+            
+            val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
             val start = Instant.ofEpochSecond(epg.startTimestamp ?: 0).atZone(ZoneId.systemDefault()).toLocalTime()
             val stop = Instant.ofEpochSecond(epg.stopTimestamp ?: 0).atZone(ZoneId.systemDefault()).toLocalTime()
             
             Text(
                 text = "${start.format(timeFormatter)} - ${stop.format(timeFormatter)}",
-                color = Color.Gray,
-                fontSize = 11.sp
+                color = if (isFocused) Color.White.copy(alpha = 0.7f) else Color.Gray,
+                fontSize = 12.sp
             )
+            
+            if (isLive && width > 100.dp) {
+                Spacer(modifier = Modifier.height(4.dp))
+                val progress = (now - (epg.startTimestamp ?: 0)).toFloat() / ((epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0))
+                LinearProgressIndicator(
+                    progress = { progress.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(2.dp).clip(RoundedCornerShape(1.dp)),
+                    color = themeColor,
+                    trackColor = Color.White.copy(alpha = 0.1f)
+                )
+            }
         }
     }
 }

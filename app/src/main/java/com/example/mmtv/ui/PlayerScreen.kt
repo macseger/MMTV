@@ -532,7 +532,10 @@ fun PlayerScreen(
                                     if (showNextEpisodeButton) {
                                         nextEpisodeButtonFocusRequester.safeFocus()
                                         true
-                                    } else if (media?.type != MediaType.LIVE) {
+                                    } else if (media?.type == MediaType.LIVE) {
+                                        overlayState = OverlayState.FULL_EPG
+                                        true
+                                    } else {
                                         if (!showSeekFeedback) {
                                             showSeekFeedback = true
                                             seekJob?.cancel()
@@ -540,7 +543,7 @@ fun PlayerScreen(
                                         }
                                         subtitleIconFocusRequester.safeFocus()
                                         true
-                                    } else false
+                                    }
                                 }
                                 else -> false
                             }

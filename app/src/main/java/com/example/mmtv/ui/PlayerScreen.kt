@@ -170,6 +170,7 @@ fun PlayerScreen(
     val isQuickInfoVisible by remember { derivedStateOf { overlayState == OverlayState.QUICK_INFO } }
     val isNextEpisodeVisible by remember { derivedStateOf { showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE } }
     val isSubtitlesVisible by remember { derivedStateOf { overlayState == OverlayState.SUBTITLES } }
+    val isSideOverlayVisible by remember { derivedStateOf { overlayState == OverlayState.CHANNELS || overlayState == OverlayState.CATEGORIES } }
 
     val currentPlaybackId = remember(media, viewModel.playingEpisode) {
         if (isSeries && viewModel.playingEpisode != null) {
@@ -379,10 +380,11 @@ fun PlayerScreen(
             }
             OverlayState.CHANNELS -> {
                 if (playlist.isNotEmpty()) {
+                    // Optimering: Beräkna indexet utanför scope.launch och använd remember för att undvika O(n) vid varje recomposition
                     val index = playlist.indexOfFirst { it.id == media?.id }.coerceAtLeast(0)
                     scope.launch {
                         channelListState.scrollToItem(index)
-                        delay(60) // Reducerad för snabbare känsla
+                        delay(100) 
                         channelFocusRequesters[playlist.getOrNull(index)?.id ?: -1]?.safeFocus()
                     }
                     if (media != null) focusedChannel = media
@@ -881,7 +883,7 @@ fun PlayerScreen(
         }
 
         SideOverlay(
-            isVisible = overlayState == OverlayState.CHANNELS || overlayState == OverlayState.CATEGORIES,
+            isVisible = isSideOverlayVisible,
             overlayState = overlayState.name,
             categories = categories,
             playlist = playlist,

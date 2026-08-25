@@ -807,6 +807,15 @@ fun SideOverlay(
         }
     }
 
+    // Optimering: Debounce för kategorival för att undvika frysning vid snabb scroll
+    var debouncedCategoryIndex by remember { mutableIntStateOf(viewModel.lastLiveCategoryIndex) }
+    LaunchedEffect(debouncedCategoryIndex) {
+        if (debouncedCategoryIndex != viewModel.lastLiveCategoryIndex) {
+            delay(300) // Debounce-tid
+            onCategorySelected(debouncedCategoryIndex)
+        }
+    }
+
     // Hantera fokus när vi byter till kanallistan
     LaunchedEffect(overlayState) {
         if (overlayState == "CHANNELS" && isVisible) {
@@ -885,6 +894,8 @@ fun SideOverlay(
                             key = { index, category -> category.categoryId ?: "cat_$index" },
                             contentType = { _, _ -> "category" }
                         ) { index, category ->
+                            // Använd debounced index för visuell feedback om det behövs, 
+                            // men lastLiveCategoryIndex är det "bekräftade" valet.
                             val isSelected = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title == category.title
                             CategoryListItem(
                                 title = category.title ?: "",
@@ -894,11 +905,13 @@ fun SideOverlay(
                                     .focusRequester(categoryFocusRequesters.getOrPut(index) { FocusRequester() })
                                     .onFocusChanged {
                                         if (it.isFocused) {
-                                            onCategorySelected(index)
+                                            debouncedCategoryIndex = index
                                         }
                                     }
                                     .onKeyEvent {
                                         if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                            // Tvinga uppdatering direkt vid navigering till höger
+                                            onCategorySelected(index)
                                             onOverlayStateChange("CHANNELS")
                                             true
                                         } else false

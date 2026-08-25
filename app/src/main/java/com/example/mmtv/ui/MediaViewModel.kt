@@ -399,10 +399,14 @@ class MediaViewModel(
                 _repository.getMediaForCategory(type, categoryId)
             }
             
-            // Mappa kanal-ID till EPG-ID direkt
+            // Mappa kanal-ID till EPG-ID direkt (Optimering: använd batch-uppdatering)
             if (type == MediaType.LIVE) {
+                val newMappings = mutableMapOf<Int, String>()
                 items.forEach { item ->
-                    item.epgId?.let { epgId -> channelToEpgMap[item.id] = epgId }
+                    item.epgId?.let { epgId -> newMappings[item.id] = epgId }
+                }
+                if (newMappings.isNotEmpty()) {
+                    channelToEpgMap.putAll(newMappings)
                 }
                 
                 // Om detta är den aktuella spellistan i PlayerScreen, uppdatera den
@@ -486,32 +490,41 @@ class MediaViewModel(
     fun prefetchEpgForCategory(categoryIndex: Int) {
         val category = uiState.liveStreamsGrouped.getOrNull(categoryIndex) ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            // För-cacha picons också
+            // För-cacha picons också - Batch-uppdatering för att undvika main-tråd hopp
+            val newPicons = mutableMapOf<String, String?>()
             category.items.forEach { item ->
                 val cacheKey = "${item.type}_${item.id}"
                 if (!piconCache.containsKey(cacheKey)) {
                     val icon = _repository.getIconForChannel(item.epgId, item.title)
                     if (icon != null) {
-                        withContext(Dispatchers.Main) {
-                            piconCache[cacheKey] = icon
-                        }
+                        newPicons[cacheKey] = icon
                     }
+                }
+            }
+            if (newPicons.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    piconCache.putAll(newPicons)
                 }
             }
             
             // Batcha EPG-hämtningar för att inte sänka prestandan
-            category.items.chunked(20).forEach { batch ->
+            category.items.chunked(25).forEach { batch ->
+                val batchEpgUpdates = mutableMapOf<String, List<EpgListing>>()
                 batch.forEach { item ->
                     if (item.epgId != null && !fullEpgData.containsKey(item.epgId)) {
                         val epg = _repository.getEpgForChannel(item.epgId, item.title)
                         if (epg.isNotEmpty()) {
-                            withContext(Dispatchers.Main) {
-                                fullEpgData[item.epgId] = epg
-                            }
+                            batchEpgUpdates[item.epgId] = epg
                         }
                     }
                 }
-                delay(200) // Ge andra processer plats
+                
+                if (batchEpgUpdates.isNotEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        fullEpgData.putAll(batchEpgUpdates)
+                    }
+                }
+                delay(150) // Ge andra processer plats
             }
         }
     }

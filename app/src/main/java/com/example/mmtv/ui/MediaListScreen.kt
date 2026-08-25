@@ -60,9 +60,9 @@ fun MediaListScreen(
     onCategoryChanged: (Int) -> Unit = {},
     onMediaSelected: (MediaSource) -> Unit,
     onToggleFavorite: (MediaSource) -> Unit = {},
-    epgProvider: suspend (Int, String?) -> EpgListing? = { _, _ -> null },
-    nextEpgProvider: suspend (Int, String?) -> EpgListing? = { _, _ -> null },
-    onGetIcon: suspend (Int, String?) -> String? = { _, _ -> null },
+    epgProvider: suspend (Int, MediaType, String?) -> EpgListing? = { _, _, _ -> null },
+    nextEpgProvider: suspend (Int, MediaType, String?) -> EpgListing? = { _, _, _ -> null },
+    onGetIcon: suspend (Int, MediaType, String?) -> String? = { _, _, _ -> null },
     onItemFocused: (Int) -> Unit = {},
     backgroundColor: Color = Color.Black,
     onBackPressed: (() -> Unit)? = null,
@@ -235,15 +235,15 @@ fun MediaListScreen(
                 // Column 3: EPG Detail Pane
                 Box(modifier = Modifier.weight(1f).fillMaxHeight().background(Color.Black).padding(24.dp)) {
                     focusedMedia?.let { media ->
-                        val currentEpg = produceState<EpgListing?>(initialValue = null, key1 = media.id) {
-                            value = epgProvider(media.id, media.title)
+                        val currentEpg = produceState<EpgListing?>(initialValue = null, key1 = media) {
+                            value = epgProvider(media.id, media.type, media.title)
                         }.value
-                        val nextEpg = produceState<EpgListing?>(initialValue = null, key1 = media.id) {
-                            value = nextEpgProvider(media.id, media.title)
+                        val nextEpg = produceState<EpgListing?>(initialValue = null, key1 = media) {
+                            value = nextEpgProvider(media.id, media.type, media.title)
                         }.value
                         
-                        val displayIcon = produceState<String?>(initialValue = media.icon, key1 = media.id) {
-                            value = onGetIcon(media.id, media.title)
+                        val displayIcon = produceState<String?>(initialValue = media.icon, key1 = media) {
+                            value = onGetIcon(media.id, media.type, media.title)
                         }.value
                         
                         LiveDetailPane(media = media, currentEpg = currentEpg, nextEpg = nextEpg, displayIcon = displayIcon)
@@ -429,23 +429,23 @@ fun TvChannelItem(
     modifier: Modifier = Modifier, 
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
-    epgProvider: (suspend (Int, String?) -> EpgListing?)? = null,
-    onGetIcon: (suspend (Int, String?) -> String?)? = null
+    epgProvider: (suspend (Int, MediaType, String?) -> EpgListing?)? = null,
+    onGetIcon: (suspend (Int, MediaType, String?) -> String?)? = null
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.id) {
+    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
         if (onGetIcon != null) {
-            val localIcon = onGetIcon(media.id, media.title)
+            val localIcon = onGetIcon(media.id, media.type, media.title)
             if (localIcon != null) {
                 value = localIcon
             }
         }
     }
 
-    val epg by produceState<EpgListing?>(initialValue = null, key1 = media.id) {
+    val epg by produceState<EpgListing?>(initialValue = null, key1 = media) {
         if (epgProvider != null) {
-            value = epgProvider(media.id, media.title)
+            value = epgProvider(media.id, media.type, media.title)
         }
     }
 
@@ -531,13 +531,13 @@ fun MediaCard(
     modifier: Modifier = Modifier, 
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
-    onGetIcon: (suspend (Int, String?) -> String?)? = null
+    onGetIcon: (suspend (Int, MediaType, String?) -> String?)? = null
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon) {
+    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
         if (value.isNullOrEmpty() && onGetIcon != null) {
-            value = onGetIcon(media.id, media.title)
+            value = onGetIcon(media.id, media.type, media.title)
         }
     }
 

@@ -218,7 +218,7 @@ class MediaRepository(
     suspend fun toggleFavorite(item: MediaEntity) = withContext(Dispatchers.IO) {
         val newFav = !item.isFavorite
         val favDate = if (newFav) System.currentTimeMillis() else 0L
-        mediaDao.updateFavoriteWithDate(item.id, newFav, favDate)
+        mediaDao.updateFavoriteWithDate(item.id, item.type, newFav, favDate)
     }
 
     suspend fun getFavorites(): List<MediaEntity> = withContext(Dispatchers.IO) {

@@ -115,7 +115,7 @@ fun SearchScreen(
                         media = media,
                         onClick = { onMediaSelected(media) },
                         onToggleFavorite = { viewModel.toggleFavorite(media) },
-                        onGetIcon = { id, name -> viewModel.getIconForChannel(id, name) }
+                        onGetIcon = { id, type, name -> viewModel.getIconForChannel(id, type, name) }
                     )
                 }
             }

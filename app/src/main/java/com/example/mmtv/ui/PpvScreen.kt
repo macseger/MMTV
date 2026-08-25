@@ -37,7 +37,7 @@ fun PpvScreen(
     isTvMode: Boolean = true,
     onCategoryChanged: (Int) -> Unit = {},
     onMediaSelected: (MediaSource) -> Unit,
-    onGetIcon: suspend (Int, String?) -> String? = { _, _ -> null },
+    onGetIcon: suspend (Int, com.example.mmtv.model.MediaType, String?) -> String? = { _, _, _ -> null },
     topBarFocusRequester: FocusRequester? = null
 ) {
     var selectedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
@@ -162,7 +162,7 @@ fun PpvScreen(
                     val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
                     PpvItem(
                         media = media,
-                        onGetIcon = onGetIcon,
+                        onGetIcon = { id, name -> onGetIcon(id, media.type, name) },
                         modifier = Modifier
                             .focusRequester(requester)
                             .onKeyEvent { 
@@ -188,7 +188,7 @@ fun PpvItem(
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.id) {
+    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
         val localIcon = onGetIcon(media.id, media.title)
         if (localIcon != null) {
             value = localIcon

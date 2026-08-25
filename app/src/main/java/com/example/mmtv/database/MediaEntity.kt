@@ -1,12 +1,11 @@
 package com.example.mmtv.database
 
 import androidx.room.Entity
-import androidx.room.PrimaryKey
 import com.example.mmtv.model.MediaType
 
-@Entity(tableName = "media_items")
+@Entity(tableName = "media_items", primaryKeys = ["id", "type"])
 data class MediaEntity(
-    @PrimaryKey val id: Int, 
+    val id: Int, 
     val title: String,
     val icon: String?,
     val type: MediaType,

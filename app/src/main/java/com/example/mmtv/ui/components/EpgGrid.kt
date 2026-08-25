@@ -332,8 +332,8 @@ fun EpgRow(
     onChannelSelected: (MediaSource) -> Unit,
     onProgramFocused: (EpgListing) -> Unit
 ) {
-    val epgList = viewModel.getFullEpgForId(channel.id, channel.title)
-    val piconUrl = viewModel.getIconForId(channel.id, channel.title) ?: channel.icon
+    val epgList = viewModel.getFullEpgForId(channel.id, channel.type, channel.title)
+    val piconUrl = viewModel.getIconForId(channel.id, channel.type, channel.title) ?: channel.icon
     val now = System.currentTimeMillis() / 1000
 
     Row(

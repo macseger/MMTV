@@ -28,11 +28,11 @@ interface MediaDao {
     @Query("SELECT * FROM media_items WHERE isFavorite = 1 ORDER BY favoriteDate DESC")
     suspend fun getFavorites(): List<MediaEntity>
 
-    @Query("UPDATE media_items SET isFavorite = :isFav, favoriteDate = :favDate WHERE id = :id")
-    suspend fun updateFavoriteWithDate(id: Int, isFav: Boolean, favDate: Long)
+    @Query("UPDATE media_items SET isFavorite = :isFav, favoriteDate = :favDate WHERE id = :id AND type = :type")
+    suspend fun updateFavoriteWithDate(id: Int, type: com.example.mmtv.model.MediaType, isFav: Boolean, favDate: Long)
 
-    @Query("SELECT * FROM media_items WHERE id = :id LIMIT 1")
-    suspend fun getMediaById(id: Int): MediaEntity?
+    @Query("SELECT * FROM media_items WHERE id = :id AND type = :type LIMIT 1")
+    suspend fun getMediaById(id: Int, type: com.example.mmtv.model.MediaType): MediaEntity?
 
     @Query("UPDATE media_items SET isFavorite = 0, favoriteDate = 0")
     suspend fun clearAllFavorites()

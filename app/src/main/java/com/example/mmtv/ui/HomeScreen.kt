@@ -412,7 +412,7 @@ fun MediaRow(
                         media = item,
                         onClick = { onMediaClick(item) },
                         onToggleFavorite = { viewModel.toggleFavorite(item) },
-                        onGetIcon = { id, name -> viewModel.getIconForChannel(id, name) }
+                        onGetIcon = { id, type, name -> viewModel.getIconForChannel(id, type, name) }
                     )
                 }
             }
@@ -463,9 +463,9 @@ fun HistoryCard(
     val scope = rememberCoroutineScope()
     var pressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media.id) {
+    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
         if (value.isNullOrEmpty()) {
-            value = viewModel.getIconForChannel(media.id, media.title)
+            value = viewModel.getIconForChannel(media.id, media.type, media.title)
         }
     }
 

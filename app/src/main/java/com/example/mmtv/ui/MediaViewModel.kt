@@ -97,8 +97,8 @@ class MediaViewModel(
     private val fetchingEpgIds = mutableSetOf<Int>()
     
     // Cache för nuvarande program för att slippa iterera listor i UI-loopen (prestanda på TV)
-    private val currentEpgCache = mutableStateMapOf<Int, EpgListing?>()
-    private val piconCache = mutableStateMapOf<Int, String?>()
+    private val currentEpgCache = mutableStateMapOf<String, EpgListing?>()
+    private val piconCache = mutableStateMapOf<String, String?>()
 
     var lastLiveCategoryIndex by mutableIntStateOf(0)
     var lastPpvCategoryIndex by mutableIntStateOf(0)
@@ -430,9 +430,9 @@ class MediaViewModel(
 
     fun toggleFavorite(media: MediaSource) {
         viewModelScope.launch(Dispatchers.IO) {
-            val entity = mediaDao.getMediaById(media.id) ?: return@launch
+            val entity = mediaDao.getMediaById(media.id, media.type) ?: return@launch
             val newFavStatus = !entity.isFavorite
-            mediaDao.updateFavoriteWithDate(media.id, newFavStatus, if (newFavStatus) System.currentTimeMillis() else 0)
+            mediaDao.updateFavoriteWithDate(media.id, media.type, newFavStatus, if (newFavStatus) System.currentTimeMillis() else 0)
             
             withContext(Dispatchers.Main) {
                 // Uppdatera selectedMedia om det är det vi tittar på
@@ -484,11 +484,12 @@ class MediaViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             // För-cacha picons också
             category.items.forEach { item ->
-                if (!piconCache.containsKey(item.id)) {
+                val cacheKey = "${item.type}_${item.id}"
+                if (!piconCache.containsKey(cacheKey)) {
                     val icon = _repository.getIconForChannel(item.epgId, item.title)
                     if (icon != null) {
                         withContext(Dispatchers.Main) {
-                            piconCache[item.id] = icon
+                            piconCache[cacheKey] = icon
                         }
                     }
                 }
@@ -511,11 +512,12 @@ class MediaViewModel(
         }
     }
 
-    fun getEpgForId(id: Int, name: String? = null): EpgListing? {
+    fun getEpgForId(id: Int, type: MediaType, name: String? = null): EpgListing? {
         val now = System.currentTimeMillis() / 1000
+        val cacheKey = "${type}_$id"
         
         // 1. Snabb-cache för nuvarande program
-        val cached = currentEpgCache[id]
+        val cached = currentEpgCache[cacheKey]
         if (cached != null) {
             val stop = cached.stopTimestamp ?: 0L
             if (now < stop) return cached
@@ -534,7 +536,7 @@ class MediaViewModel(
                     start <= now && stop > now 
                 }
                 if (current != null) {
-                    currentEpgCache[id] = current
+                    currentEpgCache[cacheKey] = current
                     return current
                 }
             }
@@ -547,7 +549,7 @@ class MediaViewModel(
                 try {
                     // Om vi inte har epgId, försök hitta det via MediaEntity först
                     val finalEpgId = epgId ?: run {
-                        val media = mediaDao.getMediaById(id)
+                        val media = mediaDao.getMediaById(id, type)
                         media?.epgId?.also {
                             withContext(Dispatchers.Main) { channelToEpgMap[id] = it }
                         }
@@ -561,7 +563,7 @@ class MediaViewModel(
                                 val current = epg.find { 
                                     (it.startTimestamp ?: 0L) <= now && (it.stopTimestamp ?: 0L) > now 
                                 }
-                                if (current != null) currentEpgCache[id] = current
+                                if (current != null) currentEpgCache[cacheKey] = current
                             }
                         }
                     }
@@ -575,12 +577,12 @@ class MediaViewModel(
         return null
     }
 
-    fun getNextEpgForId(id: Int, name: String? = null): EpgListing? {
+    fun getNextEpgForId(id: Int, type: MediaType, name: String? = null): EpgListing? {
         val epgId = channelToEpgMap[id]
         val listings = if (epgId != null) fullEpgData[epgId] else null
         
         if (listings == null) {
-            getEpgForId(id, name) // Trigga hämtning om saknas
+            getEpgForId(id, type, name) // Trigga hämtning om saknas
             return null
         }
 
@@ -593,7 +595,7 @@ class MediaViewModel(
         return listings.find { it.startTimestamp == current.stopTimestamp }
     }
 
-    fun getFullEpgForId(id: Int, name: String? = null): List<EpgListing> {
+    fun getFullEpgForId(id: Int, type: MediaType, name: String? = null): List<EpgListing> {
         val epgId = channelToEpgMap[id] ?: return emptyList()
         return fullEpgData[epgId] ?: run {
             viewModelScope.launch {
@@ -606,8 +608,9 @@ class MediaViewModel(
         }
     }
 
-    fun getIconForId(id: Int, name: String? = null): String? {
-        val cached = piconCache[id]
+    fun getIconForId(id: Int, type: MediaType, name: String? = null): String? {
+        val cacheKey = "${type}_$id"
+        val cached = piconCache[cacheKey]
         if (cached != null) return cached
 
         if (!fetchingEpgIds.contains(id)) { // Återanvänd fetchingEpgIds för enkelhet eller skapa ny set
@@ -617,7 +620,7 @@ class MediaViewModel(
                     val icon = _repository.getIconForChannel(epgId, name)
                     if (icon != null) {
                         withContext(Dispatchers.Main) {
-                            piconCache[id] = icon
+                            piconCache[cacheKey] = icon
                         }
                     }
                 } catch (e: Exception) {}
@@ -626,15 +629,16 @@ class MediaViewModel(
         return null
     }
 
-    suspend fun getIconForChannel(id: Int, name: String? = null): String? {
-        val cached = piconCache[id]
+    suspend fun getIconForChannel(id: Int, type: MediaType, name: String? = null): String? {
+        val cacheKey = "${type}_$id"
+        val cached = piconCache[cacheKey]
         if (cached != null) return cached
 
         val epgId = channelToEpgMap[id]
         val icon = _repository.getIconForChannel(epgId, name)
         if (icon != null) {
             withContext(Dispatchers.Main) {
-                piconCache[id] = icon
+                piconCache[cacheKey] = icon
             }
         }
         return icon

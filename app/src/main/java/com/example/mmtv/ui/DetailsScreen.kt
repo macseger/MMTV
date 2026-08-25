@@ -130,9 +130,9 @@ fun DetailsScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        val bgIcon by produceState<String?>(initialValue = media.icon, key1 = media.icon) {
+        val bgIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
             if (value.isNullOrEmpty()) {
-                value = viewModel.repository.getIconForChannel(media.id.toString(), media.title)
+                value = viewModel.getIconForChannel(media.id, media.type, media.title)
             }
         }
         

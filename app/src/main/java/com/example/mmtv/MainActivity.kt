@@ -302,7 +302,7 @@ class MainActivity : AppCompatActivity() {
                                                 val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
                                                 playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                             },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }
@@ -330,9 +330,9 @@ class MainActivity : AppCompatActivity() {
                                                 val currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(sharedViewModel.lastLiveCategoryIndex)?.items ?: emptyList()
                                                 playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                             },
-                                            epgProvider = { id, name -> sharedViewModel.getEpgForId(id, name) },
-                                            nextEpgProvider = { id, name -> sharedViewModel.getNextEpgForId(id, name) },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            epgProvider = { id, type, name -> sharedViewModel.getEpgForId(id, type, name) },
+                                            nextEpgProvider = { id, type, name -> sharedViewModel.getNextEpgForId(id, type, name) },
+                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
@@ -357,7 +357,7 @@ class MainActivity : AppCompatActivity() {
                                                 val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
                                                 playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                             },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }
@@ -389,7 +389,7 @@ class MainActivity : AppCompatActivity() {
                                                 sharedViewModel.selectedMedia = media
                                                 navController.navigate("details")
                                             },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
@@ -414,7 +414,7 @@ class MainActivity : AppCompatActivity() {
                                                 val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
                                                 playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                             },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }
@@ -446,7 +446,7 @@ class MainActivity : AppCompatActivity() {
                                                 sharedViewModel.selectedMedia = media
                                                 navController.navigate("details")
                                             },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
@@ -471,7 +471,7 @@ class MainActivity : AppCompatActivity() {
                                                 val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
                                                 playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                             },
-                                            onGetIcon = { id, name -> sharedViewModel.getIconForChannel(id, name) },
+                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }

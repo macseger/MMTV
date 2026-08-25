@@ -1,5 +1,5 @@
 [versions]
-agp = "9.2.1"
+agp = "9.3.2"
 appcompat = "1.7.0"
 coreKtx = "1.15.0"
 junit = "4.13.2"
@@ -22,7 +22,7 @@ workRuntimeKtx = "2.11.2"
 castFramework = "22.3.1"
 mediarouter = "1.7.0"
 palette = "1.0.0"
-ksp = "2.3.2"
+ksp = "2.3.6"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }

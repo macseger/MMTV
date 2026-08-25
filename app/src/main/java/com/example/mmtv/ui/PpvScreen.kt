@@ -33,11 +33,11 @@ import com.example.mmtv.model.MediaSource
 @Composable
 fun PpvScreen(
     groupedList: List<GroupedMedia>,
+    viewModel: MediaViewModel, // Lägg till ViewModel
     initialCategoryIndex: Int = 0,
     isTvMode: Boolean = true,
     onCategoryChanged: (Int) -> Unit = {},
     onMediaSelected: (MediaSource) -> Unit,
-    onGetIcon: suspend (Int, com.example.mmtv.model.MediaType, String?) -> String? = { _, _, _ -> null },
     topBarFocusRequester: FocusRequester? = null
 ) {
     var selectedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
@@ -93,7 +93,11 @@ fun PpvScreen(
             } else false
         }
     ) {
-        // COLUMN 1: CATEGORIES
+        fun FocusRequester.safeFocus() {
+        runCatching { this.requestFocus() }
+    }
+
+    // COLUMN 1: CATEGORIES
         Box(
             modifier = Modifier
                 .fillMaxHeight()
@@ -162,12 +166,12 @@ fun PpvScreen(
                     val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
                     PpvItem(
                         media = media,
-                        onGetIcon = { id, name -> onGetIcon(id, media.type, name) },
+                        viewModel = viewModel,
                         modifier = Modifier
                             .focusRequester(requester)
                             .onKeyEvent { 
                                 if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                    categoryFocusRequesters[selectedCategoryIndex]?.requestFocus()
+                                    categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
                                     true
                                 } else false
                             },
@@ -182,23 +186,16 @@ fun PpvScreen(
 @Composable
 fun PpvItem(
     media: MediaSource, 
+    viewModel: MediaViewModel,
     modifier: Modifier = Modifier, 
-    onClick: () -> Unit,
-    onGetIcon: suspend (Int, String?) -> String?
+    onClick: () -> Unit
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
-        val localIcon = onGetIcon(media.id, media.title)
-        if (localIcon != null) {
-            value = localIcon
-        }
-    }
+    val displayIcon = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
 
-    val backgroundColor by animateColorAsState(
-        targetValue = if (hasFocus) Color(0xFF00D1FF).copy(alpha = 0.2f) else Color.Transparent,
-        label = "ppvItemBg"
-    )
+    // Instant feedback på TV
+    val backgroundColor = if (hasFocus) Color(0xFF00D1FF).copy(alpha = 0.25f) else Color.Transparent
 
     Surface(
         modifier = modifier

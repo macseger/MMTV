@@ -124,8 +124,8 @@ fun SearchScreen(
                 items(dbSearchResults) { media ->
                     SearchMediaCard(
                         media = media,
-                        onClick = { onMediaSelected(media) },
-                        onGetIcon = { id, type, name -> viewModel.getIconForChannel(id, type, name) }
+                        viewModel = viewModel,
+                        onClick = { onMediaSelected(media) }
                     )
                 }
             }
@@ -144,16 +144,12 @@ fun SearchScreen(
 @Composable
 fun SearchMediaCard(
     media: MediaSource,
-    onClick: () -> Unit,
-    onGetIcon: (suspend (Int, MediaType, String?) -> String?)? = null
+    viewModel: MediaViewModel,
+    onClick: () -> Unit
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
-        if (value.isNullOrEmpty() && onGetIcon != null) {
-            value = onGetIcon(media.id, media.type, media.title)
-        }
-    }
+    val displayIcon = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
 
     val isLive = media.type == MediaType.LIVE
 

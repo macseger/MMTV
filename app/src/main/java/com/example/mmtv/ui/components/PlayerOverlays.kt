@@ -148,7 +148,7 @@ fun RecentChannelButton(
     var isFocused by remember { mutableStateOf(false) }
     val context = LocalContext.current
     
-    val piconUrl = remember(item.id) { viewModel.getIconForId(item.id, item.type, item.title) ?: item.icon }
+    val piconUrl = viewModel.getIconForId(item.id, item.type, item.title) ?: item.icon
 
     val imageRequest = remember(piconUrl) {
         ImageRequest.Builder(context)
@@ -292,8 +292,8 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
     var hasFocus by remember { mutableStateOf(false) }
     val context = LocalContext.current
     
-    val epg = remember(item.id, now) { viewModel.getEpgForId(item.id, item.type, item.title) }
-    val piconUrl = remember(item.id) { viewModel.getIconForId(item.id, item.type, item.title) ?: item.icon }
+    val epg = viewModel.getEpgForId(item.id, item.type, item.title)
+    val piconUrl = viewModel.getIconForId(item.id, item.type, item.title) ?: item.icon
 
     // Optimering: Skippa animateColorAsState för omedelbar respons
     val backgroundColor = when {
@@ -365,17 +365,18 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
                     overflow = TextOverflow.Ellipsis
                 )
                 
-                if (epg != null) {
+                val localEpg = epg
+                if (localEpg != null) {
                     Text(
-                        text = epg.title ?: "", 
+                        text = localEpg.title ?: "", 
                         style = MaterialTheme.typography.bodyMedium, 
                         color = if (hasFocus) Color.White else Color.LightGray, 
                         maxLines = 1, 
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    val start = epg.startTimestamp ?: 0L
-                    val stop = epg.stopTimestamp ?: 0L
+                    val start = localEpg.startTimestamp ?: 0L
+                    val stop = localEpg.stopTimestamp ?: 0L
                     if (now in start..stop) {
                         val progress = (now - start).toFloat() / (stop - start).toFloat()
                         LinearProgressIndicator(
@@ -630,13 +631,14 @@ fun QuickInfoOverlay(
                         overflow = TextOverflow.Ellipsis
                     )
                     
-                    if (epg != null) {
-                        val start = timeFormatter.format(Instant.ofEpochSecond(epg.startTimestamp ?: 0))
-                        val stop = timeFormatter.format(Instant.ofEpochSecond(epg.stopTimestamp ?: 0))
+                    val localEpg = epg
+                    if (localEpg != null) {
+                        val start = timeFormatter.format(Instant.ofEpochSecond(localEpg.startTimestamp ?: 0))
+                        val stop = timeFormatter.format(Instant.ofEpochSecond(localEpg.stopTimestamp ?: 0))
                         val now = currentTime / 1000
-                        val duration = (epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0)
-                        val elapsed = now - (epg.startTimestamp ?: 0)
-                        val remaining = (epg.stopTimestamp ?: 0) - now
+                        val duration = (localEpg.stopTimestamp ?: 0) - (localEpg.startTimestamp ?: 0)
+                        val elapsed = now - (localEpg.startTimestamp ?: 0)
+                        val remaining = (localEpg.stopTimestamp ?: 0) - now
                         
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -1062,7 +1064,7 @@ fun EpgModal(
     
     val fullEpg = viewModel.getFullEpgForId(media.id, media.type, media.title)
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
-    val piconUrl = remember(media.id) { viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon }
+    val piconUrl = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
 
     // För-beräkna och formatera EPG-data för att undvika tungt jobb i listan
     val formattedEpg = remember(fullEpg) {

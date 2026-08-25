@@ -281,19 +281,21 @@ fun EpgGrid(
                             val stopDp = ((progStop - startTime) / 60 * pixelsPerMinute).dp
                             
                             coroutineScope.launch {
-                                val currentScrollDp = with(density) { horizontalScrollState.value.toDp() }
-                                val viewportWidthDp = 980.dp 
-                                
-                                // ENDAST bläddra horisontellt om programmet är HELT utanför vyn
-                                if (stopDp < currentScrollDp) {
-                                    // Programmet slutar innan nuvarande vy -> Scrolla vänster
-                                    horizontalScrollState.animateScrollTo(with(density) { (stopDp - viewportWidthDp + 60.dp).toPx().toInt() })
-                                } else if (startDp > (currentScrollDp + viewportWidthDp)) {
-                                    // Programmet börjar efter nuvarande vy -> Scrolla höger
-                                    horizontalScrollState.animateScrollTo(with(density) { (startDp - 20.dp).toPx().toInt() })
+                                try {
+                                    val currentScrollDp = with(density) { horizontalScrollState.value.toDp() }
+                                    val viewportWidthDp = 980.dp 
+                                    
+                                    // ENDAST bläddra horisontellt om programmet är HELT utanför vyn
+                                    if (stopDp < currentScrollDp) {
+                                        // Programmet slutar innan nuvarande vy -> Scrolla vänster
+                                        horizontalScrollState.animateScrollTo(with(density) { (stopDp - viewportWidthDp + 60.dp).toPx().toInt() })
+                                    } else if (startDp > (currentScrollDp + viewportWidthDp)) {
+                                        // Programmet börjar efter nuvarande vy -> Scrolla höger
+                                        horizontalScrollState.animateScrollTo(with(density) { (startDp - 20.dp).toPx().toInt() })
+                                    }
+                                } catch (e: Exception) {
+                                    // Ignorera animeringsfel om vyn försvinner
                                 }
-                                // Om programmet redan är delvis synligt (isVisible), gör vi ingenting. 
-                                // Detta förhindrar "hoppandet" vid upp/ner-bläddring.
                             }
                         }
                     )
@@ -335,6 +337,12 @@ fun EpgRow(
     val epgList = viewModel.getFullEpgForId(channel.id, channel.type, channel.title)
     val piconUrl = viewModel.getIconForId(channel.id, channel.type, channel.title) ?: channel.icon
     val now = System.currentTimeMillis() / 1000
+
+    // Optimering: Rendera bara program som faktiskt syns inom tidslinjen (24h)
+    val visibleEndTime = startTime + (24 * 3600)
+    val visibleEpg = remember(epgList) {
+        epgList.filter { (it.stopTimestamp ?: 0) > startTime && (it.startTimestamp ?: 0) < visibleEndTime }
+    }
 
     Row(
         modifier = Modifier
@@ -410,12 +418,12 @@ fun EpgRow(
                 .horizontalScroll(horizontalScrollState, enabled = false)
                 .background(Color(0xFF080808))
         ) {
-            if (epgList.isEmpty()) {
+            if (visibleEpg.isEmpty()) {
                 Box(modifier = Modifier.width(2000.dp).fillMaxHeight(), contentAlignment = Alignment.CenterStart) {
                     Text("Ingen programinfo", color = Color.DarkGray, modifier = Modifier.padding(16.dp), fontSize = 12.sp)
                 }
             } else {
-                epgList.forEach { epg ->
+                visibleEpg.forEach { epg ->
                     val progStart = epg.startTimestamp ?: 0L
                     val progStop = epg.stopTimestamp ?: 0L
                     
@@ -466,24 +474,23 @@ fun ProgramBlock(
                 if (it.isFocused) onFocused(epg)
             },
         color = when {
-            isFocused -> themeColor.copy(alpha = 0.3f) // Ljusblå semitransparent
+            isFocused -> themeColor.copy(alpha = 0.3f)
             isLive -> Color.White.copy(alpha = 0.04f)
             else -> Color.Transparent
         },
         shape = RoundedCornerShape(1.dp),
         border = if (isFocused) BorderStroke(1.5.dp, themeColor.copy(alpha = 0.7f)) else BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f))
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
-            verticalArrangement = Arrangement.Center
-        ) {
+        // Optimering: Använd Box istället för Column om det inte behövs
+        Box(modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)) {
             Text(
                 text = epg.title ?: "Inget namn",
                 color = if (isFocused) Color.White else if (isLive) themeColor else Color.White.copy(alpha = 0.7f),
                 fontSize = 12.sp,
                 fontWeight = if (isLive || isFocused) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.TopStart)
             )
             
             if (width > 80.dp) {
@@ -493,19 +500,28 @@ fun ProgramBlock(
                 Text(
                     text = start.format(timeFormatter),
                     color = if (isFocused) Color.White.copy(alpha = 0.6f) else Color.Gray,
-                    fontSize = 10.sp
+                    fontSize = 10.sp,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(bottom = if (isLive && width > 100.dp) 6.dp else 0.dp)
                 )
             }
             
             if (isLive && width > 100.dp) {
-                Spacer(modifier = Modifier.height(3.dp))
                 val progress = (now - (epg.startTimestamp ?: 0)).toFloat() / ((epg.stopTimestamp ?: 0) - (epg.startTimestamp ?: 0))
-                LinearProgressIndicator(
-                    progress = { progress.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(2.dp).clip(RoundedCornerShape(1.dp)),
-                    color = if (isFocused) Color.White else themeColor,
-                    trackColor = Color.White.copy(alpha = 0.1f)
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(Color.White.copy(alpha = 0.1f))
+                        .align(Alignment.BottomStart)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress.coerceIn(0f, 1f))
+                            .fillMaxHeight()
+                            .background(if (isFocused) Color.White else themeColor)
+                    )
+                }
             }
         }
     }

@@ -92,13 +92,15 @@ class MediaViewModel(
     private var isFetching = false
     private var lastLoadedSeriesId: Int? = null
 
-    val channelToEpgMap = mutableStateMapOf<Int, String>()
+    // Caches för Compose-reaktivitet utan suspending-overhead i UI-loopen
     val fullEpgData = mutableStateMapOf<String, List<EpgListing>>()
     private val fetchingEpgIds = mutableSetOf<Int>()
+    private val fetchingFullEpgIds = mutableSetOf<String>()
     
-    // Cache för nuvarande program för att slippa iterera listor i UI-loopen (prestanda på TV)
-    private val currentEpgCache = mutableStateMapOf<String, EpgListing?>()
-    private val piconCache = mutableStateMapOf<String, String?>()
+    // Cache för nuvarande program och ikoner
+    private val currentEpgCache = mutableMapOf<String, EpgListing?>()
+    private val piconCache = mutableMapOf<String, String?>()
+    val channelToEpgMap = mutableStateMapOf<Int, String>()
 
     var lastLiveCategoryIndex by mutableIntStateOf(0)
     var lastPpvCategoryIndex by mutableIntStateOf(0)
@@ -514,29 +516,25 @@ class MediaViewModel(
         }
     }
 
+    /**
+     * Hämtar nuvarande program för en kanal. 
+     * Icke-suspending för att kunna anropas direkt från Compose.
+     * Om data saknas triggas en bakgrundshämtning.
+     */
     fun getEpgForId(id: Int, type: MediaType, name: String? = null): EpgListing? {
         val now = System.currentTimeMillis() / 1000
         val cacheKey = "${type}_$id"
         
-        // 1. Snabb-cache för nuvarande program
-        val cached = currentEpgCache[cacheKey]
-        if (cached != null) {
-            val stop = cached.stopTimestamp ?: 0L
-            if (now < stop) return cached
+        // 1. Snabb-cache för nuvarande program (i minnet)
+        currentEpgCache[cacheKey]?.let { cached ->
+            if (now < (cached.stopTimestamp ?: 0L)) return cached
         }
 
-        // 2. Försök hitta EPG-ID
+        // 2. Försök hitta EPG-ID och data i SnapshotStateMap
         val epgId = channelToEpgMap[id]
-        
-        // 3. Om vi har listan i minnet, hitta rätt program
         if (epgId != null) {
-            val listings = fullEpgData[epgId]
-            if (listings != null) {
-                val current = listings.find { 
-                    val start = it.startTimestamp ?: 0L
-                    val stop = it.stopTimestamp ?: 0L
-                    start <= now && stop > now 
-                }
+            fullEpgData[epgId]?.let { listings ->
+                val current = listings.find { (it.startTimestamp ?: 0) <= now && (it.stopTimestamp ?: 0) > now }
                 if (current != null) {
                     currentEpgCache[cacheKey] = current
                     return current
@@ -544,17 +542,11 @@ class MediaViewModel(
             }
         }
 
-        // 4. Om vi saknar data, hämta från DB asynkront
+        // 3. Om vi saknar data, hämta i bakgrunden
         if (!fetchingEpgIds.contains(id)) {
             fetchingEpgIds.add(id)
             viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    // Debounce: Vänta lite innan vi faktiskt hämtar från DB
-                    // Om användaren skrollar förbi snabbt kommer produceState i UI avbrytas,
-                    // men här i ViewModel vill vi också undvika onödiga jobb.
-                    delay(200) 
-                    
-                    // Om vi inte har epgId, försök hitta det via MediaEntity först
                     val finalEpgId = epgId ?: run {
                         val media = mediaDao.getMediaById(id, type)
                         media?.epgId?.also {
@@ -567,17 +559,12 @@ class MediaViewModel(
                         if (epg.isNotEmpty()) {
                             withContext(Dispatchers.Main) {
                                 fullEpgData[finalEpgId] = epg
-                                val current = epg.find { 
-                                    (it.startTimestamp ?: 0L) <= now && (it.stopTimestamp ?: 0L) > now 
-                                }
-                                if (current != null) currentEpgCache[cacheKey] = current
                             }
                         }
                     }
                 } catch (e: Exception) {
-                    // Logga fel om behövligt
                 } finally {
-                    fetchingEpgIds.remove(id)
+                    withContext(Dispatchers.Main) { fetchingEpgIds.remove(id) }
                 }
             }
         }
@@ -585,42 +572,59 @@ class MediaViewModel(
     }
 
     fun getNextEpgForId(id: Int, type: MediaType, name: String? = null): EpgListing? {
-        val epgId = channelToEpgMap[id]
-        val listings = if (epgId != null) fullEpgData[epgId] else null
+        val current = getEpgForId(id, type, name) ?: return null
         
-        if (listings == null) {
-            getEpgForId(id, type, name) // Trigga hämtning om saknas
-            return null
-        }
-
-        val now = System.currentTimeMillis() / 1000
-        val current = listings.find { 
-            val start = it.startTimestamp ?: 0L
-            val stop = it.stopTimestamp ?: 0L
-            start <= now && stop > now 
-        } ?: return null
+        val epgId = channelToEpgMap[id] ?: return null
+        val listings = fullEpgData[epgId] ?: return null
+        
         return listings.find { it.startTimestamp == current.stopTimestamp }
     }
 
+    /**
+     * Hämtar hela tablån för en kanal (för EPG Grid).
+     * Icke-suspending. Triggar bakgrundshämtning om saknas.
+     */
     fun getFullEpgForId(id: Int, type: MediaType, name: String? = null): List<EpgListing> {
-        val epgId = channelToEpgMap[id] ?: return emptyList()
-        return fullEpgData[epgId] ?: run {
-            viewModelScope.launch {
-                val epg = _repository.getEpgForChannel(epgId, name)
-                if (epg.isNotEmpty()) {
-                    fullEpgData[epgId] = epg
+        val epgId = channelToEpgMap[id]
+        
+        if (epgId != null) {
+            fullEpgData[epgId]?.let { return it }
+        }
+        
+        val key = epgId ?: "unknown_$id"
+        if (!fetchingFullEpgIds.contains(key)) {
+            fetchingFullEpgIds.add(key)
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val finalEpgId = epgId ?: run {
+                        val media = mediaDao.getMediaById(id, type)
+                        media?.epgId?.also {
+                            withContext(Dispatchers.Main) { channelToEpgMap[id] = it }
+                        }
+                    }
+                    if (finalEpgId != null) {
+                        val epg = _repository.getEpgForChannel(finalEpgId, name)
+                        if (epg.isNotEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                fullEpgData[finalEpgId] = epg
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                } finally {
+                    withContext(Dispatchers.Main) { fetchingFullEpgIds.remove(key) }
                 }
             }
-            emptyList()
         }
+        return emptyList()
     }
 
     fun getIconForId(id: Int, type: MediaType, name: String? = null): String? {
         val cacheKey = "${type}_$id"
-        val cached = piconCache[cacheKey]
-        if (cached != null) return cached
+        piconCache[cacheKey]?.let { return it }
 
-        if (!fetchingEpgIds.contains(id)) { // Återanvänd fetchingEpgIds för enkelhet eller skapa ny set
+        if (!fetchingEpgIds.contains(id + 1000000)) { // Offset för att inte krocka med EPG-fetch
+            fetchingEpgIds.add(id + 1000000)
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     val epgId = channelToEpgMap[id]
@@ -630,7 +634,10 @@ class MediaViewModel(
                             piconCache[cacheKey] = icon
                         }
                     }
-                } catch (e: Exception) {}
+                } catch (e: Exception) {
+                } finally {
+                    withContext(Dispatchers.Main) { fetchingEpgIds.remove(id + 1000000) }
+                }
             }
         }
         return null

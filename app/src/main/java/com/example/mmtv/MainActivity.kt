@@ -288,6 +288,7 @@ class MainActivity : AppCompatActivity() {
                                         
                                         PpvScreen(
                                             groupedList = ppvCategories,
+                                            viewModel = sharedViewModel,
                                             initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
                                             isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index ->
@@ -302,7 +303,6 @@ class MainActivity : AppCompatActivity() {
                                                 val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
                                                 playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                             },
-                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }
@@ -312,6 +312,7 @@ class MainActivity : AppCompatActivity() {
                                         
                                         MediaListScreen(
                                             groupedList = liveStreamsGrouped,
+                                            viewModel = sharedViewModel,
                                             initialCategoryIndex = sharedViewModel.lastLiveCategoryIndex,
                                             initialMediaId = sharedViewModel.selectedMedia?.id,
                                             isLive = true,
@@ -330,9 +331,6 @@ class MainActivity : AppCompatActivity() {
                                                 val currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(sharedViewModel.lastLiveCategoryIndex)?.items ?: emptyList()
                                                 playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                             },
-                                            epgProvider = { id, type, name -> sharedViewModel.getEpgForId(id, type, name) },
-                                            nextEpgProvider = { id, type, name -> sharedViewModel.getNextEpgForId(id, type, name) },
-                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
@@ -343,6 +341,7 @@ class MainActivity : AppCompatActivity() {
                                         
                                         PpvScreen(
                                             groupedList = ppvCategories,
+                                            viewModel = sharedViewModel,
                                             initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
                                             isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index ->
@@ -357,7 +356,6 @@ class MainActivity : AppCompatActivity() {
                                                 val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
                                                 playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                             },
-                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }
@@ -374,6 +372,7 @@ class MainActivity : AppCompatActivity() {
                                             
                                         MediaListScreen(
                                             groupedList = movies,
+                                            viewModel = sharedViewModel,
                                             initialCategoryIndex = initialIndex,
                                             isLive = false,
                                             isTvMode = sharedViewModel.isTvMode,
@@ -389,7 +388,6 @@ class MainActivity : AppCompatActivity() {
                                                 sharedViewModel.selectedMedia = media
                                                 navController.navigate("details")
                                             },
-                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
@@ -400,6 +398,7 @@ class MainActivity : AppCompatActivity() {
                                         
                                         PpvScreen(
                                             groupedList = ppvCategories,
+                                            viewModel = sharedViewModel,
                                             initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
                                             isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index ->
@@ -414,7 +413,6 @@ class MainActivity : AppCompatActivity() {
                                                 val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
                                                 playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                             },
-                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }
@@ -431,6 +429,7 @@ class MainActivity : AppCompatActivity() {
 
                                         MediaListScreen(
                                             groupedList = series,
+                                            viewModel = sharedViewModel,
                                             initialCategoryIndex = initialIndex,
                                             isLive = false,
                                             isTvMode = sharedViewModel.isTvMode,
@@ -446,7 +445,6 @@ class MainActivity : AppCompatActivity() {
                                                 sharedViewModel.selectedMedia = media
                                                 navController.navigate("details")
                                             },
-                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
@@ -457,6 +455,7 @@ class MainActivity : AppCompatActivity() {
                                         
                                         PpvScreen(
                                             groupedList = ppvCategories,
+                                            viewModel = sharedViewModel,
                                             initialCategoryIndex = sharedViewModel.lastPpvCategoryIndex,
                                             isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index ->
@@ -471,7 +470,6 @@ class MainActivity : AppCompatActivity() {
                                                 val currentPlaylist = sharedViewModel.uiState.ppvCategories.getOrNull(sharedViewModel.lastPpvCategoryIndex)?.items ?: emptyList()
                                                 playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
                                             },
-                                            onGetIcon = { id, type, name -> sharedViewModel.getIconForChannel(id, type, name) },
                                             topBarFocusRequester = topBarHomeFocusRequester
                                         )
                                     }

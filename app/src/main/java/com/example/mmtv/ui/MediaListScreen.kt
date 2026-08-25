@@ -54,16 +54,14 @@ import java.util.*
 @Composable
 fun MediaListScreen(
     groupedList: List<GroupedMedia>,
+    viewModel: MediaViewModel, // Lägg till ViewModel
     initialCategoryIndex: Int = 0,
     initialMediaId: Int? = null,
-    isLive: Boolean = true, // Explicitly pass if it's Live TV or VOD
+    isLive: Boolean = true, 
     isTvMode: Boolean = true,
     onCategoryChanged: (Int) -> Unit = {},
     onMediaSelected: (MediaSource) -> Unit,
     onToggleFavorite: (MediaSource) -> Unit = {},
-    epgProvider: suspend (Int, MediaType, String?) -> EpgListing? = { _, _, _ -> null },
-    nextEpgProvider: suspend (Int, MediaType, String?) -> EpgListing? = { _, _, _ -> null },
-    onGetIcon: suspend (Int, MediaType, String?) -> String? = { _, _, _ -> null },
     onItemFocused: (Int) -> Unit = {},
     backgroundColor: Color = Color.Black,
     onBackPressed: (() -> Unit)? = null,
@@ -210,25 +208,24 @@ fun MediaListScreen(
                     ) {
                         items(selectedCategory?.items ?: emptyList(), key = { it.id }) { media ->
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
-                            TvChannelItem(
-                                media = media,
-                                epgProvider = epgProvider,
-                                onGetIcon = onGetIcon,
-                                modifier = Modifier
-                                    .focusRequester(requester)
-                                    .onFocusChanged { if (it.isFocused) {
-                                        focusedMedia = media
-                                        onItemFocused(media.id)
-                                    } }
-                                    .onKeyEvent { 
-                                        if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                            categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
-                                            true
-                                        } else false
-                                    },
-                                onClick = { onMediaSelected(media) },
-                                onToggleFavorite = { mediaToShowMenu = media }
-                            )
+                    TvChannelItem(
+                        media = media,
+                        viewModel = viewModel,
+                        modifier = Modifier
+                            .focusRequester(requester)
+                            .onFocusChanged { if (it.isFocused) {
+                                focusedMedia = media
+                                onItemFocused(media.id)
+                            } }
+                            .onKeyEvent { 
+                                if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                    categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
+                                    true
+                                } else false
+                            },
+                        onClick = { onMediaSelected(media) },
+                        onToggleFavorite = { mediaToShowMenu = media }
+                    )
                         }
                     }
                 }
@@ -236,16 +233,9 @@ fun MediaListScreen(
                 // Column 3: EPG Detail Pane
                 Box(modifier = Modifier.weight(1f).fillMaxHeight().background(Color.Black).padding(24.dp)) {
                     focusedMedia?.let { media ->
-                        val currentEpg = produceState<EpgListing?>(initialValue = null, key1 = media) {
-                            value = epgProvider(media.id, media.type, media.title)
-                        }.value
-                        val nextEpg = produceState<EpgListing?>(initialValue = null, key1 = media) {
-                            value = nextEpgProvider(media.id, media.type, media.title)
-                        }.value
-                        
-                        val displayIcon = produceState<String?>(initialValue = media.icon, key1 = media) {
-                            value = onGetIcon(media.id, media.type, media.title)
-                        }.value
+                        val currentEpg = viewModel.getEpgForId(media.id, media.type, media.title)
+                        val nextEpg = viewModel.getNextEpgForId(media.id, media.type, media.title)
+                        val displayIcon = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
                         
                         LiveDetailPane(media = media, currentEpg = currentEpg, nextEpg = nextEpg, displayIcon = displayIcon)
                     }
@@ -267,7 +257,7 @@ fun MediaListScreen(
                         
                         MediaCard(
                             media = media,
-                            onGetIcon = onGetIcon,
+                            viewModel = viewModel,
                             modifier = Modifier
                                 .focusRequester(requester)
                                 .onFocusChanged { if (it.isFocused) focusedMedia = media }
@@ -427,33 +417,18 @@ fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifi
 @Composable
 fun TvChannelItem(
     media: MediaSource, 
+    viewModel: MediaViewModel, // Ta in ViewModel direkt för effektivare datahämtning
     modifier: Modifier = Modifier, 
     onClick: () -> Unit,
-    onToggleFavorite: () -> Unit,
-    epgProvider: (suspend (Int, MediaType, String?) -> EpgListing?)? = null,
-    onGetIcon: (suspend (Int, MediaType, String?) -> String?)? = null
+    onToggleFavorite: () -> Unit
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
-        if (onGetIcon != null) {
-            delay(150) // Debounce bildladdning vid snabb skroll
-            val localIcon = onGetIcon(media.id, media.type, media.title)
-            if (localIcon != null) {
-                value = localIcon
-            }
-        }
-    }
-
-    val epg by produceState<EpgListing?>(initialValue = null, key1 = media) {
-        if (epgProvider != null) {
-            delay(200) // Vänta lite med EPG för att prioritera skroll-prestanda
-            value = epgProvider(media.id, media.type, media.title)
-        }
-    }
+    val displayIcon = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
+    val epg = viewModel.getEpgForId(media.id, media.type, media.title)
 
     // Skippa animateColorAsState för "instant" känsla på TV
-    val backgroundColor = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else Color.Transparent
+    val backgroundColor = if (hasFocus) viewModel.currentThemeColor.copy(alpha = 0.7f) else Color.Transparent
 
     Surface(
         modifier = modifier
@@ -534,19 +509,14 @@ fun TvChannelItem(
 @Composable
 fun MediaCard(
     media: MediaSource, 
+    viewModel: MediaViewModel,
     modifier: Modifier = Modifier, 
     onClick: () -> Unit,
-    onToggleFavorite: () -> Unit,
-    onGetIcon: (suspend (Int, MediaType, String?) -> String?)? = null
+    onToggleFavorite: () -> Unit
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     
-    val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
-        if (value.isNullOrEmpty() && onGetIcon != null) {
-            delay(200) // Debounce för VOD-covers
-            value = onGetIcon(media.id, media.type, media.title)
-        }
-    }
+    val displayIcon = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
 
     Column(
         modifier = modifier

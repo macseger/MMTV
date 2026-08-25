@@ -24,6 +24,10 @@ class MediaRepository(
     private val epgParser = EpgParser()
     private var piconFileMap: Map<String, String>? = null
     private val piconMapLock = Any()
+    
+    // Interna minnescachar för att undvika SQLite LIKE-sökningar vid skroll
+    private val epgCache = java.util.Collections.synchronizedMap(mutableMapOf<String, List<EpgListing>>())
+    private val iconCache = java.util.Collections.synchronizedMap(mutableMapOf<String, String?>())
 
     private fun getPiconFileMap(): Map<String, String> {
         synchronized(piconMapLock) {
@@ -297,10 +301,11 @@ class MediaRepository(
             val liveStreams = api.getLiveStreams(user, pass)
             val liveEntities = liveStreams.mapIndexed { index, stream ->
                 val cat = liveCats.find { it.categoryId == stream.categoryId }
-                val cleanedName = cleanChannelName(stream.name ?: "")
+                // Vi behåller ursprungligt namn från servern enligt önskemål
+                val originalName = stream.name ?: ""
                 MediaEntity(
                     id = stream.streamId,
-                    title = cleanedName,
+                    title = originalName,
                     type = MediaType.LIVE,
                     categoryId = stream.categoryId ?: "",
                     categoryName = cat?.categoryName ?: "Okänd",
@@ -558,13 +563,18 @@ class MediaRepository(
     }
 
     suspend fun getEpgForChannel(epgId: String?, channelName: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {
+        val cacheKey = epgId ?: channelName ?: return@withContext emptyList<EpgListing>()
+        epgCache[cacheKey]?.let { return@withContext it }
+
         val now = System.currentTimeMillis() / 1000
         val endLimit = now + (48 * 60 * 60) // Öka till 48h för att vara säkrare vid tidszonsskillnader
         
         if (epgId != null) {
             val exactMatch = mediaDao.getEpgForChannelWithLimit(epgId, now - 3600, endLimit) // -1h för marginal
             if (exactMatch.isNotEmpty()) {
-                return@withContext exactMatch.map { it.toEpgListing() }
+                val result = exactMatch.map { it.toEpgListing() }
+                epgCache[cacheKey] = result
+                return@withContext result
             }
         }
 
@@ -572,7 +582,9 @@ class MediaRepository(
             val searchName = getSearchName(channelName)
             val fuzzyMatch = mediaDao.findEpgByFuzzyName(channelName, searchName, epgId, now - 3600, endLimit)
             if (fuzzyMatch.isNotEmpty()) {
-                return@withContext fuzzyMatch.map { it.toEpgListing() }
+                val result = fuzzyMatch.map { it.toEpgListing() }
+                epgCache[cacheKey] = result
+                return@withContext result
             }
         }
         
@@ -580,6 +592,9 @@ class MediaRepository(
     }
 
     suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
+        val cacheKey = epgId ?: channelName ?: return@withContext null
+        if (iconCache.containsKey(cacheKey)) return@withContext iconCache[cacheKey]
+
         val piconMap = getPiconFileMap()
         
         fun findLocalPath(target: String): String? {
@@ -590,41 +605,44 @@ class MediaRepository(
             return piconMap.keys.find { it.endsWith(target) }?.let { "file://${piconMap[it]}" }
         }
 
+        var result: String? = null
+
         // 1. Kolla lokalt via kanalnamn
         if (channelName != null) {
             val searchName = getSearchName(channelName)
-            findLocalPath(searchName)?.let { return@withContext it }
+            result = findLocalPath(searchName)
         }
 
         // 2. Kolla lokalt via EPG-ID
-        if (epgId != null) {
+        if (result == null && epgId != null) {
             val cleanEpgId = epgId.lowercase().substringBefore(".").replace(Regex("[^a-z0-9]"), "")
-            findLocalPath(cleanEpgId)?.let { return@withContext it }
+            result = findLocalPath(cleanEpgId)
         }
 
         // 3. Fallback till GitHub Picons
-        if (epgId != null) {
+        if (result == null && epgId != null) {
             val cleanEpgId = epgId.lowercase()
                 .substringBefore(".")
                 .replace(Regex("[^a-z0-9]"), "")
             
             val githubPicon = mediaDao.getPiconByName(cleanEpgId)
-            if (githubPicon != null) return@withContext githubPicon.url
+            if (githubPicon != null) result = githubPicon.url
         }
 
-        if (channelName != null) {
+        if (result == null && channelName != null) {
             val searchName = getSearchName(channelName)
             val githubPicon = mediaDao.getPiconByName(searchName)
-            if (githubPicon != null) return@withContext githubPicon.url
+            if (githubPicon != null) result = githubPicon.url
         }
 
         // 4. Sista utväg: Serverns egen ikon
-        if (epgId != null) {
+        if (result == null && epgId != null) {
             val icon = mediaDao.getIconByEpgId(epgId)
-            if (icon != null) return@withContext icon
+            if (icon != null) result = icon
         }
         
-        null
+        iconCache[cacheKey] = result
+        result
     }
 
     private fun cleanChannelName(name: String): String {

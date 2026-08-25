@@ -200,6 +200,8 @@ class MediaViewModel(
         title = title,
         icon = icon,
         type = type,
+        categoryId = categoryId,
+        categoryName = categoryName,
         extension = extension,
         plot = plot,
         rating = rating,

@@ -132,6 +132,8 @@ data class MediaSource(
     val title: String?,
     val icon: String?,
     val type: MediaType,
+    val categoryId: String? = null,
+    val categoryName: String? = null,
     val extension: String? = null,
     val epgId: String? = null,
     val plot: String? = null,

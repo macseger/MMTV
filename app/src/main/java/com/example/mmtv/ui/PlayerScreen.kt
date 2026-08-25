@@ -165,6 +165,12 @@ fun PlayerScreen(
     }
     
     var showNextEpisodeButton by remember { mutableStateOf(false) }
+    
+    // Optimering: Använd derivedStateOf för att undvika onödiga omritningar i AnimatedVisibility
+    val isQuickInfoVisible by remember { derivedStateOf { overlayState == OverlayState.QUICK_INFO } }
+    val isNextEpisodeVisible by remember { derivedStateOf { showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE } }
+    val isSubtitlesVisible by remember { derivedStateOf { overlayState == OverlayState.SUBTITLES } }
+
     val currentPlaybackId = remember(media, viewModel.playingEpisode) {
         if (isSeries && viewModel.playingEpisode != null) {
             viewModel.playingEpisode?.id ?: media.id.toString()
@@ -774,7 +780,7 @@ fun PlayerScreen(
 
         // --- NEXT EPISODE BUTTON ---
         AnimatedVisibility(
-            visible = showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE,
+            visible = isNextEpisodeVisible,
             enter = fadeIn() + slideInHorizontally(initialOffsetX = { it }),
             exit = fadeOut() + slideOutHorizontally(targetOffsetX = { it }),
             modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 48.dp, end = 48.dp)
@@ -836,7 +842,7 @@ fun PlayerScreen(
 
         // --- OVERLAYS ---
         AnimatedVisibility(
-            visible = overlayState == OverlayState.QUICK_INFO && media != null,
+            visible = isQuickInfoVisible && media != null,
             enter = slideInVertically(
                 initialOffsetY = { it },
                 animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
@@ -919,7 +925,7 @@ fun PlayerScreen(
 
         // --- SUBTITLES ---
         AnimatedVisibility(
-            visible = overlayState == OverlayState.SUBTITLES,
+            visible = isSubtitlesVisible,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.Center)

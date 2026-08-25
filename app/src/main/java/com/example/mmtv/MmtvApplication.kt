@@ -22,11 +22,12 @@ class MmtvApplication : Application(), ImageLoaderFactory {
                     .maxSizeBytes(100 * 1024 * 1024) // 100MB disk cache
                     .build()
             }
-            .crossfade(true)
-            .respectCacheHeaders(false) // Cache even if server says no (common in IPTV)
+            .crossfade(false) // Inaktivera crossfade på TV för snabbare rendering
+            .allowHardware(true) // Säkerställ hårdvaruacceleration
+            .respectCacheHeaders(false)
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
-            .logger(DebugLogger()) // For development, can be removed in production
+            // .logger(DebugLogger()) // Ta bort loggning i "produktionsliknande" testning för prestanda
             .build()
     }
 }

@@ -238,29 +238,20 @@ fun SubtitleOptionItem(label: String, isSelected: Boolean, modifier: Modifier = 
 fun CategoryListItem(title: String, isSelected: Boolean, viewModel: MediaViewModel, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var hasFocus by remember { mutableStateOf(false) }
     
-    val backgroundColor by animateColorAsState(
-        targetValue = if (hasFocus) viewModel.currentThemeColor.copy(alpha = 0.7f) 
-                    else if (isSelected) viewModel.currentThemeColor.copy(alpha = 0.2f) 
-                    else Color.Transparent,
-        animationSpec = tween(200),
-        label = "catBg"
-    )
-    
-    val scale by animateFloatAsState(
-        targetValue = if (hasFocus) 1.02f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
-        label = "catScale"
-    )
+    // Optimering: Instant feedback
+    val backgroundColor = if (hasFocus) viewModel.currentThemeColor.copy(alpha = 0.7f) 
+                    else if (isSelected) viewModel.currentThemeColor.copy(alpha = 0.25f) 
+                    else Color.Transparent
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .height(56.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
             .onFocusChanged { hasFocus = it.isFocused }
+            .graphicsLayer {
+                scaleX = if (hasFocus) 1.02f else 1.0f
+                scaleY = if (hasFocus) 1.02f else 1.0f
+            }
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null,
@@ -304,27 +295,18 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
     val epg = remember(item.id, now) { viewModel.getEpgForId(item.id, item.type, item.title) }
     val piconUrl = remember(item.id) { viewModel.getIconForId(item.id, item.type, item.title) ?: item.icon }
 
-    val backgroundColor by animateColorAsState(
-        targetValue = when {
-            hasFocus -> viewModel.currentThemeColor.copy(alpha = 0.6f)
-            isSelected -> viewModel.currentThemeColor.copy(alpha = 0.2f)
-            else -> Color.Transparent
-        }, 
-        animationSpec = tween(150),
-        label = "chBg"
-    )
-    
-    val scale by animateFloatAsState(
-        targetValue = if (hasFocus) 1.03f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
-        label = "chScale"
-    )
+    // Optimering: Skippa animateColorAsState för omedelbar respons
+    val backgroundColor = when {
+        hasFocus -> viewModel.currentThemeColor.copy(alpha = 0.7f)
+        isSelected -> viewModel.currentThemeColor.copy(alpha = 0.25f)
+        else -> Color.Transparent
+    }
 
     val imageRequest = remember(piconUrl) {
         ImageRequest.Builder(context)
             .data(piconUrl)
-            .crossfade(100) 
-            .size(120, 120)
+            .crossfade(false) // Snabbare på TV
+            .size(100, 100)
             .build()
     }
 
@@ -332,11 +314,12 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
         modifier = modifier
             .fillMaxWidth()
             .height(76.dp)
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
             .onFocusChanged { hasFocus = it.isFocused }
+            .graphicsLayer {
+                // Hårdvaruaccelererad skalning
+                scaleX = if (hasFocus) 1.03f else 1.0f
+                scaleY = if (hasFocus) 1.03f else 1.0f
+            }
             .clickable(
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                 indication = null,

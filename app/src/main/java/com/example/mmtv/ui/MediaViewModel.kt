@@ -549,6 +549,11 @@ class MediaViewModel(
             fetchingEpgIds.add(id)
             viewModelScope.launch(Dispatchers.IO) {
                 try {
+                    // Debounce: Vänta lite innan vi faktiskt hämtar från DB
+                    // Om användaren skrollar förbi snabbt kommer produceState i UI avbrytas,
+                    // men här i ViewModel vill vi också undvika onödiga jobb.
+                    delay(200) 
+                    
                     // Om vi inte har epgId, försök hitta det via MediaEntity först
                     val finalEpgId = epgId ?: run {
                         val media = mediaDao.getMediaById(id, type)

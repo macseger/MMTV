@@ -31,6 +31,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -436,6 +437,7 @@ fun TvChannelItem(
     
     val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
         if (onGetIcon != null) {
+            delay(150) // Debounce bildladdning vid snabb skroll
             val localIcon = onGetIcon(media.id, media.type, media.title)
             if (localIcon != null) {
                 value = localIcon
@@ -445,19 +447,23 @@ fun TvChannelItem(
 
     val epg by produceState<EpgListing?>(initialValue = null, key1 = media) {
         if (epgProvider != null) {
+            delay(200) // Vänta lite med EPG för att prioritera skroll-prestanda
             value = epgProvider(media.id, media.type, media.title)
         }
     }
 
-    val backgroundColor by animateColorAsState(
-        targetValue = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent,
-        label = "chBg"
-    )
+    // Skippa animateColorAsState för "instant" känsla på TV
+    val backgroundColor = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else Color.Transparent
 
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { hasFocus = it.isFocused }
+            .graphicsLayer { 
+                // Använd graphicsLayer för att undvika onödiga omritningar
+                clip = true
+                shape = RoundedCornerShape(4.dp)
+            }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -537,6 +543,7 @@ fun MediaCard(
     
     val displayIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
         if (value.isNullOrEmpty() && onGetIcon != null) {
+            delay(200) // Debounce för VOD-covers
             value = onGetIcon(media.id, media.type, media.title)
         }
     }
@@ -545,7 +552,11 @@ fun MediaCard(
         modifier = modifier
             .width(110.dp)
             .onFocusChanged { hasFocus = it.isFocused }
-            .scale(if (hasFocus) 1.1f else 1.0f)
+            .graphicsLayer {
+                // Hårdvaruaccelererad skalning
+                scaleX = if (hasFocus) 1.08f else 1.0f
+                scaleY = if (hasFocus) 1.08f else 1.0f
+            }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,

@@ -383,8 +383,11 @@ fun PlayerScreen(
                     // Optimering: Beräkna indexet utanför scope.launch och använd remember för att undvika O(n) vid varje recomposition
                     val index = playlist.indexOfFirst { it.id == media?.id }.coerceAtLeast(0)
                     scope.launch {
+                        // Låt Compose rita den lätta listpanelen före ett eventuellt
+                        // stort hopp till den aktiva kanalens position.
+                        delay(120)
                         channelListState.scrollToItem(index)
-                        delay(100) 
+                        delay(50)
                         channelFocusRequesters[playlist.getOrNull(index)?.id ?: -1]?.safeFocus()
                     }
                     if (media != null) focusedChannel = media
@@ -879,9 +882,13 @@ fun PlayerScreen(
             categoryFocusRequesters = categoryFocusRequesters,
             channelFocusRequesters = channelFocusRequesters,
             onCategorySelected = onCategorySelected,
-            onMediaSelected = { 
+            onMediaSelected = { selectedChannel ->
                 overlayState = OverlayState.NONE
-                onMediaSelected(it) 
+                // Samma kanal spelar redan. Att navigera igen skulle i onödan köra
+                // stop/clear/prepare och ge en ny buffring innan bilden kommer tillbaka.
+                if (selectedChannel.id != media?.id || selectedChannel.type != media?.type) {
+                    onMediaSelected(selectedChannel)
+                }
             },
             onFocusedChannelChanged = { focusedChannel = it },
             onOverlayStateChange = { overlayState = OverlayState.valueOf(it) },

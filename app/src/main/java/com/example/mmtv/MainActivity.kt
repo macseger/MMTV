@@ -687,6 +687,15 @@ class MainActivity : AppCompatActivity() {
         playlist: List<MediaSource>,
         resume: Boolean = false
     ) {
+        // Ett klick på den kanal som redan spelas ska aldrig skapa en ny player-route.
+        // Det skulle annars starta om strömmen trots att bilden redan visas.
+        val current = viewModel.selectedMedia
+        if (current?.id == media.id && current?.type == media.type &&
+            navController.currentDestination?.route?.startsWith("player/") == true
+        ) {
+            return
+        }
+
         viewModel.selectedMedia = media
         viewModel.currentPlaylist = playlist
 

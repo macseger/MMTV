@@ -816,25 +816,6 @@ fun SideOverlay(
         }
     }
 
-    // Hantera fokus när vi byter till kanallistan
-    LaunchedEffect(overlayState) {
-        if (overlayState == "CHANNELS" && isVisible) {
-            val targetId = if (playlist.any { it.id == viewModel.selectedMedia?.id }) {
-                viewModel.selectedMedia?.id
-            } else {
-                playlist.firstOrNull()?.id
-            }
-
-            if (targetId != null) {
-                // Vänta lite så att listan hinner rendera och FocusRequesters kopplas till UI:t
-                delay(100)
-                runCatching { 
-                    channelFocusRequesters[targetId]?.requestFocus()
-                }
-            }
-        }
-    }
-
     // TV:n kan inte kompositera en stor, transparent och animerad overlay ovanpå
     // video utan långa GPU-stopp. Visa därför TV-menyn direkt och rita bara panelen.
     if (isVisible) {

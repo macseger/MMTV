@@ -97,7 +97,7 @@ fun HomeScreen(
             when (event) {
                 androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
                     if (lastLiveMedia != null && miniPlayer == null) {
-                        val player = MmtvPlayer(context).createPlayer().apply {
+                        val player = MmtvPlayer(context).createPlayer(isLive = true).apply {
                             repeatMode = Player.REPEAT_MODE_OFF
                             playWhenReady = true
                             volume = 0f
@@ -125,7 +125,7 @@ fun HomeScreen(
         // Om vi redan är i RESUMED-läge (t.ex. vid omstart), kör logiken direkt
         if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
             if (lastLiveMedia != null && miniPlayer == null) {
-                val player = MmtvPlayer(context).createPlayer().apply {
+                val player = MmtvPlayer(context).createPlayer(isLive = true).apply {
                     repeatMode = Player.REPEAT_MODE_ALL
                     playWhenReady = true
                     volume = 0f

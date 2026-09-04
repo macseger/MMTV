@@ -21,16 +21,23 @@ class MmtvPlayer(private val context: Context) {
     private var exoPlayer: ExoPlayer? = null
     private val sessionManager = SessionManager(context)
 
-    fun createPlayer(): ExoPlayer {
+    fun createPlayer(isLive: Boolean): ExoPlayer {
         val loadErrorHandlingPolicy = DefaultLoadErrorHandlingPolicy(3)
-        
-        // Pro-inställningar för IPTV (Liknande TiviMate/Perfect Player)
+
+        // Live ska starta så fort en spelbar bildruta finns. VOD får hålla mer data
+        // för att klara korta nätverksdippar utan avbrott.
+        val (minBufferMs, maxBufferMs, startBufferMs, rebufferMs) = if (isLive) {
+            intArrayOf(1_000, 3_000, 250, 500)
+        } else {
+            intArrayOf(5_000, 20_000, 1_500, 3_000)
+        }
+
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                2_500,  // Min buffert: 2.5s (Sänkt från 3.5s för rappare respons)
-                10_000, // Max buffert: 10s (Håller mindre i minnet för lägre latens)
-                500,    // Start-buffert: 0.5s (Kanalen startar blixtsnabbt)
-                1_000   // Efter-buffert: 1s (Snabb återhämtning)
+                minBufferMs,
+                maxBufferMs,
+                startBufferMs,
+                rebufferMs
             )
             .setBackBuffer(0, false)
             .setPrioritizeTimeOverSizeThresholds(true)

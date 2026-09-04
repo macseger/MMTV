@@ -835,31 +835,13 @@ fun SideOverlay(
         }
     }
 
-    AnimatedVisibility(
-        visible = isVisible,
-        enter = slideInHorizontally(
-            initialOffsetX = { -it },
-            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
-        ) + fadeIn(animationSpec = tween(300)),
-        exit = slideOutHorizontally(
-            targetOffsetX = { -it },
-            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
-        ) + fadeOut(animationSpec = tween(300)),
-        modifier = Modifier.fillMaxSize()
-    ) {
+    // TV:n kan inte kompositera en stor, transparent och animerad overlay ovanpå
+    // video utan långa GPU-stopp. Visa därför TV-menyn direkt och rita bara panelen.
+    if (isVisible) {
         Box(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.95f),
-                                Color.Black.copy(alpha = 0.6f),
-                                Color.Transparent
-                            )
-                        )
-                    )
                     .clickable(
                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                         indication = null,
@@ -870,23 +852,13 @@ fun SideOverlay(
             Row(modifier = Modifier.fillMaxSize()) {
                 val showCategories = overlayState == "CATEGORIES"
                 
-                AnimatedVisibility(
-                    visible = showCategories,
-                    enter = slideInHorizontally(
-                        initialOffsetX = { -it },
-                        animationSpec = spring(stiffness = Spring.StiffnessMedium)
-                    ) + fadeIn(),
-                    exit = slideOutHorizontally(
-                        targetOffsetX = { -it },
-                        animationSpec = spring(stiffness = Spring.StiffnessMedium)
-                    ) + fadeOut()
-                ) {
+                if (showCategories) {
                     LazyColumn(
                         state = categoryListState,
                         modifier = Modifier
                             .fillMaxHeight()
                             .width(280.dp)
-                            .background(Color.Black.copy(alpha = 0.95f))
+                            .background(Color(0xFF101010))
                             .padding(vertical = 16.dp, horizontal = 8.dp)
                     ) {
                         itemsIndexed(
@@ -929,12 +901,7 @@ fun SideOverlay(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(420.dp)
-                        .background(
-                            Brush.horizontalGradient(
-                                0.0f to Color.Black.copy(alpha = 0.9f),
-                                1.0f to Color.Black.copy(alpha = 0.7f)
-                            )
-                        )
+                        .background(Color(0xFF101010))
                 ) {
                     val currentCategoryTitle = remember(categories, viewModel.lastLiveCategoryIndex) {
                         categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title ?: ""
@@ -979,7 +946,7 @@ fun SideOverlay(
                     }
                 }
 
-                if (overlayState == "CHANNELS") {
+                if (overlayState == "CHANNELS" && !viewModel.isTvMode) {
                     Column(
                         modifier = Modifier
                             .fillMaxHeight()
@@ -1029,7 +996,7 @@ fun SideOverlay(
                             }
                         }
                     }
-                } else if (overlayState == "CATEGORIES") {
+                } else if (overlayState == "CATEGORIES" && !viewModel.isTvMode) {
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()

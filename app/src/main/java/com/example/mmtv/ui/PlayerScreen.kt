@@ -83,7 +83,8 @@ fun PlayerScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     val sessionManager = remember { SessionManager(context) }
-    val exoPlayer = remember { viewModel.getOrInitializePlayer() }
+    val isLiveStream = media?.type == MediaType.LIVE
+    val exoPlayer = remember(isLiveStream) { viewModel.getOrInitializePlayer(isLiveStream) }
 
     // --- STATES ---
     var isPlaying by remember { mutableStateOf(true) }
@@ -309,7 +310,7 @@ fun PlayerScreen(
         // innan vi förbereder nästa ström, vilket förhindrar svart bild.
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
-        delay(150) 
+        delay(if (isLiveStream) 50 else 150)
 
         exoPlayer.setMediaItem(mediaItem)
         if (media?.type != MediaType.LIVE) {
@@ -435,14 +436,8 @@ fun PlayerScreen(
                 } 
             },
             update = { view -> 
-                if (overlayState != OverlayState.FULL_EPG) {
-                    if (view.player != exoPlayer) view.player = exoPlayer
-                    view.onResume()
-                } else {
-                    // Koppla bort spelaren från huvudvyn när EPG-tidslinjen är öppen
-                    // för att undvika konflikter med dess förhandsvisning.
-                    view.player = null
-                }
+                if (view.player != exoPlayer) view.player = exoPlayer
+                view.onResume()
             },
             modifier = Modifier.fillMaxSize()
         )
@@ -547,7 +542,8 @@ fun PlayerScreen(
                                         nextEpisodeButtonFocusRequester.safeFocus()
                                         true
                                     } else if (media?.type == MediaType.LIVE) {
-                                        overlayState = OverlayState.FULL_EPG
+                                        // Den kompakta tablåvyn är trygg på TV:ns begränsade CPU.
+                                        overlayState = OverlayState.EPG_INFO
                                         true
                                     } else {
                                         if (!showSeekFeedback) {
@@ -565,7 +561,7 @@ fun PlayerScreen(
                             KeyEvent.KEYCODE_DPAD_DOWN -> {
                                 if (overlayState == OverlayState.NONE) {
                                     if (media?.type == MediaType.LIVE) {
-                                        overlayState = OverlayState.FULL_EPG
+                                        overlayState = OverlayState.EPG_INFO
                                     } else {
                                         overlayState = OverlayState.SUBTITLES
                                     }
@@ -645,7 +641,7 @@ fun PlayerScreen(
                                 true
                             }
                             KeyEvent.KEYCODE_GUIDE, KeyEvent.KEYCODE_M -> {
-                                overlayState = OverlayState.FULL_EPG
+                                overlayState = OverlayState.EPG_INFO
                                 true
                             }
                             KeyEvent.KEYCODE_BACK -> {
@@ -706,14 +702,8 @@ fun PlayerScreen(
                 } 
             },
             update = { view -> 
-                if (overlayState != OverlayState.FULL_EPG) {
-                    if (view.player != exoPlayer) view.player = exoPlayer
-                    view.onResume()
-                } else {
-                    // Koppla bort spelaren från huvudvyn när EPG-tidslinjen är öppen
-                    // för att undvika konflikter med dess förhandsvisning.
-                    view.player = null
-                }
+                if (view.player != exoPlayer) view.player = exoPlayer
+                view.onResume()
             },
             modifier = Modifier.fillMaxSize()
         )

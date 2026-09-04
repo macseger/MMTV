@@ -52,6 +52,7 @@ class MediaViewModel(
     private val playerFactory = MmtvPlayer(context)
     var exoPlayer: ExoPlayer? = null
         private set
+    private var playerUsesLiveProfile: Boolean? = null
 
     var isInPipMode by mutableStateOf(false)
     var isTvMode by mutableStateOf(sessionManager.getTvMode())
@@ -61,11 +62,15 @@ class MediaViewModel(
         sessionManager.setTvMode(enabled)
     }
 
-    fun getOrInitializePlayer(): ExoPlayer {
-        if (exoPlayer == null) {
-            exoPlayer = playerFactory.createPlayer().apply {
+    fun getOrInitializePlayer(isLive: Boolean): ExoPlayer {
+        if (exoPlayer == null || playerUsesLiveProfile != isLive) {
+            // LoadControl kan inte ändras i efterhand. Byt därför bara spelare när
+            // användaren går mellan live-TV och VOD, aldrig vid vanligt kanalbyte.
+            exoPlayer?.release()
+            exoPlayer = playerFactory.createPlayer(isLive).apply {
                 repeatMode = Player.REPEAT_MODE_OFF
             }
+            playerUsesLiveProfile = isLive
         }
         return exoPlayer!!
     }
@@ -79,6 +84,7 @@ class MediaViewModel(
         super.onCleared()
         exoPlayer?.release()
         exoPlayer = null
+        playerUsesLiveProfile = null
     }
 
     val repository: MediaRepository get() = _repository

@@ -25,7 +25,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import coil.compose.AsyncImage
 import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.MediaSource
@@ -40,8 +39,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun EpgPreviewSection(
     focusedEpg: EpgListing?,
-    focusedChannel: MediaSource?,
-    viewModel: MediaViewModel
+    focusedChannel: MediaSource?
 ) {
     Row(
         modifier = Modifier
@@ -60,26 +58,16 @@ fun EpgPreviewSection(
                 .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(6.dp)),
             color = Color.Black
         ) {
-            val exoPlayer = viewModel.exoPlayer
-            if (exoPlayer != null) {
-                AndroidView(
-                    factory = { ctx ->
-                        androidx.media3.ui.PlayerView(ctx).apply {
-                            player = exoPlayer
-                            useController = false
-                            layoutParams = android.view.ViewGroup.LayoutParams(
-                                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                    onRelease = { view ->
-                        view.player = null
-                    }
+            // Flytta aldrig ExoPlayers videoyta till tidslinjen. Vissa TV-enheter kan
+            // blockera huvudtråden flera sekunder när en aktiv decoder byter Surface.
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                AsyncImage(
+                    model = focusedChannel?.icon,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().padding(20.dp),
+                    contentScale = ContentScale.Fit
                 )
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                if (focusedChannel?.icon == null) {
                     Icon(Icons.Default.PlayArrow, null, tint = Color.Gray.copy(alpha = 0.3f), modifier = Modifier.size(40.dp))
                 }
             }
@@ -159,18 +147,20 @@ fun EpgGrid(
     val horizontalScrollState = rememberScrollState()
     val listState = rememberLazyListState()
     
-    // Vi visar 24 timmar, startar för 1 timme sedan
-    val startTime = remember { ((now / 1800) * 1800) - 3600 } 
+    // En TV måste kunna öppna guiden omedelbart. Att mäta 24 timmar med mycket
+    // breda rader för varje synlig kanal låser vissa TV-processorer. Visa i stället
+    // en kompakt, användbar tidsrymd från strax före nu till sex timmar framåt.
+    val startTime = remember { ((now / 1800) * 1800) - 1800 }
     val timeStep = 30 * 60 // 30 minuters block
-    val totalSteps = 48 // 24 timmar
-    val pixelsPerMinute = 12f 
+    val totalSteps = 14 // 7 timmar
+    val pixelsPerMinute = 4f
     
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm") }
     
     val initialFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
-        val initialScrollDp = (60 * pixelsPerMinute).dp
+        val initialScrollDp = 0.dp
         with(density) {
             horizontalScrollState.scrollTo(initialScrollDp.toPx().toInt())
         }
@@ -186,7 +176,7 @@ fun EpgGrid(
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFF050505))) {
         // 1. TOP SECTION: Preview & Info
-        EpgPreviewSection(focusedEpg = focusedEpg, focusedChannel = focusedChannel, viewModel = viewModel)
+        EpgPreviewSection(focusedEpg = focusedEpg, focusedChannel = focusedChannel)
 
         // 2. DATE & TIME BAR
         val dateFormatter = remember { DateTimeFormatter.ofPattern("EEEE d MMMM", Locale("sv", "SE")) }
@@ -339,8 +329,9 @@ fun EpgRow(
     val piconUrl = channel.icon
     val now = System.currentTimeMillis() / 1000
 
-    // Optimering: Rendera bara program som faktiskt syns inom tidslinjen (24h)
-    val visibleEndTime = startTime + (24 * 3600)
+    // Raden har samma kompakta tidsrymd som rubriken ovan; skapa aldrig ett
+    // dygns programblock i bakgrunden när guiden öppnas.
+    val visibleEndTime = startTime + (7 * 3600)
     val visibleEpg = remember(epgList) {
         epgList.filter { (it.stopTimestamp ?: 0) > startTime && (it.startTimestamp ?: 0) < visibleEndTime }
     }

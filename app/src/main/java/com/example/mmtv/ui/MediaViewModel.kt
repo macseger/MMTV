@@ -321,6 +321,15 @@ class MediaViewModel(
                     isLoading = false
                 )
 
+                // De två första posterna är specialkategorierna Alla kanaler och
+                // Favoriter. Vid en ny appstart ska den första riktiga kategorin
+                // laddas så att dess lokala EPG-cache kan återställas direkt.
+                if (lastLiveCategoryIndex <= 1) {
+                    lastLiveCategoryIndex = uiState.liveCategories.indexOfFirst {
+                        it.categoryId == liveData.firstOrNull()?.categoryId
+                    }.takeIf { it >= 0 } ?: 0
+                }
+
                 // SLÄPP IN ANVÄNDAREN NU!
                 onComplete?.invoke(true)
                 
@@ -344,8 +353,6 @@ class MediaViewModel(
                         // Ladda in items för de första kategorierna när biblioteket är redo
                         withContext(Dispatchers.Main) {
                             loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
-                            // Prefetch EPG för första kategorin
-                            prefetchEpgForCategory(0)
 
                             if (ppvData.isNotEmpty()) {
                                 loadItemsForCategory(MediaType.LIVE, ppvData.firstOrNull()?.categoryId)
@@ -363,8 +370,6 @@ class MediaViewModel(
                         // DB inte tom, ladda in items direkt
                         withContext(Dispatchers.Main) {
                             loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
-                            // Prefetch EPG för första kategorin
-                            prefetchEpgForCategory(0)
 
                             if (ppvData.isNotEmpty()) {
                                 loadItemsForCategory(MediaType.LIVE, ppvData.firstOrNull()?.categoryId)

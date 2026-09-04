@@ -380,16 +380,9 @@ fun PlayerScreen(
             }
             OverlayState.CHANNELS -> {
                 if (playlist.isNotEmpty()) {
-                    // Optimering: Beräkna indexet utanför scope.launch och använd remember för att undvika O(n) vid varje recomposition
-                    val index = playlist.indexOfFirst { it.id == media?.id }.coerceAtLeast(0)
-                    scope.launch {
-                        // Låt Compose rita den lätta listpanelen före ett eventuellt
-                        // stort hopp till den aktiva kanalens position.
-                        delay(120)
-                        channelListState.scrollToItem(index)
-                        delay(50)
-                        channelFocusRequesters[playlist.getOrNull(index)?.id ?: -1]?.safeFocus()
-                    }
+                    // SideOverlay sätter fokus först när den förpositionerade raden
+                    // faktiskt har komponerats. Ett gammalt FocusRequester får inte
+                    // flytta listan en andra gång.
                     if (media != null) focusedChannel = media
                 }
             }
@@ -574,6 +567,12 @@ fun PlayerScreen(
                             KeyEvent.KEYCODE_DPAD_LEFT -> {
                                 if (overlayState == OverlayState.NONE) {
                                     if (media?.type == MediaType.LIVE) {
+                                        val selectedIndex = playlist.indexOfFirst { it.id == media.id }.coerceAtLeast(0)
+                                        // requestScrollToItem sparar positionen till nästa layout. Till
+                                        // skillnad från scrollToItem kräver den inte att listan redan syns.
+                                        channelListState.requestScrollToItem(
+                                            (selectedIndex - 6).coerceAtLeast(0)
+                                        )
                                         overlayState = OverlayState.CHANNELS
                                     } else {
                                         if (isRepeat) performSeek(-10000L, true)

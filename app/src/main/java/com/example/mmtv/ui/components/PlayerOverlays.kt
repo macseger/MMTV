@@ -288,9 +288,25 @@ fun CategoryListItem(title: String, isSelected: Boolean, viewModel: MediaViewMod
 }
 
 @Composable
-fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaViewModel, now: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun ChannelListItem(
+    item: MediaSource,
+    isSelected: Boolean,
+    initialFocusRequester: FocusRequester? = null,
+    viewModel: MediaViewModel,
+    now: Long,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     var hasFocus by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    // Körs först när just den här LazyColumn-raden finns på skärmen. Det undviker
+    // att ett FocusRequester från en tidigare, osynlig rad drar listan igen.
+    LaunchedEffect(initialFocusRequester) {
+        if (initialFocusRequester != null) {
+            runCatching { initialFocusRequester.requestFocus() }
+        }
+    }
     
     val epg = viewModel.getCachedCurrentEpgForId(item.id)
     val piconUrl = item.icon
@@ -907,13 +923,18 @@ fun SideOverlay(
                             key = { _, item -> item.id }, // Använd stabilt ID som nyckel för bättre prestanda vid scroll
                             contentType = { _, _ -> "channel" }
                         ) { _, item ->
+                            val focusRequester = channelFocusRequesters.getOrPut(item.id) { FocusRequester() }
+                            val selectedId = viewModel.selectedMedia?.id
+                            val initialId = playlist.firstOrNull { it.id == selectedId }?.id
+                                ?: playlist.firstOrNull()?.id
                             ChannelListItem(
                                 item = item,
                                 isSelected = item.id == viewModel.selectedMedia?.id,
+                                initialFocusRequester = if (item.id == initialId) focusRequester else null,
                                 viewModel = viewModel,
                                 now = now,
                                 modifier = Modifier
-                                    .focusRequester(channelFocusRequesters.getOrPut(item.id) { FocusRequester() })
+                                    .focusRequester(focusRequester)
                                     .onFocusChanged { if (it.isFocused) onFocusedChannelChanged(item) }
                                     .onKeyEvent {
                                         if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {

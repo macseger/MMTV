@@ -8,6 +8,7 @@ data class MediaEntity(
     val id: Int, 
     val title: String,
     val icon: String?,
+    val resolvedIcon: String? = null,
     val type: MediaType,
     val categoryId: String?,
     val categoryName: String?,

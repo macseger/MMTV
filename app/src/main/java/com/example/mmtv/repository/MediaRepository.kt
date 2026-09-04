@@ -192,7 +192,8 @@ class MediaRepository(
     private fun MediaEntity.toMediaSource() = MediaSource(
         id = id,
         title = title,
-        icon = icon,
+        icon = resolvedIcon ?: icon,
+        resolvedIcon = resolvedIcon,
         type = type,
         categoryId = categoryId,
         categoryName = categoryName,
@@ -318,8 +319,18 @@ class MediaRepository(
             mediaDao.deleteByType(MediaType.LIVE)
             mediaDao.insertAll(liveEntities)
             fetchAndStoreEpg(user, pass)
+            resolveAndStoreLiveIcons()
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    /** Körs enbart under kanaluppdateringen. Overlayen ska aldrig behöva matcha picons. */
+    private suspend fun resolveAndStoreLiveIcons() = withContext(Dispatchers.IO) {
+        iconCache.clear()
+        mediaDao.getMediaByType(MediaType.LIVE).forEach { channel ->
+            val resolved = getIconForChannel(channel.epgId, channel.title)
+            mediaDao.updateResolvedIcon(channel.id, MediaType.LIVE, resolved ?: channel.icon)
         }
     }
 
@@ -589,6 +600,20 @@ class MediaRepository(
         }
         
         emptyList<EpgListing>()
+    }
+
+    /**
+     * Hämtar en hel kanalgrupp i några få indexerade SQLite-frågor. Detta körs när
+     * kategorin laddas, aldrig när användaren flyttar fokus i overlayen.
+     */
+    suspend fun getEpgForChannels(epgIds: Collection<String>): Map<String, List<EpgListing>> = withContext(Dispatchers.IO) {
+        if (epgIds.isEmpty()) return@withContext emptyMap()
+        val now = System.currentTimeMillis() / 1000
+        val endLimit = now + (48 * 60 * 60)
+        epgIds.distinct().chunked(900)
+            .flatMap { mediaDao.getEpgForChannelsWithLimit(it, now - 3600, endLimit) }
+            .groupBy { it.epgId }
+            .mapValues { (_, entities) -> entities.map { it.toEpgListing() } }
     }
 
     suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {

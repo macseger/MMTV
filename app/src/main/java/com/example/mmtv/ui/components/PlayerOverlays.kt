@@ -148,7 +148,7 @@ fun RecentChannelButton(
     var isFocused by remember { mutableStateOf(false) }
     val context = LocalContext.current
     
-    val piconUrl = viewModel.getIconForId(item.id, item.type, item.title) ?: item.icon
+    val piconUrl = item.icon
 
     val imageRequest = remember(piconUrl) {
         ImageRequest.Builder(context)
@@ -292,8 +292,8 @@ fun ChannelListItem(item: MediaSource, isSelected: Boolean, viewModel: MediaView
     var hasFocus by remember { mutableStateOf(false) }
     val context = LocalContext.current
     
-    val epg = viewModel.getEpgForId(item.id, item.type, item.title)
-    val piconUrl = viewModel.getIconForId(item.id, item.type, item.title) ?: item.icon
+    val epg = viewModel.getCachedCurrentEpgForId(item.id)
+    val piconUrl = item.icon
 
     // Optimering: Skippa animateColorAsState för omedelbar respons
     val backgroundColor = when {
@@ -404,7 +404,7 @@ fun ModernProgramDetailBox(epg: EpgListing?, channel: MediaSource?, viewModel: M
     val context = LocalContext.current
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     
-    val piconUrl = if (channel != null) viewModel.getIconForId(channel.id, channel.type, channel.title) else null
+    val piconUrl = channel?.icon
 
     val imageRequest = remember(piconUrl, epg?.icon) {
         ImageRequest.Builder(context)
@@ -539,8 +539,8 @@ fun QuickInfoOverlay(
         }
     }
 
-    val epg = viewModel.getEpgForId(media.id, media.type, media.title)
-    val piconUrl = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
+    val epg = viewModel.getCachedCurrentEpgForId(media.id)
+    val piconUrl = media.icon
     
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     val dateFormatter = remember { DateTimeFormatter.ofPattern("EEE d MMM").withLocale(Locale("sv", "SE")).withZone(ZoneId.systemDefault()) }
@@ -994,13 +994,13 @@ fun SideOverlay(
                             },
                             label = "detailAnim"
                         ) { targetChannel ->
-                            val currentEpg = targetChannel?.let { viewModel.getEpgForId(it.id, it.type, it.title) }
+                            val currentEpg = targetChannel?.let { viewModel.getCachedCurrentEpgForId(it.id) }
                             ModernProgramDetailBox(epg = currentEpg, channel = targetChannel, viewModel = viewModel)
                         }
 
                         Spacer(modifier = Modifier.height(32.dp))
 
-                        val fullEpg = focusedChannel?.let { viewModel.getFullEpgForId(it.id, it.type, it.title) } ?: emptyList()
+                        val fullEpg = focusedChannel?.let { viewModel.getCachedFullEpgForId(it.id) } ?: emptyList()
                         
                         val upcomingEpg = remember(fullEpg, focusedChannel, now) { 
                             fullEpg.filter { (it.stopTimestamp ?: 0) > now } 
@@ -1038,7 +1038,7 @@ fun SideOverlay(
                         contentAlignment = Alignment.Center
                     ) {
                         focusedChannel?.let { channel ->
-                            val piconUrl = viewModel.getIconForId(channel.id, channel.type, channel.title) ?: channel.icon
+                            val piconUrl = channel.icon
 
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 AsyncImage(
@@ -1075,9 +1075,9 @@ fun EpgModal(
 ) {
     BackHandler { onClose() }
     
-    val fullEpg = viewModel.getFullEpgForId(media.id, media.type, media.title)
+    val fullEpg = viewModel.getCachedFullEpgForId(media.id)
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
-    val piconUrl = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
+    val piconUrl = media.icon
 
     // För-beräkna och formatera EPG-data för att undvika tungt jobb i listan
     val formattedEpg = remember(fullEpg) {

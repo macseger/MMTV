@@ -130,11 +130,8 @@ fun DetailsScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        val bgIcon by produceState<String?>(initialValue = media.icon, key1 = media) {
-            if (value.isNullOrEmpty()) {
-                value = viewModel.getIconForChannel(media.id, media.type, media.title)
-            }
-        }
+        // Ikonen har redan matchats och sparats när kanallistan uppdaterades.
+        val bgIcon = media.icon
         
         AsyncImage(
             model = bgIcon,

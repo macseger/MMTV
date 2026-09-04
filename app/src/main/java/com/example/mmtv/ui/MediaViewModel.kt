@@ -96,6 +96,7 @@ class MediaViewModel(
     val fullEpgData = mutableStateMapOf<String, List<EpgListing>>()
     private val fetchingEpgIds = mutableSetOf<Int>()
     private val fetchingFullEpgIds = mutableSetOf<String>()
+    private val prefetchingCategoryIds = mutableSetOf<String>()
     
     // Cache för nuvarande program och ikoner
     private val currentEpgCache = mutableMapOf<String, EpgListing?>()
@@ -200,7 +201,8 @@ class MediaViewModel(
     private fun MediaEntity.toMediaSource() = MediaSource(
         id = id,
         title = title,
-        icon = icon,
+        icon = resolvedIcon ?: icon,
+        resolvedIcon = resolvedIcon,
         type = type,
         categoryId = categoryId,
         categoryName = categoryName,
@@ -412,8 +414,6 @@ class MediaViewModel(
                 // Om detta är den aktuella spellistan i PlayerScreen, uppdatera den
                 if (uiState.liveCategories.getOrNull(lastLiveCategoryIndex)?.categoryId == categoryId) {
                     currentPlaylist = items
-                    // Prefetch EPG för den nyss laddade kategorin
-                    prefetchEpgForCategory(lastLiveCategoryIndex)
                 }
             }
 
@@ -432,6 +432,13 @@ class MediaViewModel(
                 MediaType.SERIES -> uiState.copy(seriesCategories = uiState.seriesCategories.map { 
                     if (it.categoryId == categoryId) it.copy(items = items) else it 
                 })
+            }
+
+            // Kategorin måste finnas i uiState innan batchcachen kan byggas.
+            if (type == MediaType.LIVE &&
+                uiState.liveCategories.getOrNull(lastLiveCategoryIndex)?.categoryId == categoryId
+            ) {
+                prefetchEpgForCategory(lastLiveCategoryIndex)
             }
         }
     }
@@ -489,44 +496,56 @@ class MediaViewModel(
 
     fun prefetchEpgForCategory(categoryIndex: Int) {
         val category = uiState.liveStreamsGrouped.getOrNull(categoryIndex) ?: return
+        val categoryKey = category.categoryId ?: "category_$categoryIndex"
+        if (!prefetchingCategoryIds.add(categoryKey)) return
+
+        // Förbered hela kategorin som en batch innan overlayen visas. Detta ersätter
+        // per-rad-sökningar när användaren bläddrar med fjärrkontrollen.
+        val itemsToPrefetch = category.items
+        val epgIds = itemsToPrefetch.mapNotNull { it.epgId }.distinct()
+        val missingEpgIds = epgIds.filterNot { fullEpgData.containsKey(it) }
+
         viewModelScope.launch(Dispatchers.IO) {
-            // För-cacha picons också - Batch-uppdatering för att undvika main-tråd hopp
-            val newPicons = mutableMapOf<String, String?>()
-            category.items.forEach { item ->
-                val cacheKey = "${item.type}_${item.id}"
-                if (!piconCache.containsKey(cacheKey)) {
-                    val icon = _repository.getIconForChannel(item.epgId, item.title)
-                    if (icon != null) {
-                        newPicons[cacheKey] = icon
-                    }
-                }
-            }
-            if (newPicons.isNotEmpty()) {
+            try {
+            if (missingEpgIds.isNotEmpty()) {
+                val epgByChannel = _repository.getEpgForChannels(missingEpgIds)
                 withContext(Dispatchers.Main) {
-                    piconCache.putAll(newPicons)
+                    fullEpgData.putAll(epgByChannel)
                 }
             }
-            
-            // Batcha EPG-hämtningar för att inte sänka prestandan
-            category.items.chunked(25).forEach { batch ->
-                val batchEpgUpdates = mutableMapOf<String, List<EpgListing>>()
-                batch.forEach { item ->
-                    if (item.epgId != null && !fullEpgData.containsKey(item.epgId)) {
-                        val epg = _repository.getEpgForChannel(item.epgId, item.title)
-                        if (epg.isNotEmpty()) {
-                            batchEpgUpdates[item.epgId] = epg
-                        }
-                    }
+            } finally {
+                withContext(Dispatchers.Main) {
+                    prefetchingCategoryIds.remove(categoryKey)
                 }
-                
-                if (batchEpgUpdates.isNotEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        fullEpgData.putAll(batchEpgUpdates)
-                    }
-                }
-                delay(150) // Ge andra processer plats
             }
         }
+    }
+
+    /** Läsning utan sidoeffekter; säker att anropa från en Composable. */
+    fun getCachedFullEpgForId(id: Int): List<EpgListing> {
+        val epgId = channelToEpgMap[id] ?: return emptyList()
+        return fullEpgData[epgId].orEmpty()
+    }
+
+    /** Ren cacheläsning för overlayen; startar aldrig databas eller nätverk. */
+    fun getCachedCurrentEpgForId(id: Int): EpgListing? {
+        val now = System.currentTimeMillis() / 1000
+        return getCachedFullEpgForId(id).find {
+            (it.startTimestamp ?: 0) <= now && (it.stopTimestamp ?: 0) > now
+        }
+    }
+
+    /** Läsning utan sidoeffekter; säker att anropa från en Composable. */
+    fun getCachedIconForId(id: Int, type: MediaType): String? =
+        piconCache["${type}_$id"]
+
+    /**
+     * Bakåtkompatibel ingång för äldre Composables. Kanaldata förbereds per kategori
+     * och får inte starta enskilda databas- eller nätverksuppslag medan en rad ritas.
+     */
+    fun loadChannelAssets(id: Int, type: MediaType, name: String? = null) {
+        // Avsiktligt tom. EPG fylls med prefetchEpgForCategory och ikoner sparas vid
+        // uppdatering av kanallistan. Parametrarna behålls tills alla gamla anrop är borta.
     }
 
     /**
@@ -633,42 +652,13 @@ class MediaViewModel(
     }
 
     fun getIconForId(id: Int, type: MediaType, name: String? = null): String? {
-        val cacheKey = "${type}_$id"
-        piconCache[cacheKey]?.let { return it }
-
-        if (!fetchingEpgIds.contains(id + 1000000)) { // Offset för att inte krocka med EPG-fetch
-            fetchingEpgIds.add(id + 1000000)
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val epgId = channelToEpgMap[id]
-                    val icon = _repository.getIconForChannel(epgId, name)
-                    if (icon != null) {
-                        withContext(Dispatchers.Main) {
-                            piconCache[cacheKey] = icon
-                        }
-                    }
-                } catch (e: Exception) {
-                } finally {
-                    withContext(Dispatchers.Main) { fetchingEpgIds.remove(id + 1000000) }
-                }
-            }
-        }
+        // Ikoner är färdigmatchade och sparade när användaren uppdaterar kanallistan.
+        // UI:t använder alltid MediaSource.icon och gör aldrig namn-/databasuppslag här.
         return null
     }
 
     suspend fun getIconForChannel(id: Int, type: MediaType, name: String? = null): String? {
-        val cacheKey = "${type}_$id"
-        val cached = piconCache[cacheKey]
-        if (cached != null) return cached
-
-        val epgId = channelToEpgMap[id]
-        val icon = _repository.getIconForChannel(epgId, name)
-        if (icon != null) {
-            withContext(Dispatchers.Main) {
-                piconCache[cacheKey] = icon
-            }
-        }
-        return icon
+        return null
     }
 
     fun refreshDataManually() {

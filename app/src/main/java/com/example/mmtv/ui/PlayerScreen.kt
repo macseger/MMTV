@@ -297,8 +297,7 @@ fun PlayerScreen(
         focusManager.clearFocus()
         if (media != null) {
             viewModel.addToHistory(media, if (isSeries) viewModel.playingEpisode else null)
-            val icon = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
-            viewModel.updateThemeColorFromIcon(icon)
+            viewModel.updateThemeColorFromIcon(media.icon)
         }
         if (media?.type == MediaType.LIVE) {
             viewModel.setLiveCategoryByMediaId(media.id)
@@ -402,9 +401,7 @@ fun PlayerScreen(
                 subtitleFocusRequesters[0]?.safeFocus()
             }
             OverlayState.EPG_INFO -> {
-                if (media != null) {
-                    viewModel.getFullEpgForId(media.id, media.type, media.title)
-                }
+                // EPG-modalens innehåll läser enbart den redan förberedda cachen.
             }
             OverlayState.FULL_EPG -> {
                 // EpgGrid hanterar sitt eget fokus internt
@@ -614,7 +611,6 @@ fun PlayerScreen(
                                     if (media != null && media.type == MediaType.LIVE) {
                                         val currentTime = System.currentTimeMillis()
                                         if (currentTime - lastCenterClickTime < doubleClickTimeout) {
-                                            scope.launch { viewModel.getFullEpgForId(media.id, media.type, media.title) }
                                             overlayState = OverlayState.EPG_INFO
                                         } else {
                                             overlayState = OverlayState.QUICK_INFO
@@ -867,7 +863,6 @@ fun PlayerScreen(
                     audioFormat = audioFormat,
                     favorites = favorites,
                     onTvGuideClick = {
-                        scope.launch { viewModel.getFullEpgForId(it.id, it.type) }
                         overlayState = OverlayState.EPG_INFO
                     },
                     onRecentChannelClick = { item ->

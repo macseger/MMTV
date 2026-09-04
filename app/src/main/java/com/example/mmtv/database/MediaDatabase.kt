@@ -6,9 +6,11 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverter
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.mmtv.model.MediaType
 
-@Database(entities = [MediaEntity::class, EpgEntity::class, ChannelEntity::class, PiconEntity::class], version = 12, exportSchema = false)
+@Database(entities = [MediaEntity::class, EpgEntity::class, ChannelEntity::class, PiconEntity::class], version = 13, exportSchema = false)
 @TypeConverters(MediaConverters::class)
 abstract class MediaDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao
@@ -25,9 +27,16 @@ abstract class MediaDatabase : RoomDatabase() {
                     "mmtv_database"
                 )
                 .fallbackToDestructiveMigration()
+                .addMigrations(MIGRATION_12_13)
                 .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE media_items ADD COLUMN resolvedIcon TEXT")
             }
         }
     }

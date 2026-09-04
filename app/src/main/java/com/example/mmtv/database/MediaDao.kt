@@ -31,6 +31,9 @@ interface MediaDao {
     @Query("UPDATE media_items SET isFavorite = :isFav, favoriteDate = :favDate WHERE id = :id AND type = :type")
     suspend fun updateFavoriteWithDate(id: Int, type: com.example.mmtv.model.MediaType, isFav: Boolean, favDate: Long)
 
+    @Query("UPDATE media_items SET resolvedIcon = :icon WHERE id = :id AND type = :type")
+    suspend fun updateResolvedIcon(id: Int, type: com.example.mmtv.model.MediaType, icon: String?)
+
     @Query("SELECT * FROM media_items WHERE id = :id AND type = :type LIMIT 1")
     suspend fun getMediaById(id: Int, type: com.example.mmtv.model.MediaType): MediaEntity?
 
@@ -52,6 +55,9 @@ interface MediaDao {
 
     @Query("SELECT * FROM epg_listings WHERE epgId = :epgId AND stopTimestamp > :currentTime AND startTimestamp < :endLimit ORDER BY startTimestamp ASC")
     suspend fun getEpgForChannelWithLimit(epgId: String, currentTime: Long, endLimit: Long): List<EpgEntity>
+
+    @Query("SELECT * FROM epg_listings WHERE epgId IN (:epgIds) AND stopTimestamp > :currentTime AND startTimestamp < :endLimit ORDER BY epgId, startTimestamp ASC")
+    suspend fun getEpgForChannelsWithLimit(epgIds: List<String>, currentTime: Long, endLimit: Long): List<EpgEntity>
 
     @Query("SELECT * FROM epg_listings WHERE (epgId = :epgId OR epgId LIKE '%' || :nameNoSpaces || '%' OR :nameNoSpaces LIKE '%' || epgId || '%' OR channelName LIKE '%' || :name || '%' OR :name LIKE '%' || channelName || '%') AND stopTimestamp > :currentTime AND startTimestamp < :endLimit GROUP BY startTimestamp ORDER BY startTimestamp ASC LIMIT 50")
     suspend fun findEpgByFuzzyName(name: String, nameNoSpaces: String, epgId: String?, currentTime: Long, endLimit: Long): List<EpgEntity>

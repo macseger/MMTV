@@ -204,17 +204,10 @@ class MainActivity : AppCompatActivity() {
                                             }
                                         },
                                         onLiveTvClick = {
-                                            val lastLive = sharedViewModel.uiState.history.find { it.type == MediaType.LIVE }
-                                            if (lastLive != null) {
-                                                sharedViewModel.setLiveCategoryByMediaId(lastLive.id)
-                                                val currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(sharedViewModel.lastLiveCategoryIndex)?.items ?: emptyList()
-                                                playMedia(navController, lastLive, sessionManager, sharedViewModel, currentPlaylist)
-                                            } else {
-                                                navController.navigate("live") {
-                                                    popUpTo("home") { saveState = true }
-                                                    launchSingleTop = true
-                                                    restoreState = true
-                                                }
+                                            navController.navigate("live") {
+                                                popUpTo("home") { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
                                             }
                                         },
                                         searchQuery = sharedViewModel.searchQuery,

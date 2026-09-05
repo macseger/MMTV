@@ -50,6 +50,12 @@ fun DetailsScreen(
 ) {
     val context = LocalContext.current
     val sessionManager = remember { SessionManager(context) }
+    val detailsListState = rememberLazyListState()
+    var headerHasFocus by remember(media.id) { mutableStateOf(false) }
+    LaunchedEffect(headerHasFocus) {
+        // Returning from seasons/episodes must reveal the whole header, not just its buttons.
+        if (headerHasFocus) detailsListState.animateScrollToItem(0)
+    }
     val playFocusRequester = remember(media.id) { FocusRequester() }
     var detailsLoadStarted by remember(media.id) { mutableStateOf(false) }
     var initialPlayFocusRequested by remember(media.id) { mutableStateOf(false) }
@@ -161,6 +167,7 @@ fun DetailsScreen(
             ))
 
             LazyColumn(
+                state = detailsListState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(top = 48.dp, bottom = 80.dp, start = 48.dp, end = 48.dp)
             ) {
@@ -253,7 +260,10 @@ fun DetailsScreen(
 
                             Spacer(modifier = Modifier.height(32.dp))
 
-                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Row(
+                                modifier = Modifier.onFocusChanged { headerHasFocus = it.hasFocus },
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
                                 // Request focus only once, after the play button has been composed.
                                 if (detailsLoadStarted && (!isSeries || (!viewModel.isDetailsLoading && continueData != null))) {
                                     LaunchedEffect(media.id, viewModel.isTvMode) {

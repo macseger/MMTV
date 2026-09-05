@@ -121,7 +121,7 @@ class MediaViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             mediaDao.updateLiveFavorites(orderedIds)
             val updatedFavs = mediaDao.getFavorites()
-                .filter { it.categoryId in sessionManager.getSyncCategories(it.type) }
+                .filter { it.isFavorite || it.categoryId in sessionManager.getSyncCategories(it.type) }
                 .map { it.toMediaSource() }
 
             withContext(Dispatchers.Main) {
@@ -130,6 +130,11 @@ class MediaViewModel(
 
                 val selectedSet = orderedIds.toSet()
                 val favsForLive = updatedFavs.filter { it.type == MediaType.LIVE }.sortedBy { it.favoriteDate }
+                favsForLive.forEach { item ->
+                    val epgId = item.epgId?.takeIf { it.isNotBlank() } ?: "stream:${item.id}"
+                    channelToEpgMap[item.id] = epgId
+                }
+
                 uiState = uiState.copy(
                     liveCategories = uiState.liveCategories.map { group ->
                         if (group.categoryId == "FAVORITES") {
@@ -141,6 +146,12 @@ class MediaViewModel(
                         }
                     }
                 )
+
+                val favIndex = uiState.liveCategories.indexOfFirst { it.categoryId == "FAVORITES" }
+                if (favIndex >= 0) {
+                    prefetchEpgForCategory(favIndex)
+                }
+
                 showStatusMessage("Favoritlistan för TV har uppdaterats")
             }
         }
@@ -451,8 +462,8 @@ class MediaViewModel(
                 val allFavs = withContext(Dispatchers.IO) { mediaDao.getFavorites() }
                 
                 fun List<GroupedMedia>.withFavoritesAndHistory(type: MediaType): List<GroupedMedia> {
-                    val favsForType = allFavs.filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }.map { it.toMediaSource() }.let { if (type == MediaType.LIVE) it.sortedBy { item -> item.favoriteDate } else it }
-                    val historyForType = sessionManager.getHistory().filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }
+                    val favsForType = allFavs.filter { it.type == type && (it.isFavorite || it.categoryId in sessionManager.getSyncCategories(type)) }.map { it.toMediaSource() }.let { if (type == MediaType.LIVE) it.sortedBy { item -> item.favoriteDate } else it }
+                    val historyForType = sessionManager.getHistory().filter { it.type == type && (it.isFavorite || it.categoryId in sessionManager.getSyncCategories(type)) }
                     var result = this
 
                     if (type == MediaType.LIVE) {
@@ -679,23 +690,28 @@ class MediaViewModel(
     fun prefetchEpgForCategory(categoryIndex: Int) {
         val category = uiState.liveStreamsGrouped.getOrNull(categoryIndex) ?: return
         val categoryKey = category.categoryId ?: "category_$categoryIndex"
+
+        // Populera channelToEpgMap direkt för alla kanaler i kategorin
+        val itemsToPrefetch = category.items
+        itemsToPrefetch.forEach { item ->
+            val epgId = item.epgId?.takeIf { it.isNotBlank() } ?: "stream:${item.id}"
+            channelToEpgMap[item.id] = epgId
+        }
+
         if (!prefetchingCategoryIds.add(categoryKey)) return
 
-        // Förbered hela kategorin som en batch innan overlayen visas. Detta ersätter
-        // per-rad-sökningar när användaren bläddrar med fjärrkontrollen.
-        val itemsToPrefetch = category.items
-        val epgIds = itemsToPrefetch.mapNotNull { it.epgId }.distinct()
+        val epgIds = itemsToPrefetch.mapNotNull { channelToEpgMap[it.id] }.distinct()
         val missingEpgIds = epgIds.filterNot { loadedFullEpgIds.contains(it) }
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-            if (missingEpgIds.isNotEmpty()) {
-                val epgByChannel = _repository.getEpgForChannels(missingEpgIds)
-                withContext(Dispatchers.Main) {
-                    fullEpgData.putAll(epgByChannel)
-                    loadedFullEpgIds.addAll(missingEpgIds)
+                if (missingEpgIds.isNotEmpty()) {
+                    val epgByChannel = _repository.getEpgForChannels(missingEpgIds)
+                    withContext(Dispatchers.Main) {
+                        fullEpgData.putAll(epgByChannel)
+                        loadedFullEpgIds.addAll(missingEpgIds)
+                    }
                 }
-            }
             } finally {
                 withContext(Dispatchers.Main) {
                     prefetchingCategoryIds.remove(categoryKey)
@@ -742,11 +758,11 @@ class MediaViewModel(
         
         // 1. Snabb-cache för nuvarande program (i minnet)
         currentEpgCache[cacheKey]?.let { cached ->
-            if (now < (cached.stopTimestamp ?: 0L)) return cached
+            if (now >= (cached.startTimestamp ?: 0L) && now < (cached.stopTimestamp ?: 0L)) return cached
         }
 
         // 2. Försök hitta EPG-ID och data i SnapshotStateMap
-        val epgId = channelToEpgMap[id]
+        var epgId = channelToEpgMap[id]
         if (epgId != null) {
             fullEpgData[epgId]?.let { listings ->
                 val current = listings.find { (it.startTimestamp ?: 0) <= now && (it.stopTimestamp ?: 0) > now }
@@ -763,20 +779,24 @@ class MediaViewModel(
             fetchingEpgIds.add(id)
             viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    val finalEpgId = epgId ?: run {
-                        val media = mediaDao.getMediaById(id, type)
-                        media?.epgId?.also {
-                            withContext(Dispatchers.Main) { channelToEpgMap[id] = it }
-                        }
-                    }
+                    val media = mediaDao.getMediaById(id, type)
+                    val finalEpgId = epgId ?: media?.epgId?.takeIf { it.isNotBlank() } ?: "stream:$id"
+                    val channelName = name ?: media?.title
                     
-                    if (finalEpgId != null) {
-                        val epg = _repository.getEpgForChannel(finalEpgId, name)
-                        if (epg.isNotEmpty()) {
-                            withContext(Dispatchers.Main) {
-                                fullEpgData[finalEpgId] = epg
+                    withContext(Dispatchers.Main) { channelToEpgMap[id] = finalEpgId }
+                    
+                    val epg = _repository.getEpgForChannel(finalEpgId, channelName)
+                    if (epg.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            fullEpgData[finalEpgId] = epg
+                            loadedFullEpgIds.add(finalEpgId)
+                            val current = epg.find { (it.startTimestamp ?: 0) <= now && (it.stopTimestamp ?: 0) > now }
+                            if (current != null) {
+                                currentEpgCache[cacheKey] = current
                             }
                         }
+                    } else {
+                        withContext(Dispatchers.Main) { loadedFullEpgIds.add(finalEpgId) }
                     }
                 } catch (e: Exception) {
                 } finally {

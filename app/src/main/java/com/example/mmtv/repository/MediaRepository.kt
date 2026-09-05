@@ -488,7 +488,7 @@ class MediaRepository(
             try {
                 if (!session.hasSyncSelection()) return@withContext
                 val selectedLive = mediaDao.getMediaByType(MediaType.LIVE)
-                    .filter { it.categoryId in session.getSyncCategories(MediaType.LIVE) }
+                    .filter { it.isFavorite || it.categoryId in session.getSyncCategories(MediaType.LIVE) }
                 val scope = selectedLive.map { "${it.id}:${it.epgId}" }.sorted().joinToString("|") + session.getUseExternalSwedishEpg()
                 val scopeFile = File(cacheDir, "${accountCacheKey()}_epg_scope")
                 val scopeChanged = !scopeFile.exists() || scopeFile.readText() != scope

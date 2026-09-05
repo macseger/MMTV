@@ -17,6 +17,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -291,7 +292,6 @@ fun CategoryListItem(title: String, isSelected: Boolean, viewModel: MediaViewMod
 fun ChannelListItem(
     item: MediaSource,
     isSelected: Boolean,
-    initialFocusRequester: FocusRequester? = null,
     viewModel: MediaViewModel,
     now: Long,
     onClick: () -> Unit,
@@ -300,14 +300,6 @@ fun ChannelListItem(
     var hasFocus by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    // Körs först när just den här LazyColumn-raden finns på skärmen. Det undviker
-    // att ett FocusRequester från en tidigare, osynlig rad drar listan igen.
-    LaunchedEffect(initialFocusRequester) {
-        if (initialFocusRequester != null) {
-            runCatching { initialFocusRequester.requestFocus() }
-        }
-    }
-    
     val epg = viewModel.getCachedCurrentEpgForId(item.id)
     val piconUrl = item.icon
 
@@ -823,12 +815,23 @@ fun SideOverlay(
         }
     }
 
-    // Optimering: Debounce för kategorival för att undvika frysning vid snabb scroll
-    var debouncedCategoryIndex by remember { mutableIntStateOf(viewModel.lastLiveCategoryIndex) }
-    LaunchedEffect(debouncedCategoryIndex) {
-        if (debouncedCategoryIndex != viewModel.lastLiveCategoryIndex) {
-            delay(300) // Debounce-tid
-            onCategorySelected(debouncedCategoryIndex)
+    // Positionera och fokusera först när rätt lista är synlig. Då försöker inte
+    // både listan och en enskild rad flytta fokus samtidigt.
+    val selectedChannelId = viewModel.selectedMedia?.id
+    LaunchedEffect(isVisible, overlayState, playlist, selectedChannelId) {
+        if (!isVisible) return@LaunchedEffect
+
+        if (overlayState == "CATEGORIES" && categories.isNotEmpty()) {
+            val categoryIndex = viewModel.lastLiveCategoryIndex.coerceIn(0, categories.lastIndex)
+            categoryListState.scrollToItem(categoryIndex)
+            withFrameNanos { }
+            categoryFocusRequesters[categoryIndex]?.requestFocus()
+        } else if (overlayState == "CHANNELS" && playlist.isNotEmpty()) {
+            val channelIndex = playlist.indexOfFirst { it.id == selectedChannelId }
+                .takeIf { it >= 0 } ?: 0
+            channelListState.scrollToItem(channelIndex)
+            withFrameNanos { }
+            channelFocusRequesters[playlist[channelIndex].id]?.requestFocus()
         }
     }
 
@@ -873,9 +876,7 @@ fun SideOverlay(
                                 modifier = Modifier
                                     .focusRequester(categoryFocusRequesters.getOrPut(index) { FocusRequester() })
                                     .onFocusChanged {
-                                        if (it.isFocused) {
-                                            debouncedCategoryIndex = index
-                                        }
+                                        if (it.isFocused) onCategorySelected(index)
                                     }
                                     .onKeyEvent {
                                         if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
@@ -924,13 +925,9 @@ fun SideOverlay(
                             contentType = { _, _ -> "channel" }
                         ) { _, item ->
                             val focusRequester = channelFocusRequesters.getOrPut(item.id) { FocusRequester() }
-                            val selectedId = viewModel.selectedMedia?.id
-                            val initialId = playlist.firstOrNull { it.id == selectedId }?.id
-                                ?: playlist.firstOrNull()?.id
                             ChannelListItem(
                                 item = item,
                                 isSelected = item.id == viewModel.selectedMedia?.id,
-                                initialFocusRequester = if (item.id == initialId) focusRequester else null,
                                 viewModel = viewModel,
                                 now = now,
                                 modifier = Modifier

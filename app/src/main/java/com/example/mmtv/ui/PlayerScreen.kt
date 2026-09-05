@@ -370,14 +370,7 @@ fun PlayerScreen(
 
     LaunchedEffect(overlayState) {
         when (overlayState) {
-            OverlayState.CATEGORIES -> {
-                val currentCategoryIndex = viewModel.lastLiveCategoryIndex.coerceAtLeast(0)
-                if (categories.isNotEmpty()) {
-                    categoryListState.scrollToItem(currentCategoryIndex)
-                    delay(60) // Reducerad för snabbare känsla
-                    categoryFocusRequesters[currentCategoryIndex]?.safeFocus()
-                }
-            }
+            OverlayState.CATEGORIES -> Unit
             OverlayState.CHANNELS -> {
                 if (playlist.isNotEmpty()) {
                     // SideOverlay sätter fokus först när den förpositionerade raden
@@ -567,12 +560,9 @@ fun PlayerScreen(
                             KeyEvent.KEYCODE_DPAD_LEFT -> {
                                 if (overlayState == OverlayState.NONE) {
                                     if (media?.type == MediaType.LIVE) {
-                                        val selectedIndex = playlist.indexOfFirst { it.id == media.id }.coerceAtLeast(0)
-                                        // requestScrollToItem sparar positionen till nästa layout. Till
-                                        // skillnad från scrollToItem kräver den inte att listan redan syns.
-                                        channelListState.requestScrollToItem(
-                                            (selectedIndex - 6).coerceAtLeast(0)
-                                        )
+                                        // SideOverlay positionerar och fokuserar den aktuella kanalen
+                                        // efter att rätt rad faktiskt har komponerats.
+                                        focusedChannel = media
                                         overlayState = OverlayState.CHANNELS
                                     } else {
                                         if (isRepeat) performSeek(-10000L, true)

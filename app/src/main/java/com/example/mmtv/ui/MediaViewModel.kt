@@ -117,9 +117,9 @@ class MediaViewModel(
             .map { it.toMediaSource() }
     }
 
-    fun saveLiveFavorites(selectedIds: Set<Int>) {
+    fun saveLiveFavorites(orderedIds: List<Int>) {
         viewModelScope.launch(Dispatchers.IO) {
-            mediaDao.updateLiveFavorites(selectedIds)
+            mediaDao.updateLiveFavorites(orderedIds)
             val updatedFavs = mediaDao.getFavorites()
                 .filter { it.categoryId in sessionManager.getSyncCategories(it.type) }
                 .map { it.toMediaSource() }
@@ -128,6 +128,7 @@ class MediaViewModel(
                 _favorites.value = updatedFavs
                 showTvFavoritesDialog = false
 
+                val selectedSet = orderedIds.toSet()
                 val favsForLive = updatedFavs.filter { it.type == MediaType.LIVE }.sortedBy { it.favoriteDate }
                 uiState = uiState.copy(
                     liveCategories = uiState.liveCategories.map { group ->
@@ -135,7 +136,7 @@ class MediaViewModel(
                             group.copy(items = favsForLive)
                         } else {
                             group.copy(items = group.items.map { item ->
-                                item.copy(isFavorite = item.id in selectedIds)
+                                item.copy(isFavorite = item.id in selectedSet)
                             })
                         }
                     }

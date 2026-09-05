@@ -32,7 +32,7 @@ import com.example.mmtv.ui.theme.FocusBorderColor
 @Composable
 fun TvFavoritesDialog(viewModel: MediaViewModel) {
     var allChannels by remember { mutableStateOf<List<MediaSource>>(emptyList()) }
-    var selectedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var selectedIds by remember { mutableStateOf<List<Int>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
 
@@ -43,7 +43,7 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
         isLoading = true
         val channels = viewModel.getAllLiveChannelsForFavorites()
         allChannels = channels
-        selectedIds = channels.filter { it.isFavorite }.map { it.id }.toSet()
+        selectedIds = channels.filter { it.isFavorite }.map { it.id }
         isLoading = false
     }
 
@@ -73,16 +73,20 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
             shape = MaterialTheme.shapes.large,
             color = Color(0xFF141414)
         ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Rubrik & Info
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                // VÄNSTER PANEL: Kontroller & Knappar
+                Column(
+                    modifier = Modifier
+                        .width(320.dp)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // Rubrik
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -94,167 +98,75 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
                             modifier = Modifier.size(28.dp)
                         )
                         Text(
-                            text = "Skapa TV Favoritlista",
+                            text = "TV Favoritlista",
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                             color = Color.White
                         )
                     }
+
                     Text(
-                        text = "${allChannels.size} kanaler · ${selectedIds.size} valda favoriter",
+                        text = "${allChannels.size} kanaler totalt\n${selectedIds.size} valda favoriter",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
-                }
 
-                // Sökfält
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    label = { Text("Sök kanal eller kategori (t.ex. SVT, TV4, Sport)") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White
+                    // Sökfält
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        label = { Text("Sök kanal (t.ex. SVT, TV4)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f),
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White
+                        )
                     )
-                )
 
-                if (isLoading) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                    }
-                } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 320.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        state = listState,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        contentPadding = PaddingValues(vertical = 4.dp)
-                    ) {
-                        if (filteredChannels.isEmpty()) {
-                            item {
-                                Text(
-                                    text = "Inga kanaler matchar sökningen.",
-                                    color = Color.Gray,
-                                    modifier = Modifier.padding(16.dp)
-                                )
-                            }
-                        }
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                        items(filteredChannels, key = { it.id }) { channel ->
-                            val isChecked = channel.id in selectedIds
-                            var isFocused by remember { mutableStateOf(false) }
-
-                            Surface(
-                                onClick = {
-                                    selectedIds = if (isChecked) {
-                                        selectedIds - channel.id
-                                    } else {
-                                        selectedIds + channel.id
-                                    }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp)
-                                    .onFocusChanged { isFocused = it.isFocused },
-                                shape = MaterialTheme.shapes.medium,
-                                border = if (isFocused) BorderStroke(3.dp, FocusBorderColor) else null,
-                                color = if (isFocused) Color.White.copy(alpha = 0.15f) else Color(0xFF222222)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = if (isChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                                        contentDescription = if (isChecked) "Favorit" else "Ej favorit",
-                                        tint = if (isChecked) Color(0xFFFFD700) else Color.Gray,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-
-                                    if (!channel.icon.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = channel.icon,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(36.dp),
-                                            contentScale = ContentScale.Fit
-                                        )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                    }
-
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = channel.title ?: "Okänd kanal",
-                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp
-                                            ),
-                                            color = Color.White,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        if (!channel.categoryName.isNullOrBlank()) {
-                                            Text(
-                                                text = channel.categoryName,
-                                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                                                color = Color.Gray,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Knappar längst ned
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                    // Huvudknappar
                     var saveFocused by remember { mutableStateOf(false) }
                     Button(
                         onClick = { viewModel.saveLiveFavorites(selectedIds) },
                         modifier = Modifier
+                            .fillMaxWidth()
                             .focusRequester(firstFocus)
                             .onFocusChanged { saveFocused = it.isFocused },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (saveFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                            containerColor = if (saveFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
                         )
                     ) {
-                        Text("Spara favoriter (${selectedIds.size})", fontWeight = FontWeight.Bold)
+                        Text("Spara favoriter (${selectedIds.size})", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     }
 
                     OutlinedButton(
                         onClick = viewModel::dismissTvFavoritesDialog,
+                        modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                     ) {
                         Text("Avbryt")
                     }
 
-                    Spacer(modifier = Modifier.weight(1f))
+                    HorizontalDivider(
+                        color = Color.Gray.copy(alpha = 0.3f),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
+                    Text(
+                        text = "Snabbval:",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.Gray
+                    )
 
                     OutlinedButton(
                         onClick = {
                             val shownIds = filteredChannels.map { it.id }
-                            selectedIds = selectedIds + shownIds
+                            selectedIds = (selectedIds + shownIds).distinct()
                         },
+                        modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.LightGray)
                     ) {
                         Text("Markera visade")
@@ -262,19 +174,134 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
 
                     OutlinedButton(
                         onClick = {
-                            val shownIds = filteredChannels.map { it.id }.toSet()
-                            selectedIds = selectedIds - shownIds
+                            val shownSet = filteredChannels.map { it.id }.toSet()
+                            selectedIds = selectedIds.filterNot { it in shownSet }
                         },
+                        modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.LightGray)
                     ) {
                         Text("Avmarkera visade")
                     }
 
                     OutlinedButton(
-                        onClick = { selectedIds = emptySet() },
+                        onClick = { selectedIds = emptyList() },
+                        modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red.copy(alpha = 0.8f))
                     ) {
                         Text("Rensa alla")
+                    }
+                }
+
+                // HÖGER PANEL: Kanalnät
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Välj kanaler (${filteredChannels.size} visas):",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.Gray
+                    )
+
+                    if (isLoading) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Adaptive(minSize = 280.dp),
+                            modifier = Modifier
+                                .fillMaxSize(),
+                            state = listState,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            contentPadding = PaddingValues(bottom = 8.dp)
+                        ) {
+                            if (filteredChannels.isEmpty()) {
+                                item {
+                                    Text(
+                                        text = "Inga kanaler matchar sökningen.",
+                                        color = Color.Gray,
+                                        modifier = Modifier.padding(16.dp)
+                                    )
+                                }
+                            }
+
+                            items(filteredChannels, key = { it.id }) { channel ->
+                                val isChecked = channel.id in selectedIds
+                                var isFocused by remember { mutableStateOf(false) }
+
+                                Surface(
+                                    onClick = {
+                                        selectedIds = if (isChecked) {
+                                            selectedIds.filterNot { it == channel.id }
+                                        } else {
+                                            selectedIds + channel.id
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp)
+                                        .onFocusChanged { isFocused = it.isFocused },
+                                    shape = MaterialTheme.shapes.medium,
+                                    border = if (isFocused) BorderStroke(3.dp, FocusBorderColor) else null,
+                                    color = if (isFocused) Color.White.copy(alpha = 0.15f) else Color(0xFF222222)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                                            contentDescription = if (isChecked) "Favorit" else "Ej favorit",
+                                            tint = if (isChecked) Color(0xFFFFD700) else Color.Gray,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+
+                                        if (!channel.icon.isNullOrBlank()) {
+                                            AsyncImage(
+                                                model = channel.icon,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(36.dp),
+                                                contentScale = ContentScale.Fit
+                                            )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                        }
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = channel.title ?: "Okänd kanal",
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp
+                                                ),
+                                                color = Color.White,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (!channel.categoryName.isNullOrBlank()) {
+                                                Text(
+                                                    text = channel.categoryName,
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                                    color = Color.Gray,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

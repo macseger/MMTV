@@ -204,6 +204,10 @@ class MainActivity : AppCompatActivity() {
                                             }
                                         },
                                         onLiveTvClick = {
+                                            val favIndex = sharedViewModel.uiState.liveCategories.indexOfFirst { it.categoryId == "FAVORITES" && it.items.isNotEmpty() }
+                                            if (favIndex >= 0) {
+                                                sharedViewModel.lastLiveCategoryIndex = favIndex
+                                            }
                                             navController.navigate("live") {
                                                 popUpTo("home") { saveState = true }
                                                 launchSingleTop = true

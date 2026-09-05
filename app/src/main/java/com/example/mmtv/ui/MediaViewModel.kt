@@ -489,10 +489,11 @@ class MediaViewModel(
                     isLoading = false
                 )
 
-                // De två första posterna är specialkategorierna Alla kanaler och
-                // Favoriter. Vid en ny appstart ska den första riktiga kategorin
-                // laddas så att dess lokala EPG-cache kan återställas direkt.
-                if (lastLiveCategoryIndex <= 1) {
+                // Om användaren har sparade favoriter, välj "FAVORITER"-kategorin (index 1) direkt
+                val favIndex = uiState.liveCategories.indexOfFirst { it.categoryId == "FAVORITES" && it.items.isNotEmpty() }
+                if (favIndex >= 0) {
+                    lastLiveCategoryIndex = favIndex
+                } else if (lastLiveCategoryIndex <= 1) {
                     lastLiveCategoryIndex = uiState.liveCategories.indexOfFirst {
                         it.categoryId == liveData.firstOrNull()?.categoryId
                     }.takeIf { it >= 0 } ?: 0

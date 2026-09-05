@@ -200,6 +200,24 @@ fun PlayerScreen(
     val isSeries = media?.type == MediaType.SERIES
     val favorites by viewModel.favorites.collectAsState()
 
+    val currentEpisodeLabel = remember(media, viewModel.selectedSeriesInfo, viewModel.playingEpisode) {
+        val episode = viewModel.playingEpisode
+        if (!isSeries || episode == null) null else {
+            val seasonEntry = viewModel.selectedSeriesInfo?.episodes?.entries?.firstOrNull { entry ->
+                episode.id != null && entry.value.any { it.id == episode.id }
+            }
+            val episodeIndex = seasonEntry?.value?.indexOfFirst { it.id == episode.id } ?: -1
+            val episodeNumber = episode.episodeNumber?.takeIf { it > 0 }
+                ?: (episodeIndex + 1).takeIf { episodeIndex >= 0 }
+            val seasonNumber = episode.seasonNumber ?: seasonEntry?.key?.toIntOrNull()
+            if (episodeNumber != null && seasonNumber != null) {
+                "Du tittar just nu på avsnitt $episodeNumber · Säsong $seasonNumber"
+            } else if (episodeNumber != null) {
+                "Du tittar just nu på avsnitt $episodeNumber"
+            } else episode.title?.takeIf { it.isNotBlank() }
+        }
+    }
+
     // --- NEXT EPISODE LOGIC ---
     val nextEpisode = remember(media, viewModel.selectedSeriesInfo, viewModel.playingEpisode) {
         if (!isSeries || viewModel.selectedSeriesInfo?.episodes == null) {
@@ -801,6 +819,7 @@ fun PlayerScreen(
         ) {
             VodControlOverlay(
                 media = media,
+                currentEpisodeLabel = currentEpisodeLabel,
                 isPlaying = isPlaying,
                 currentPosition = currentPosition,
                 duration = duration,
@@ -1054,6 +1073,7 @@ fun VodControlOverlay(
     subtitleIconFocusRequester: FocusRequester,
     isTvMode: Boolean = true,
     themeColor: Color = Color(0xFF2196F3),
+    currentEpisodeLabel: String? = null,
     onPlayNext: (() -> Unit)? = null,
     onToggleSubtitles: () -> Unit
 ) {
@@ -1112,6 +1132,15 @@ fun VodControlOverlay(
                         overflow = TextOverflow.Ellipsis
                     )
                     
+                    if (media?.type == MediaType.SERIES && currentEpisodeLabel != null) {
+                        Text(
+                            text = currentEpisodeLabel,
+                            modifier = Modifier.padding(top = 8.dp),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     Row(verticalAlignment = Alignment.CenterVertically) {

@@ -1,5 +1,6 @@
 package com.example.mmtv.ui
 
+import com.example.mmtv.ui.theme.FocusBorderColor
 import android.view.KeyEvent
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -398,6 +399,7 @@ fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifi
                 indication = null,
                 onClick = onClick
             ),
+        border = if (hasFocus) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
         color = backgroundColor,
         shape = RoundedCornerShape(8.dp)
     ) {

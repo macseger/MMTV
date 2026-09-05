@@ -1,5 +1,6 @@
 package com.example.mmtv.ui
 
+import com.example.mmtv.ui.theme.FocusBorderColor
 import android.view.KeyEvent
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
@@ -286,7 +287,7 @@ fun PlayerScreen(
             if (media?.type != MediaType.LIVE && isPlaying) {
                 counter++
                 if (counter >= 30) {
-                    sessionManager.savePlaybackPosition(currentPlaybackId, currentPosition)
+                    sessionManager.savePlaybackPosition(currentPlaybackId, currentPosition, duration)
                     counter = 0
                 }
             }
@@ -358,7 +359,7 @@ fun PlayerScreen(
                 val currentPos = exoPlayer.currentPosition
                 val dur = exoPlayer.duration
                 if (currentPos > 10000 && (dur == C.TIME_UNSET || currentPos < dur - 5000)) {
-                    sessionManager.savePlaybackPosition(currentPlaybackId, currentPos)
+                    sessionManager.savePlaybackPosition(currentPlaybackId, currentPos, dur)
                 } else if (dur != C.TIME_UNSET && currentPos >= dur - 5000) {
                     sessionManager.clearPlaybackPosition(currentPlaybackId)
                 }
@@ -781,7 +782,7 @@ fun PlayerScreen(
                 shape = RoundedCornerShape(16.dp),
                 color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.85f),
                 contentColor = if (isFocused) Color.Black else Color.White,
-                border = if (isFocused) null else androidx.compose.foundation.BorderStroke(2.dp, viewModel.currentThemeColor.copy(alpha = 0.5f)),
+                border = if (isFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else androidx.compose.foundation.BorderStroke(2.dp, viewModel.currentThemeColor.copy(alpha = 0.5f)),
                 tonalElevation = 12.dp
             ) {
                 Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {

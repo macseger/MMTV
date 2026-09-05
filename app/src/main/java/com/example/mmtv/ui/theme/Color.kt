@@ -17,3 +17,6 @@ val Pink80 = Color(0xFFEFB8C8)
 val Purple40 = Color(0xFF6650a4)
 val PurpleGrey40 = Color(0xFF625b71)
 val Pink40 = Color(0xFF7D5260)
+
+// Fixed focus color, independent of artwork-driven theme colors.
+val FocusBorderColor = Color(0xFF1565C0)

@@ -79,14 +79,19 @@ class SessionManager(context: Context) {
         return prefs.getString("sub_$streamId", null)
     }
 
-    fun savePlaybackPosition(mediaId: String, position: Long) {
+    fun savePlaybackPosition(mediaId: String, position: Long, duration: Long = 0L) {
         prefs.edit {
             putLong("pos_$mediaId", position)
+            if (duration > 0) putLong("duration_$mediaId", duration)
         }
     }
 
     fun getPlaybackPosition(mediaId: String): Long {
         return prefs.getLong("pos_$mediaId", 0L)
+    }
+
+    fun getPlaybackDuration(mediaId: String): Long {
+        return prefs.getLong("duration_$mediaId", 0L)
     }
 
     fun clearPlaybackPosition(mediaId: String) {

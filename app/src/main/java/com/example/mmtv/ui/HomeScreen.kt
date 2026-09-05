@@ -1,5 +1,6 @@
 package com.example.mmtv.ui
 
+import com.example.mmtv.ui.theme.FocusBorderColor
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -429,8 +430,8 @@ fun SmallActionCard(title: String, icon: ImageVector, modifier: Modifier = Modif
             .onFocusChanged { hasFocus = it.isFocused }
             .clip(RoundedCornerShape(12.dp))
             .border(
-                width = 1.dp,
-                color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.1f),
+                width = if (hasFocus) 3.dp else 1.dp,
+                color = if (hasFocus) FocusBorderColor else Color.White.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(12.dp)
             )
             .clickable(
@@ -583,6 +584,8 @@ fun HomeCard(title: String, icon: ImageVector, modifier: Modifier = Modifier, on
                 indication = null,
                 onClick = onClick
             ),
+        shape = RoundedCornerShape(10.dp),
+        border = if (hasFocus) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
         color = Color.Transparent,
         tonalElevation = 0.dp,
         shadowElevation = 0.dp

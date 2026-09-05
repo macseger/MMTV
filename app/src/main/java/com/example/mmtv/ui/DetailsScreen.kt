@@ -1,5 +1,6 @@
 package com.example.mmtv.ui
 
+import com.example.mmtv.ui.theme.FocusBorderColor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -45,6 +46,9 @@ fun DetailsScreen(
 ) {
     val context = LocalContext.current
     val sessionManager = remember { SessionManager(context) }
+    val playFocusRequester = remember(media.id) { FocusRequester() }
+    var detailsLoadStarted by remember(media.id) { mutableStateOf(false) }
+    var initialPlayFocusRequested by remember(media.id) { mutableStateOf(false) }
     val isSeries = media.type == MediaType.SERIES
     val seriesInfo = viewModel.selectedSeriesInfo
     val movieInfo = viewModel.selectedMovieInfo
@@ -106,6 +110,7 @@ fun DetailsScreen(
         } else if (media.type == MediaType.MOVIE) {
             viewModel.loadMovieInfo(media.id)
         }
+        detailsLoadStarted = true
     }
     
     // Sätt första säsongen som vald när data laddats
@@ -241,6 +246,15 @@ fun DetailsScreen(
                         Spacer(modifier = Modifier.height(32.dp))
 
                         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            // Request focus only once, after the play button has been composed.
+                            if (detailsLoadStarted && (!isSeries || (!viewModel.isDetailsLoading && continueData != null))) {
+                                LaunchedEffect(media.id, viewModel.isTvMode) {
+                                    if (viewModel.isTvMode && !initialPlayFocusRequested) {
+                                        playFocusRequester.requestFocus()
+                                        initialPlayFocusRequested = true
+                                    }
+                                }
+                            }
                             if (!isSeries) {
                                 var playBtnFocus by remember { mutableStateOf(false) }
                                 Button(
@@ -252,8 +266,9 @@ fun DetailsScreen(
                                             onPlayMovie(media, false)
                                         }
                                     },
-                                    modifier = Modifier.height(52.dp).width(200.dp).onFocusChanged { playBtnFocus = it.isFocused },
+                                    modifier = Modifier.height(52.dp).width(200.dp).focusRequester(playFocusRequester).onFocusChanged { playBtnFocus = it.isFocused },
                                     shape = RoundedCornerShape(12.dp),
+                                    border = if (playBtnFocus) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = if (playBtnFocus) Color.White else MaterialTheme.colorScheme.primary,
                                         contentColor = if (playBtnFocus) Color.Black else Color.White
@@ -278,8 +293,9 @@ fun DetailsScreen(
                                             onPlayEpisode(ep, false)
                                         }
                                     },
-                                    modifier = Modifier.height(52.dp).onFocusChanged { playBtnFocus = it.isFocused },
+                                    modifier = Modifier.height(52.dp).focusRequester(playFocusRequester).onFocusChanged { playBtnFocus = it.isFocused },
                                     shape = RoundedCornerShape(12.dp),
+                                    border = if (playBtnFocus) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = if (playBtnFocus) Color.White else MaterialTheme.colorScheme.primary,
                                         contentColor = if (playBtnFocus) Color.Black else Color.White
@@ -302,8 +318,8 @@ fun DetailsScreen(
                                     contentColor = if (favBtnFocus) Color.White else Color.Gray
                                 ),
                                 border = androidx.compose.foundation.BorderStroke(
-                                    2.dp, 
-                                    if (favBtnFocus) Color.White else Color.White.copy(alpha = 0.2f)
+                                    if (favBtnFocus) 3.dp else 2.dp,
+                                    if (favBtnFocus) FocusBorderColor else Color.White.copy(alpha = 0.2f)
                                 )
                             ) {
                                 Icon(
@@ -371,7 +387,13 @@ fun DetailsScreen(
                     // Avsnitt för vald säsong
                     val episodes = seriesInfo.episodes[selectedSeason] ?: emptyList()
                     items(episodes, key = { it.id ?: "" }) { episode ->
-                        EpisodeItem(episode) {
+                        val episodeId = episode.id
+                        val position = episodeId?.let(sessionManager::getPlaybackPosition) ?: 0L
+                        val duration = episodeId?.let(sessionManager::getPlaybackDuration) ?: 0L
+                        EpisodeItem(
+                            episode = episode,
+                            progress = episodeWatchProgress(position, duration, episode.info?.duration)
+                        ) {
                             val pos = sessionManager.getPlaybackPosition(episode.id ?: "0")
                             if (pos > 10000) {
                                 showResumeDialog = ResumeData(null, episode, pos)
@@ -404,6 +426,7 @@ fun DetailsScreen(
                     modifier = Modifier
                         .focusRequester(continueFocusRequester)
                         .onFocusChanged { isFocused = it.isFocused },
+                    border = if (isFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (isFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
                     )
@@ -419,6 +442,7 @@ fun DetailsScreen(
                         showResumeDialog = null
                     },
                     modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+                    border = if (isFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
                     colors = ButtonDefaults.textButtonColors(
                         contentColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.Gray
                     )
@@ -441,6 +465,7 @@ fun SeasonTab(title: String, isSelected: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .onFocusChanged { hasFocus = it.isFocused }
             .clickable { onClick() },
+        border = if (hasFocus) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
         color = if (hasFocus) Color.White 
                 else if (isSelected) MaterialTheme.colorScheme.primary 
                 else Color.DarkGray.copy(alpha = 0.5f),
@@ -462,7 +487,7 @@ data class ResumeData(
 )
 
 @Composable
-fun EpisodeItem(episode: Episode, onClick: () -> Unit) {
+fun EpisodeItem(episode: Episode, progress: Float? = null, onClick: () -> Unit) {
     var hasFocus by remember { mutableStateOf(false) }
     Surface(
         modifier = Modifier
@@ -470,6 +495,7 @@ fun EpisodeItem(episode: Episode, onClick: () -> Unit) {
             .padding(vertical = 4.dp)
             .onFocusChanged { hasFocus = it.isFocused }
             .clickable { onClick() },
+        border = if (hasFocus) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
         color = if (hasFocus) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent,
         shape = MaterialTheme.shapes.small
     ) {
@@ -513,6 +539,14 @@ fun EpisodeItem(episode: Episode, onClick: () -> Unit) {
                         style = MaterialTheme.typography.bodyMedium,
                         maxLines = 2,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+                if (progress != null) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).height(4.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = Color.White.copy(alpha = 0.2f)
                     )
                 }
             }

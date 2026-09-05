@@ -1,5 +1,6 @@
 package com.example.mmtv.ui.components
 
+import com.example.mmtv.ui.theme.FocusBorderColor
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -123,7 +124,7 @@ fun ActionButton(
         color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.5f),
         contentColor = if (isFocused) Color.Black else Color.White,
         shape = RoundedCornerShape(8.dp),
-        border = if (isFocused) null else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+        border = if (isFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -174,7 +175,7 @@ fun RecentChannelButton(
         color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.5f),
         contentColor = if (isFocused) Color.Black else Color.White,
         shape = RoundedCornerShape(8.dp),
-        border = if (isFocused) null else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+        border = if (isFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AsyncImage(

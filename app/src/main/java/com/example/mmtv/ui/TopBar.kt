@@ -1,5 +1,8 @@
 package com.example.mmtv.ui
 
+import com.example.mmtv.ui.theme.FocusBorderColor
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -129,12 +132,13 @@ private fun TopBarItem(
         modifier = modifier
             .onFocusChanged { isFocused = it.isFocused }
             .scale(if (isFocused) 1.1f else 1.0f)
+            .border(3.dp, if (isFocused) FocusBorderColor else Color.Transparent, RoundedCornerShape(10.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick
             )
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(

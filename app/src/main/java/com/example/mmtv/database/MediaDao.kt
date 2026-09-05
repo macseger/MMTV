@@ -59,6 +59,9 @@ interface MediaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEpg(listings: List<EpgEntity>)
 
+    @Query("SELECT DISTINCT epgId FROM epg_listings WHERE stopTimestamp > :currentTime")
+    suspend fun getEpgIdsWithListings(currentTime: Long): List<String>
+
     @Query("DELETE FROM epg_listings WHERE stopTimestamp < :currentTime")
     suspend fun deleteOldEpg(currentTime: Long)
 

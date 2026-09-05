@@ -283,10 +283,11 @@ class MediaRepository(
                 return@withContext
             }
 
-            // Om mappen redan finns och inte är tom, hoppa över extraktion för snabbare start
+            // Om mappen redan finns och inte är tom, kör ändå kalkylering av ikoner
             val lastExtractionFile = File(piconsDir, ".last_extracted")
             if (piconsDir.exists() && piconsDir.list()?.isNotEmpty() == true && lastExtractionFile.exists()) {
-                android.util.Log.d("Picons", "Ikoner redan extraherade, hoppar över.")
+                android.util.Log.d("Picons", "Ikoner redan extraherade, kör ikonmatchning...")
+                resolveAndStoreLiveIcons()
                 return@withContext
             }
 
@@ -314,6 +315,7 @@ class MediaRepository(
                     android.util.Log.d("Picons", "Extraherade $count ikoner.")
                     lastExtractionFile.createNewFile() // Markera att vi är klara
                     piconFileMap = null // Rensa cachen så den läses om nästa gång
+                    resolveAndStoreLiveIcons()
                 }
             }
         } catch (e: Exception) {
@@ -521,9 +523,19 @@ class MediaRepository(
                         val xmlFile = File(cacheDir, "swedish_epg.xml")
                         val stale = !xmlFile.exists() || System.currentTimeMillis() - xmlFile.lastModified() > 24 * 60 * 60 * 1000L
                         if (forceRefresh || stale) downloadEpgFile(xmlFile) {
-                            api.getExternalEpg("https://epgshare01.online/epgshare01/epg_ripper_SE1.xml.gz")
+                            api.getExternalEpg("https://iptv-epg.org/files/epg-se.xml")
                         }
-                        parseAndStore(xmlFile, false)
+
+                        val now = System.currentTimeMillis() / 1000
+                        val existingEpgIds = mediaDao.getEpgIdsWithListings(now).toSet()
+                        val channelsNeedingEpg = selectedLive.filter { channel ->
+                            val epgId = channel.epgId?.takeIf(String::isNotBlank) ?: "stream:${channel.id}"
+                            epgId !in existingEpgIds
+                        }
+
+                        if (channelsNeedingEpg.isNotEmpty()) {
+                            parseAndStoreExternalEpg(xmlFile, channelsNeedingEpg)
+                        }
                     } catch (e: Exception) {
                         android.util.Log.e("MediaRepository", "Kunde inte ladda extern SE EPG: ${e.message}")
                     }
@@ -691,6 +703,76 @@ class MediaRepository(
         }
     }
 
+    private suspend fun parseAndStoreExternalEpg(file: File, targetChannels: List<MediaEntity>) = withContext(Dispatchers.IO) {
+        if (targetChannels.isEmpty() || !file.exists()) return@withContext
+
+        // Bygg variant-mappning för kanaler som saknar EPG
+        val variantToChannelMap = mutableMapOf<String, MediaEntity>()
+        for (channel in targetChannels) {
+            val variants = getSearchVariants(channel.title)
+            val epgId = channel.epgId?.takeIf(String::isNotBlank)
+            if (epgId != null) {
+                val cleanEpgId = epgId.lowercase().substringBefore(".").replace(Regex("[^a-z0-9]"), "")
+                if (cleanEpgId.isNotEmpty()) {
+                    variantToChannelMap[cleanEpgId] = channel
+                    variantToChannelMap["${cleanEpgId}se"] = channel
+                }
+            }
+            for (variant in variants) {
+                if (variant.isNotEmpty() && !variantToChannelMap.containsKey(variant)) {
+                    variantToChannelMap[variant] = channel
+                }
+            }
+        }
+
+        val xmlChannelToMediaMap = mutableMapOf<String, MediaEntity>()
+        val batch = mutableListOf<EpgEntity>()
+        val now = System.currentTimeMillis() / 1000
+        val endLimit = now + 7 * 24 * 60 * 60
+
+        file.inputStream().use { input ->
+            epgParser.parseStreaming(
+                input,
+                onChannelParsed = { xmlId, displayName, icon ->
+                    val xmlVariants = (getSearchVariants(displayName.orEmpty()) + getSearchVariants(xmlId)).distinct()
+                    var matchedChannel: MediaEntity? = null
+                    for (variant in xmlVariants) {
+                        matchedChannel = variantToChannelMap[variant]
+                        if (matchedChannel != null) break
+                    }
+                    if (matchedChannel != null) {
+                        xmlChannelToMediaMap[xmlId] = matchedChannel
+                    }
+                },
+                acceptChannel = { xmlId -> xmlId in xmlChannelToMediaMap },
+                onProgrammeParsed = { xmlId, it ->
+                    val media = xmlChannelToMediaMap[xmlId]
+                    if (media != null && (it.stopTimestamp ?: 0L) > now && (it.startTimestamp ?: 0L) < endLimit) {
+                        val targetEpgId = media.epgId?.takeIf(String::isNotBlank) ?: "stream:${media.id}"
+                        batch.add(EpgEntity(
+                            epgId = targetEpgId,
+                            channelName = media.title,
+                            title = decodeEpgText(it.title),
+                            description = decodeEpgText(it.description),
+                            startTimestamp = it.startTimestamp ?: 0L,
+                            stopTimestamp = it.stopTimestamp ?: 0L,
+                            icon = it.icon
+                        ))
+
+                        if (batch.size >= 500) {
+                            mediaDao.insertEpg(ArrayList(batch))
+                            batch.clear()
+                        }
+                    }
+                }
+            )
+        }
+
+        if (batch.isNotEmpty()) {
+            mediaDao.insertEpg(batch)
+        }
+    }
+
     suspend fun getEpgForChannel(epgId: String?, channelName: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {
         val cacheKey = epgId ?: channelName ?: return@withContext emptyList<EpgListing>()
         epgCache[cacheKey]?.let { return@withContext it }
@@ -739,51 +821,64 @@ class MediaRepository(
         if (iconCache.containsKey(cacheKey)) return@withContext iconCache[cacheKey]
 
         val piconMap = getPiconFileMap()
-        
+
         fun findLocalPath(target: String): String? {
             if (target.isEmpty()) return null
-            // 1. Exakt match på rensat namn
             piconMap[target]?.let { return "file://$it" }
-            // 2. Kolla om något filnamn slutar på target
-            return piconMap.keys.find { it.endsWith(target) }?.let { "file://${piconMap[it]}" }
+            return null
         }
 
         var result: String? = null
 
-        // 1. Kolla lokalt via kanalnamn
+        // 1. Kolla lokalt via kanalnamn med alla sökkombinationer
         if (channelName != null) {
-            val searchName = getSearchName(channelName)
-            result = findLocalPath(searchName)
+            val variants = getSearchVariants(channelName)
+            for (variant in variants) {
+                result = findLocalPath(variant)
+                if (result != null) break
+            }
         }
 
-        // 2. Kolla lokalt via EPG-ID
+        // 2. Kolla lokalt via EPG-ID (t.ex. "SVT1.se" -> "svt1", "svt1se")
         if (result == null && epgId != null) {
             val cleanEpgId = epgId.lowercase().substringBefore(".").replace(Regex("[^a-z0-9]"), "")
-            result = findLocalPath(cleanEpgId)
+            if (cleanEpgId.isNotEmpty()) {
+                val epgVariants = listOf(cleanEpgId, "${cleanEpgId}se", "${cleanEpgId}sweden")
+                for (variant in epgVariants) {
+                    result = findLocalPath(variant)
+                    if (result != null) break
+                }
+            }
         }
 
         // 3. Fallback till GitHub Picons
-        if (result == null && epgId != null) {
-            val cleanEpgId = epgId.lowercase()
-                .substringBefore(".")
-                .replace(Regex("[^a-z0-9]"), "")
-            
-            val githubPicon = mediaDao.getPiconByName(cleanEpgId)
-            if (githubPicon != null) result = githubPicon.url
+        if (result == null && channelName != null) {
+            val variants = getSearchVariants(channelName)
+            for (variant in variants) {
+                val githubPicon = mediaDao.getPiconByName(variant)
+                if (githubPicon != null && githubPicon.url.isNotBlank()) {
+                    result = githubPicon.url
+                    break
+                }
+            }
         }
 
-        if (result == null && channelName != null) {
-            val searchName = getSearchName(channelName)
-            val githubPicon = mediaDao.getPiconByName(searchName)
-            if (githubPicon != null) result = githubPicon.url
+        if (result == null && epgId != null) {
+            val cleanEpgId = epgId.lowercase().substringBefore(".").replace(Regex("[^a-z0-9]"), "")
+            if (cleanEpgId.isNotEmpty()) {
+                val githubPicon = mediaDao.getPiconByName(cleanEpgId)
+                if (githubPicon != null && githubPicon.url.isNotBlank()) {
+                    result = githubPicon.url
+                }
+            }
         }
 
         // 4. Sista utväg: Serverns egen ikon
         if (result == null && epgId != null) {
             val icon = mediaDao.getIconByEpgId(epgId)
-            if (icon != null) result = icon
+            if (icon != null && icon.isNotBlank()) result = icon
         }
-        
+
         iconCache[cacheKey] = result
         result
     }
@@ -792,11 +887,9 @@ class MediaRepository(
         var cleaned = name
             .replace(Regex("\\(.*?\\)"), "")
             .replace(Regex("\\[.*?\\]"), "")
-            // Vi tar INTE bort HD/FHD/4K här längre för visningens skull
             .replace("|", "")
             .replace(".", " ")
 
-        // Ta bort vanliga IPTV-prefix (t.ex. "SE:", "NO:", "SE |", "SWE ")
         val prefixRegex = Regex("(?i)^([a-z]{1,3}\\s?[:|\\-]\\s?|SE\\s+|SWE\\s+)")
         cleaned = cleaned.replace(prefixRegex, "")
 
@@ -804,10 +897,61 @@ class MediaRepository(
     }
 
     private fun getSearchName(name: String): String {
-        return name.lowercase()
-            .replace(Regex("(?i)\\b(HD|FHD|UHD|4K|SD|H265|HEVC|S\\d+)\\b"), "") // Ta bort kvalitéts-markörer
-            .replace(Regex("[^a-z0-9]"), "") // Ta bort allt utom bokstäver och siffror
-            .trim()
+        val variants = getSearchVariants(name)
+        return variants.firstOrNull() ?: name.lowercase().replace(Regex("[^a-z0-9]"), "")
+    }
+
+    private fun getSearchVariants(name: String): List<String> {
+        if (name.isBlank()) return emptyList()
+
+        val variants = mutableListOf<String>()
+
+        // 1. Ta bort allt inom parenteser eller hakparenteser, t.ex. (SE), [SWE], (1080p)
+        var cleaned = name
+            .replace(Regex("\\(.*?\\)"), " ")
+            .replace(Regex("\\[.*?\\]"), " ")
+
+        // 2. Ta bort vanliga IPTV-prefix i början av namnet (t.ex. "SE:", "SE :", "SE |", "SE -", "SWE:", "SVERIGE:", "NO:", "DK:", "FI:", "VIP:", "PPV:")
+        val prefixRegex = Regex("(?i)^([a-z]{1,3}\\s*[:|\\-_]\\s*|SVERIGE\\s*[:|\\-_]\\s*|SWEDEN\\s*[:|\\-_]\\s*|VIP\\s*[:|\\-_]\\s*|PPV\\s*[:|\\-_]\\s*)")
+        cleaned = cleaned.replace(prefixRegex, " ").trim()
+
+        // 3. Ta bort kvalitetstaggar och vanliga IPTV-suffix (t.ex. FHD, HD, UHD, 4K, SD, RAW, HEVC, H265, 50FPS, 1080P, 720P, BACKUP, ALT)
+        val qualityRegex = Regex("(?i)\\b(FHD|HD|UHD|4K|SD|RAW|HEVC|H265|50FPS|1080P|720P|BACKUP|ALT|BACK|SWEDEN|SE|SWE)\\b")
+        val withoutQuality = cleaned.replace(qualityRegex, " ").trim()
+
+        fun toCleanKey(s: String): String = s.lowercase().replace(Regex("[^a-z0-9]"), "")
+
+        val keyBasic = toCleanKey(cleaned)
+        val keyNoQuality = toCleanKey(withoutQuality)
+
+        if (keyNoQuality.isNotEmpty()) {
+            variants.add(keyNoQuality)
+            variants.add("${keyNoQuality}se")
+            variants.add("${keyNoQuality}sweden")
+        }
+
+        if (keyBasic.isNotEmpty() && keyBasic != keyNoQuality) {
+            variants.add(keyBasic)
+            variants.add("${keyBasic}se")
+            variants.add("${keyBasic}sweden")
+        }
+
+        // Hantera specialfall för svenska kanaler
+        if (keyNoQuality.contains("svtbarn") || keyNoQuality.contains("barnkanalen")) {
+            variants.add("barnkanalen")
+            variants.add("svtbarn")
+            variants.add("svtbarnkanalen")
+            variants.add("svtbarnse")
+        }
+
+        if (keyNoQuality.contains("sjuan")) {
+            variants.add("sjuan")
+            variants.add("sjuan7")
+            variants.add("sjuanse")
+            variants.add("sjuan7sweden")
+        }
+
+        return variants.distinct()
     }
 
     private fun EpgEntity.toEpgListing() = EpgListing(

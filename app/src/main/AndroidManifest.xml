@@ -21,8 +21,8 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:banner="@drawable/ic_tv_banner"
-        android:logo="@drawable/ic_tv_banner"
+        android:banner="@drawable/mmtv_tv_banner"
+        android:logo="@drawable/mmtv_tv_banner"
         android:supportsRtl="true"
         android:theme="@style/Theme.App.Starting"
         android:usesCleartextTraffic="true">

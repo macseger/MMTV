@@ -173,7 +173,7 @@ fun LoginScreen(viewModel: MediaViewModel, onLogin: (String, String, String) -> 
         ) {
             Box(contentAlignment = Alignment.BottomCenter) {
                 Image(
-                    painter = painterResource(id = R.drawable.ic_splash_icon),
+                    painter = painterResource(id = R.drawable.mmtv_icon),
                     contentDescription = "MMTV Logo",
                     modifier = Modifier.size(280.dp).alpha(0.8f)
                 )
@@ -245,7 +245,7 @@ fun ProvisioningOverlay(status: String) {
                     strokeWidth = 4.dp
                 )
                 Image(
-                    painter = painterResource(id = R.drawable.ic_splash_icon),
+                    painter = painterResource(id = R.drawable.mmtv_icon),
                     contentDescription = null,
                     modifier = Modifier.size(60.dp)
                 )

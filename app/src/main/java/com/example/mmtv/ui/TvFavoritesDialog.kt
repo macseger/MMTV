@@ -33,7 +33,6 @@ import com.example.mmtv.ui.theme.FocusBorderColor
 fun TvFavoritesDialog(viewModel: MediaViewModel) {
     var allChannels by remember { mutableStateOf<List<MediaSource>>(emptyList()) }
     var selectedIds by remember { mutableStateOf<List<Int>>(emptyList()) }
-    var searchQuery by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
 
     val firstFocus = remember { FocusRequester() }
@@ -45,21 +44,6 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
         allChannels = channels
         selectedIds = channels.filter { it.isFavorite }.map { it.id }
         isLoading = false
-    }
-
-    LaunchedEffect(searchQuery) {
-        listState.scrollToItem(0)
-    }
-
-    val filteredChannels = remember(allChannels, searchQuery) {
-        if (searchQuery.isBlank()) {
-            allChannels
-        } else {
-            allChannels.filter { channel ->
-                channel.title.orEmpty().contains(searchQuery, ignoreCase = true) ||
-                        channel.categoryName.orEmpty().contains(searchQuery, ignoreCase = true)
-            }
-        }
     }
 
     Dialog(
@@ -94,7 +78,7 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
                         Icon(
                             imageVector = Icons.Default.Star,
                             contentDescription = null,
-                            tint = Color(0xFFFFD700),
+                            tint = Color.White,
                             modifier = Modifier.size(28.dp)
                         )
                         Text(
@@ -107,25 +91,10 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
                     Text(
                         text = "${allChannels.size} kanaler totalt\n${selectedIds.size} valda favoriter",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        color = Color.LightGray
                     )
 
-                    // Sökfält
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        label = { Text("Sök kanal (t.ex. SVT, TV4)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f),
-                            focusedTextColor = Color.White,
-                            unfocusedTextColor = Color.White
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     // Huvudknappar
                     var saveFocused by remember { mutableStateOf(false) }
@@ -135,17 +104,28 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
                             .fillMaxWidth()
                             .focusRequester(firstFocus)
                             .onFocusChanged { saveFocused = it.isFocused },
+                        shape = MaterialTheme.shapes.medium,
+                        border = if (saveFocused) BorderStroke(3.dp, FocusBorderColor) else null,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (saveFocused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                            containerColor = if (saveFocused) Color.White.copy(alpha = 0.25f) else Color(0xFF2A2A2A),
+                            contentColor = Color.White
                         )
                     ) {
                         Text("Spara favoriter (${selectedIds.size})", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     }
 
+                    var cancelFocused by remember { mutableStateOf(false) }
                     OutlinedButton(
                         onClick = viewModel::dismissTvFavoritesDialog,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { cancelFocused = it.isFocused },
+                        shape = MaterialTheme.shapes.medium,
+                        border = BorderStroke(if (cancelFocused) 3.dp else 1.dp, if (cancelFocused) FocusBorderColor else Color.Gray.copy(alpha = 0.4f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (cancelFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent,
+                            contentColor = Color.White
+                        )
                     ) {
                         Text("Avbryt")
                     }
@@ -161,34 +141,38 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
                         color = Color.Gray
                     )
 
+                    var selectAllFocused by remember { mutableStateOf(false) }
                     OutlinedButton(
                         onClick = {
-                            val shownIds = filteredChannels.map { it.id }
-                            selectedIds = (selectedIds + shownIds).distinct()
+                            selectedIds = allChannels.map { it.id }
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.LightGray)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { selectAllFocused = it.isFocused },
+                        shape = MaterialTheme.shapes.medium,
+                        border = BorderStroke(if (selectAllFocused) 3.dp else 1.dp, if (selectAllFocused) FocusBorderColor else Color.Gray.copy(alpha = 0.4f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (selectAllFocused) Color.White.copy(alpha = 0.15f) else Color.Transparent,
+                            contentColor = Color.LightGray
+                        )
                     ) {
-                        Text("Markera visade")
+                        Text("Markera alla")
                     }
 
-                    OutlinedButton(
-                        onClick = {
-                            val shownSet = filteredChannels.map { it.id }.toSet()
-                            selectedIds = selectedIds.filterNot { it in shownSet }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.LightGray)
-                    ) {
-                        Text("Avmarkera visade")
-                    }
-
+                    var clearFocused by remember { mutableStateOf(false) }
                     OutlinedButton(
                         onClick = { selectedIds = emptyList() },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red.copy(alpha = 0.8f))
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { clearFocused = it.isFocused },
+                        shape = MaterialTheme.shapes.medium,
+                        border = BorderStroke(if (clearFocused) 3.dp else 1.dp, if (clearFocused) FocusBorderColor else Color.Red.copy(alpha = 0.5f)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = if (clearFocused) Color.Red.copy(alpha = 0.2f) else Color.Transparent,
+                            contentColor = Color.Red.copy(alpha = 0.9f)
+                        )
                     ) {
-                        Text("Rensa alla")
+                        Text("Avmarkera alla")
                     }
                 }
 
@@ -200,7 +184,7 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "Välj kanaler (${filteredChannels.size} visas):",
+                        text = "Välj kanaler (${allChannels.size} kanaler):",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.Gray
                     )
@@ -223,17 +207,17 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
                             verticalArrangement = Arrangement.spacedBy(6.dp),
                             contentPadding = PaddingValues(bottom = 8.dp)
                         ) {
-                            if (filteredChannels.isEmpty()) {
+                            if (allChannels.isEmpty()) {
                                 item {
                                     Text(
-                                        text = "Inga kanaler matchar sökningen.",
+                                        text = "Inga kanaler hittades.",
                                         color = Color.Gray,
                                         modifier = Modifier.padding(16.dp)
                                     )
                                 }
                             }
 
-                            items(filteredChannels, key = { it.id }) { channel ->
+                            items(allChannels, key = { it.id }) { channel ->
                                 val isChecked = channel.id in selectedIds
                                 var isFocused by remember { mutableStateOf(false) }
 
@@ -250,7 +234,7 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
                                         .height(56.dp)
                                         .onFocusChanged { isFocused = it.isFocused },
                                     shape = MaterialTheme.shapes.medium,
-                                    border = if (isFocused) BorderStroke(3.dp, FocusBorderColor) else null,
+                                    border = BorderStroke(if (isFocused) 3.dp else 1.dp, if (isFocused) FocusBorderColor else Color(0xFF333333)),
                                     color = if (isFocused) Color.White.copy(alpha = 0.15f) else Color(0xFF222222)
                                 ) {
                                     Row(
@@ -262,7 +246,7 @@ fun TvFavoritesDialog(viewModel: MediaViewModel) {
                                         Icon(
                                             imageVector = if (isChecked) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
                                             contentDescription = if (isChecked) "Favorit" else "Ej favorit",
-                                            tint = if (isChecked) Color(0xFFFFD700) else Color.Gray,
+                                            tint = if (isChecked) Color.White else Color.Gray,
                                             modifier = Modifier.size(24.dp)
                                         )
                                         Spacer(modifier = Modifier.width(12.dp))

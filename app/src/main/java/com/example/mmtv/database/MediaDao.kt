@@ -46,6 +46,15 @@ interface MediaDao {
     @Query("DELETE FROM media_items WHERE type = :type")
     suspend fun deleteByType(type: com.example.mmtv.model.MediaType)
 
+    @Transaction
+    suspend fun replaceTypePreservingFavorites(type: com.example.mmtv.model.MediaType, items: List<MediaEntity>) {
+        val favorites = getFavorites().filter { it.type == type }.associateBy { it.id }
+        deleteByType(type)
+        insertAll(items.map { item ->
+            favorites[item.id]?.let { item.copy(isFavorite = true, favoriteDate = it.favoriteDate) } ?: item
+        })
+    }
+
     // EPG Operations
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertEpg(listings: List<EpgEntity>)
@@ -73,6 +82,18 @@ interface MediaDao {
 
     @Query("SELECT COUNT(*) FROM epg_listings")
     suspend fun getEpgCount(): Int
+
+    @Query("DELETE FROM epg_listings WHERE epgId = :epgId")
+    suspend fun deleteEpgForId(epgId: String)
+
+    @Query("DELETE FROM channel_metadata")
+    suspend fun clearChannelMetadata()
+
+    @Transaction
+    suspend fun replaceChannelEpg(epgId: String, listings: List<EpgEntity>) {
+        deleteEpgForId(epgId)
+        insertEpg(listings)
+    }
 
     @Query("DELETE FROM epg_listings")
     suspend fun clearEpg()

@@ -98,7 +98,7 @@ class MainActivity : AppCompatActivity() {
                     val navController = rememberNavController()
                     
                     val loginInfo = sessionManager.getLogin()
-                    val startDest = if (loginInfo != null) "home" else "login"
+                    val startDest = remember { if (loginInfo != null) "home" else "login" }
 
                     sharedViewModel = viewModel(
                         factory = MediaViewModelFactory(
@@ -116,12 +116,11 @@ class MainActivity : AppCompatActivity() {
                     var isProvisioning by remember { mutableStateOf(false) }
                     var provisioningStatus by remember { mutableStateOf("") }
 
-                    // Keep splash screen on until data is loaded
-                    splashScreen.setKeepOnScreenCondition {
-                        loginInfo != null && sharedViewModel.uiState.liveStreamsGrouped.isEmpty() && sharedViewModel.uiState.isLoading && !isProvisioning
-                    }
+                    // Network loading and category selection are rendered inside the app.
+                    // Never keep the splash visible while waiting for an empty channel list.
+                    splashScreen.setKeepOnScreenCondition { false }
 
-                    LaunchedEffect(loginInfo) {
+                    LaunchedEffect(Unit) {
                         if (loginInfo != null) {
                             val (h, u, p) = loginInfo
                             sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), database.mediaDao(), context))
@@ -132,10 +131,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
 
-                    if (loginInfo != null && sharedViewModel.uiState.liveStreamsGrouped.isEmpty()) {
-                        // Empty black screen while splash is showing
-                        Box(modifier = Modifier.fillMaxSize().background(Color.Black))
-                    } else {
+                    Box(modifier = Modifier.fillMaxSize()) {
                         val navBackStackEntry by navController.currentBackStackEntryAsState()
                         val currentRoute = navBackStackEntry?.destination?.route
                         val showTopBar = currentRoute != "login" && currentRoute != "player/{url}" && currentRoute != "details"
@@ -242,19 +238,11 @@ class MainActivity : AppCompatActivity() {
                                                     val loginSuccess = sharedViewModel.login(h, u, p)
                                                     if (!loginSuccess) return@launch
 
-                                                    // 2. Visa den snygga laddskärmen medan vi hämtar grunddata
-                                                    isProvisioning = true
-                                                    provisioningStatus = "Hämtar kategorier..."
-                                                    
-                                                    sharedViewModel.fetchData(u, p, forceRefresh = true) { success ->
-                                                        // EPG laddas i bakgrunden i fetchData, men vi väntar på kategorierna för att släppa in användaren
-                                                        isProvisioning = false
-                                                        if (success) {
-                                                            navController.navigate("home") {
-                                                                popUpTo("login") { inclusive = true }
-                                                            }
-                                                        }
+                                                    navController.navigate("home") {
+                                                        popUpTo("login") { inclusive = true }
                                                     }
+                                                    scheduleDataSync(context)
+                                                    sharedViewModel.fetchData(u, p, forceRefresh = true)
                                                 }
                                             },
                                             isProvisioning = isProvisioning,
@@ -530,6 +518,8 @@ class MainActivity : AppCompatActivity() {
                                             },
                                             isTvMode = sharedViewModel.isTvMode,
                                             isUpdating = sharedViewModel.isUpdatingBackground,
+                                            isSyncCategoryDialogOpen = sharedViewModel.showSyncSelection,
+                                            isContentLoading = sharedViewModel.uiState.isLoading,
                                             isCheckingForAppUpdate = sharedViewModel.isCheckingForAppUpdate,
                                             isAppUpToDate = sharedViewModel.isAppUpToDate,
                                             appUpdateVersion = sharedViewModel.appUpdateInfo?.versionName,
@@ -541,6 +531,7 @@ class MainActivity : AppCompatActivity() {
                                                     popUpTo("login") { inclusive = true }
                                                 }
                                             },
+                                            onSelectSyncCategories = { sharedViewModel.openSyncSelection() },
                                             onRefreshLibrary = { sharedViewModel.refreshVodLibrary() },
                                             onRefreshTv = { sharedViewModel.refreshTvChannels() },
                                             onRefreshEpg = { sharedViewModel.refreshEpgOnly() },
@@ -625,6 +616,36 @@ class MainActivity : AppCompatActivity() {
                                     }
                                 }
                                 
+                                if (sharedViewModel.uiState.isLoading && loginInfo != null) {
+                                    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                            CircularProgressIndicator()
+                                            Text("Hämtar kategorier…", color = Color.White)
+                                            Text("TV, filmer och serier. Ingen innehållssynk startar före ditt val.", color = Color.LightGray)
+                                        }
+                                    }
+                                }
+                                sharedViewModel.startupError?.let { message ->
+                                    AlertDialog(
+                                        onDismissRequest = {},
+                                        title = { Text("Kunde inte hämta kategorier") },
+                                        text = { Text(message) },
+                                        confirmButton = {
+                                            Button(onClick = { sharedViewModel.refreshDataManually() }) { Text("Försök igen") }
+                                        },
+                                        dismissButton = {
+                                            TextButton(onClick = {
+                                                sharedViewModel.logout()
+                                                navController.navigate("login") { popUpTo("home") { inclusive = true } }
+                                            }) { Text("Till inloggning") }
+                                        }
+                                    )
+                                }
+
+                                if (sharedViewModel.showSyncSelection) {
+                                    com.example.mmtv.ui.SyncCategoryDialog(sharedViewModel)
+                                }
+
                                 // Overlay for background updates
                                 AnimatedVisibility(
                                     visible = sharedViewModel.updateStatus != null,

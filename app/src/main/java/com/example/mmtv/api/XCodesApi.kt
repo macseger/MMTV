@@ -23,7 +23,8 @@ interface XCodesApi {
     suspend fun getLiveStreams(
         @Query("username") user: String,
         @Query("password") pass: String,
-        @Query("action") action: String = "get_live_streams"
+        @Query("action") action: String = "get_live_streams",
+        @Query("category_id") categoryId: String? = null
     ): List<LiveStream>
 
     @GET("player_api.php")
@@ -37,7 +38,8 @@ interface XCodesApi {
     suspend fun getMovies(
         @Query("username") user: String,
         @Query("password") pass: String,
-        @Query("action") action: String = "get_vod_streams"
+        @Query("action") action: String = "get_vod_streams",
+        @Query("category_id") categoryId: String? = null
     ): List<Movie>
 
     @GET("player_api.php")
@@ -59,7 +61,8 @@ interface XCodesApi {
     suspend fun getSeries(
         @Query("username") user: String,
         @Query("password") pass: String,
-        @Query("action") action: String = "get_series"
+        @Query("action") action: String = "get_series",
+        @Query("category_id") categoryId: String? = null
     ): List<Series>
 
     @GET("player_api.php")
@@ -70,6 +73,15 @@ interface XCodesApi {
         @Query("action") action: String = "get_series_info"
     ): SeriesInfoResponse
 
+    @GET("player_api.php")
+    suspend fun getChannelEpg(
+        @Query("username") user: String,
+        @Query("password") pass: String,
+        @Query("stream_id") streamId: Int,
+        @Query("action") action: String = "get_simple_data_table"
+    ): EpgResponse
+
+    @retrofit2.http.Streaming
     @GET("xmltv.php")
     suspend fun getFullEpg(
         @Query("username") user: String,
@@ -84,6 +96,7 @@ interface XCodesApi {
         @Query("output") output: String = "ts"
     ): ResponseBody
 
+    @retrofit2.http.Streaming
     @GET
     suspend fun getExternalEpg(@retrofit2.http.Url url: String): ResponseBody
 

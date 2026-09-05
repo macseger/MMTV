@@ -104,6 +104,7 @@ class EpgParser {
     suspend fun parseStreaming(
         inputStream: InputStream, 
         onChannelParsed: (suspend (String, String?, String?) -> Unit)? = null,
+        acceptChannel: (String) -> Boolean = { true },
         onProgrammeParsed: suspend (String, EpgListing) -> Unit
     ) {
         try {
@@ -152,8 +153,22 @@ class EpgParser {
                             }
                             "programme" -> {
                                 currentChannel = parser.getAttributeValue(null, "channel")
+                                if (currentChannel == null || !acceptChannel(currentChannel)) {
+                                    var depth = 1
+                                    while (depth > 0) {
+                                        when (parser.next()) {
+                                            XmlPullParser.START_TAG -> depth++
+                                            XmlPullParser.END_TAG -> depth--
+                                            XmlPullParser.END_DOCUMENT -> throw java.io.IOException("Ofullständig EPG")
+                                        }
+                                    }
+                                    currentChannel = null
+                                    currentTitle = null
+                                    currentDesc = null
+                                } else {
                                 startTime = parseDate(parser.getAttributeValue(null, "start"))
                                 stopTime = parseDate(parser.getAttributeValue(null, "stop"))
+                                }
                             }
                             "title" -> {
                                 if (parser.next() == XmlPullParser.TEXT) {
@@ -188,7 +203,7 @@ class EpgParser {
                 eventType = parser.next()
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            throw e
         }
     }
 

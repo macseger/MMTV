@@ -5,6 +5,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,6 +41,8 @@ fun SettingsScreen(
     onTogglePlaybackDetails: (Boolean) -> Unit,
     isTvMode: Boolean,
     isUpdating: Boolean,
+    isSyncCategoryDialogOpen: Boolean,
+    isContentLoading: Boolean,
     isCheckingForAppUpdate: Boolean,
     isAppUpToDate: Boolean,
     appUpdateVersion: String?,
@@ -45,6 +50,7 @@ fun SettingsScreen(
     onStartUpdate: () -> Unit,
     onLogout: () -> Unit,
     onRefreshLibrary: () -> Unit,
+    onSelectSyncCategories: () -> Unit,
     onRefreshTv: () -> Unit,
     onRefreshEpg: () -> Unit,
     onExtractPicons: () -> Unit,
@@ -57,6 +63,24 @@ fun SettingsScreen(
     onToggleTvMode: (Boolean) -> Unit
 ) {
     val firstButtonFocusRequester = remember { FocusRequester() }
+    val categoryFocusRequester = remember { FocusRequester() }
+    val settingsListState = rememberLazyListState()
+    var needsCategoryFocus by remember { mutableStateOf(false) }
+    var restoringCategoryFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(isSyncCategoryDialogOpen, isContentLoading) {
+        if (isSyncCategoryDialogOpen) {
+            needsCategoryFocus = true
+        } else if (needsCategoryFocus && !isContentLoading) {
+            restoringCategoryFocus = true
+            settingsListState.scrollToItem(0)
+            withFrameNanos { }
+            if (isTvMode) categoryFocusRequester.requestFocus()
+            // Consume trailing/repeated remote events while the dialog window closes.
+            delay(350)
+            needsCategoryFocus = false
+            restoringCategoryFocus = false
+        }
+    }
     
     var showConfirmDialog by remember { mutableStateOf(false) }
     var confirmTitle by remember { mutableIntStateOf(0) }
@@ -79,8 +103,18 @@ fun SettingsScreen(
     Box(modifier = Modifier
         .fillMaxSize()
         .background(Color.Black)
+        .onPreviewKeyEvent { event ->
+            val key = event.nativeKeyEvent
+            val repeatedConfirm = key.repeatCount > 0 && key.keyCode in listOf(
+                android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                android.view.KeyEvent.KEYCODE_ENTER,
+                android.view.KeyEvent.KEYCODE_NUMPAD_ENTER
+            )
+            isSyncCategoryDialogOpen || isContentLoading || needsCategoryFocus || restoringCategoryFocus || repeatedConfirm
+        }
     ) {
         LazyColumn(
+            state = settingsListState,
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
             contentPadding = PaddingValues(top = 64.dp, bottom = 64.dp, start = 48.dp, end = 48.dp)
@@ -98,6 +132,16 @@ fun SettingsScreen(
             }
 
             item { SectionHeader(stringResource(R.string.section_content)) }
+            item {
+                SettingsAction(
+                    title = "Välj kategorier att synka",
+                    modifier = Modifier.focusRequester(categoryFocusRequester),
+                    subtitle = "Välj TV, filmer och serier. Bara dina val hämtas vid uppdatering.",
+                    icon = Icons.Default.Checklist,
+                    isLoading = isUpdating,
+                    onClick = onSelectSyncCategories
+                )
+            }
 
             item {
                 SettingsAction(

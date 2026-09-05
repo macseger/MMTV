@@ -16,6 +16,7 @@ class DataSyncWorker(
     override suspend fun doWork(): Result {
         val context = applicationContext
         val sessionManager = SessionManager(context)
+        if (!sessionManager.hasSyncSelection()) return Result.success()
         val loginInfo = sessionManager.getLogin() ?: return Result.success()
         
         val (host, user, pass) = loginInfo
@@ -25,13 +26,7 @@ class DataSyncWorker(
         return try {
             Log.d("DataSyncWorker", "Starting background sync...")
             
-            if (sessionManager.getSyncOnlyLive()) {
-                Log.d("DataSyncWorker", "Syncing only Live channels as per setting")
-                repository.syncLiveChannels(user, pass)
-            } else {
-                Log.d("DataSyncWorker", "Syncing full library")
-                repository.syncLibrary(user, pass)
-            }
+            repository.syncLibrary(user, pass)
 
             repository.fetchAndStoreEpg(user, pass)
             repository.resolveLiveIcons()

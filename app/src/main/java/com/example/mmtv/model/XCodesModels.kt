@@ -114,7 +114,7 @@ data class EpgListing(
     val id: String?,
     @SerializedName("epg_id") val epgId: String?,
     val title: String?,
-    @SerializedName("dec") val description: String?,
+    @SerializedName(value = "dec", alternate = ["description"]) val description: String?,
     val start: String?,
     val end: String?,
     @SerializedName("start_timestamp") val startTimestamp: Long?,

@@ -11,6 +11,7 @@ object ApiClient {
 
     private fun getOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
+            .retryOnConnectionFailure(false)
             .connectTimeout(180, TimeUnit.SECONDS) // Ökad rejält för tunga M3U-filer
             .readTimeout(180, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)

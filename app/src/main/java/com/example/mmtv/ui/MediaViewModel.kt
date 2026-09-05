@@ -90,8 +90,60 @@ class MediaViewModel(
 
     val repository: MediaRepository get() = _repository
 
-    var uiState by mutableStateOf(MediaUiState(history = sessionManager.getHistory()))
+    var uiState by mutableStateOf(MediaUiState(history = sessionManager.getHistory().filter { it.categoryId in sessionManager.getSyncCategories(it.type) }))
         private set
+
+    var syncCategoryOptions by mutableStateOf<Map<MediaType, List<GroupedMedia>>>(emptyMap())
+        private set
+    var showSyncSelection by mutableStateOf(false)
+        private set
+    var isLoadingSyncCategories by mutableStateOf(false)
+        private set
+    var startupError by mutableStateOf<String?>(null)
+        private set
+    var syncSelectionError by mutableStateOf<String?>(null)
+        private set
+    val requiresSyncSelection get() = !sessionManager.hasSyncSelection()
+    fun selectedSyncCategories(type: MediaType) = sessionManager.getSyncCategories(type)
+
+    fun openSyncSelection() {
+        if (isFetching || isUpdatingBackground || isLoadingSyncCategories) return
+        showSyncSelection = true
+        isLoadingSyncCategories = true
+        syncSelectionError = null
+        viewModelScope.launch {
+            try {
+                val login = sessionManager.getLogin() ?: return@launch
+                syncCategoryOptions = loadSyncCategoryOptions(login.second, login.third, true)
+            } catch (e: Exception) {
+                syncSelectionError = "Kunde inte hämta kategorier. Försök igen."
+            } finally { isLoadingSyncCategories = false }
+        }
+    }
+
+    private suspend fun loadSyncCategoryOptions(user: String, pass: String, forceRefresh: Boolean): Map<MediaType, List<GroupedMedia>> =
+        loadCategoryCatalog { type -> _repository.getJustCategories(type, user, pass, forceRefresh, true) }
+
+    fun dismissSyncSelection() { if (!requiresSyncSelection) showSyncSelection = false }
+
+    fun saveSyncSelection(selection: Map<MediaType, Set<String>>) {
+        if (isLoadingSyncCategories || syncSelectionError != null || selection.values.all { it.isEmpty() }) return
+        val availableSelection = MediaType.entries.associateWith { type ->
+            selection[type].orEmpty().intersect(syncCategoryOptions[type].orEmpty().mapNotNull { it.categoryId }.toSet())
+        }
+        if (availableSelection.values.all { it.isEmpty() }) return
+        sessionManager.saveSyncSelection(availableSelection)
+        showSyncSelection = false
+        _favorites.value = emptyList()
+        _recentlyAdded.value = emptyList()
+        _dbSearchResults.value = emptyList()
+        lastLiveCategoryIndex = 0
+        lastPpvCategoryIndex = 0
+        lastMovieCategoryIndex = 0
+        lastSeriesCategoryIndex = 0
+        uiState = MediaUiState(history = sessionManager.getHistory().filter { it.categoryId in sessionManager.getSyncCategories(it.type) })
+        refreshDataManually()
+    }
 
     var loginError by mutableStateOf<String?>(null)
         private set
@@ -180,7 +232,7 @@ class MediaViewModel(
                 if (query.length >= 2) {
                     try {
                         val entities = mediaDao.searchMedia("%$query%")
-                        _dbSearchResults.value = entities.map { it.toMediaSource() }
+                        _dbSearchResults.value = entities.filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
                     } catch (e: Exception) {
                         _dbSearchResults.value = emptyList()
                     }
@@ -192,12 +244,12 @@ class MediaViewModel(
         
         viewModelScope.launch(Dispatchers.IO) {
             val favs = mediaDao.getFavorites()
-            _favorites.value = favs.map { it.toMediaSource() }
+            _favorites.value = favs.filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
         }
         
         viewModelScope.launch(Dispatchers.IO) {
             val recent = mediaDao.getRecentlyAdded()
-            _recentlyAdded.value = recent.map { it.toMediaSource() }
+            _recentlyAdded.value = recent.filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
         }
         
         viewModelScope.launch(Dispatchers.IO) {
@@ -249,6 +301,9 @@ class MediaViewModel(
 
     fun logout() {
         sessionManager.logout()
+        startupError = null
+        showSyncSelection = false
+        syncCategoryOptions = emptyMap()
         uiState = MediaUiState()
         fullEpgData.clear()
         channelToEpgMap.clear()
@@ -274,6 +329,7 @@ class MediaViewModel(
     fun fetchData(user: String, pass: String, forceRefresh: Boolean = false, onComplete: ((Boolean) -> Unit)? = null) {
         if (isFetching) return
         isFetching = true
+        startupError = null
         isUpdatingBackground = true
         
         viewModelScope.launch {
@@ -281,13 +337,18 @@ class MediaViewModel(
             try {
                 // 1. Hämta kategorier först (mycket snabbt)
                 updateStatus = "Hämtar kategorier..."
-                val liveCats = async { _repository.getJustCategories(MediaType.LIVE, user, pass, forceRefresh) }
-                val movieCats = async { _repository.getJustCategories(MediaType.MOVIE, user, pass, forceRefresh) }
-                val seriesCats = async { _repository.getJustCategories(MediaType.SERIES, user, pass, forceRefresh) }
-
-                val liveData = liveCats.await()
-                val movieData = movieCats.await()
-                val seriesData = seriesCats.await()
+                syncCategoryOptions = loadSyncCategoryOptions(user, pass, forceRefresh)
+                if (!sessionManager.hasSyncSelection()) {
+                    showSyncSelection = true
+                    uiState = uiState.copy(isLoading = false)
+                    isUpdatingBackground = false
+                    updateStatus = null
+                    onComplete?.invoke(true)
+                    return@launch
+                }
+                val liveData = syncCategoryOptions[MediaType.LIVE].orEmpty().filter { it.categoryId in sessionManager.getSyncCategories(MediaType.LIVE) }
+                val movieData = syncCategoryOptions[MediaType.MOVIE].orEmpty().filter { it.categoryId in sessionManager.getSyncCategories(MediaType.MOVIE) }
+                val seriesData = syncCategoryOptions[MediaType.SERIES].orEmpty().filter { it.categoryId in sessionManager.getSyncCategories(MediaType.SERIES) }
                 
                 val ppvKeywords = listOf("TV4 Play", "Viaplay", "Svensk Hockey.tv", "Telia play")
                 val ppvData = liveData.filter { cat -> 
@@ -297,8 +358,8 @@ class MediaViewModel(
                 val allFavs = withContext(Dispatchers.IO) { mediaDao.getFavorites() }
                 
                 fun List<GroupedMedia>.withFavoritesAndHistory(type: MediaType): List<GroupedMedia> {
-                    val favsForType = allFavs.filter { it.type == type }.map { it.toMediaSource() }
-                    val historyForType = sessionManager.getHistory().filter { it.type == type }
+                    val favsForType = allFavs.filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }.map { it.toMediaSource() }
+                    val historyForType = sessionManager.getHistory().filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }
                     var result = this
 
                     if (type == MediaType.LIVE) {
@@ -343,15 +404,10 @@ class MediaViewModel(
                     // Lokala ikoner i bakgrunden
                     _repository.extractPiconsIfNeeded()
                     
-                    val isDbEmpty = mediaDao.getCountByType(MediaType.LIVE) == 0 
+                    val isDbEmpty = sessionManager.isSyncSelectionPending()
                     if (forceRefresh || isDbEmpty) {
-                        if (sessionManager.getSyncOnlyLive()) {
-                            updateStatus = "Synkar endast TV-kanaler..."
-                            _repository.syncLiveChannels(user, pass)
-                        } else {
-                            updateStatus = "Synkar hela biblioteket..."
-                            _repository.syncLibrary(user, pass)
-                        }
+                        updateStatus = "Synkar valda kategorier..."
+                        _repository.syncLibrary(user, pass)
 
                         updateStatus = "Hämtar tablåer..."
                         _repository.fetchAndStoreEpg(user, pass, forceRefresh)
@@ -375,8 +431,8 @@ class MediaViewModel(
                             loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
                             
                             // Uppdatera Flow-data
-                            _recentlyAdded.value = mediaDao.getRecentlyAdded().map { it.toMediaSource() }
-                            _favorites.value = mediaDao.getFavorites().map { it.toMediaSource() }
+                            _recentlyAdded.value = mediaDao.getRecentlyAdded().filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
+                            _favorites.value = mediaDao.getFavorites().filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
                         }
                     } else {
                         // DB inte tom, ladda in items direkt
@@ -401,16 +457,22 @@ class MediaViewModel(
                     }
 
                     withContext(Dispatchers.Main) {
-                        isUpdatingBackground = false
                         updateStatus = "Klart!"
                         delay(3000)
                         updateStatus = null
+                        isUpdatingBackground = false
                     }
                 }
 
             } catch (e: Exception) {
                 uiState = uiState.copy(isLoading = false)
                 isUpdatingBackground = false
+                if (uiState.liveCategories.isEmpty()) {
+                    startupError = "Servern svarade inte i tid eller kategorierna kunde inte läsas. Inga automatiska nya försök görs."
+                    updateStatus = null
+                } else {
+                    updateStatus = "Synkningen misslyckades. Försök igen i Inställningar."
+                }
                 onComplete?.invoke(false)
             } finally {
                 isFetching = false
@@ -426,7 +488,7 @@ class MediaViewModel(
 
         viewModelScope.launch {
             val items = if (categoryId == "ALL_CHANNELS") {
-                mediaDao.getMediaByType(MediaType.LIVE).map { it.toMediaSource() }
+                mediaDao.getMediaByType(MediaType.LIVE).filter { it.categoryId in sessionManager.getSyncCategories(MediaType.LIVE) }.map { it.toMediaSource() }
             } else {
                 _repository.getMediaForCategory(type, categoryId)
             }
@@ -493,7 +555,7 @@ class MediaViewModel(
                 )
 
                 // Uppdatera favorites Flow för att trigga andra lyssnare (t.ex. sökning)
-                val updatedFavs = mediaDao.getFavorites().map { it.toMediaSource() }
+                val updatedFavs = mediaDao.getFavorites().filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
                 _favorites.value = updatedFavs
             }
         }
@@ -703,96 +765,123 @@ class MediaViewModel(
     }
 
     fun refreshTvChannels() {
+        if (isUpdatingBackground) return
+        if (requiresSyncSelection) { openSyncSelection(); return }
         viewModelScope.launch {
-            val creds = sessionManager.getLogin() ?: return@launch
-            isUpdatingBackground = true
-            updateStatus = "Uppdaterar TV-kanaler..."
-            
-            withContext(Dispatchers.IO) {
-                _repository.syncLiveChannels(creds.second, creds.third)
-                _repository.fetchAndStoreEpg(creds.second, creds.third)
-                _repository.resolveLiveIcons()
-                withContext(Dispatchers.Main) {
-                    fullEpgData.clear()
-                    loadedFullEpgIds.clear()
-                    currentEpgCache.clear()
+            try {
+                val creds = sessionManager.getLogin() ?: return@launch
+                isUpdatingBackground = true
+                updateStatus = "Uppdaterar TV-kanaler..."
+
+                withContext(Dispatchers.IO) {
+                    _repository.syncLiveChannels(creds.second, creds.third)
+                    _repository.fetchAndStoreEpg(creds.second, creds.third)
+                    _repository.resolveLiveIcons()
+                    withContext(Dispatchers.Main) {
+                        fullEpgData.clear()
+                        loadedFullEpgIds.clear()
+                        currentEpgCache.clear()
+                    }
+                    val liveData = _repository.getJustCategories(MediaType.LIVE, creds.second, creds.third, forceRefresh = true)
+                    val allFavs = mediaDao.getFavorites()
+
+                    withContext(Dispatchers.Main) {
+                        val favsForType = allFavs.filter { it.type == MediaType.LIVE && it.categoryId in sessionManager.getSyncCategories(MediaType.LIVE) }.map { it.toMediaSource() }
+                        uiState = uiState.copy(
+                            liveCategories = listOf(
+                                GroupedMedia(title = "📺 ALLA KANALER", categoryId = "ALL_CHANNELS", items = emptyList()),
+                                GroupedMedia(title = "⭐ FAVORITER", categoryId = "FAVORITES", items = favsForType)
+                            ) + liveData
+                        )
+                        loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
+                    }
                 }
-                val liveData = _repository.getJustCategories(MediaType.LIVE, creds.second, creds.third, forceRefresh = true)
-                val allFavs = mediaDao.getFavorites()
-                
-                withContext(Dispatchers.Main) {
-                    val favsForType = allFavs.filter { it.type == MediaType.LIVE }.map { it.toMediaSource() }
-                    uiState = uiState.copy(
-                        liveCategories = listOf(
-                            GroupedMedia(title = "📺 ALLA KANALER", categoryId = "ALL_CHANNELS", items = emptyList()),
-                            GroupedMedia(title = "⭐ FAVORITER", categoryId = "FAVORITES", items = favsForType)
-                        ) + liveData
-                    )
-                    loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
-                }
+
+                updateStatus = "TV-kanaler uppdaterade!"
+                delay(2000)
+                updateStatus = null
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateStatus = "Synkningen misslyckades. Försök igen."
+            } finally {
+                isUpdatingBackground = false
             }
-            
-            isUpdatingBackground = false
-            updateStatus = "TV-kanaler uppdaterade!"
-            delay(2000)
-            updateStatus = null
         }
     }
 
     fun refreshVodLibrary() {
+        if (isUpdatingBackground) return
+        if (requiresSyncSelection) { openSyncSelection(); return }
         viewModelScope.launch {
-            val creds = sessionManager.getLogin() ?: return@launch
-            isUpdatingBackground = true
-            updateStatus = "Uppdaterar film & serier..."
-            
-            withContext(Dispatchers.IO) {
-                _repository.syncVodLibrary(creds.second, creds.third)
-                val movieData = _repository.getJustCategories(MediaType.MOVIE, creds.second, creds.third, forceRefresh = true)
-                val seriesData = _repository.getJustCategories(MediaType.SERIES, creds.second, creds.third, forceRefresh = true)
-                val allFavs = mediaDao.getFavorites()
-                val history = sessionManager.getHistory()
+            try {
+                val creds = sessionManager.getLogin() ?: return@launch
+                isUpdatingBackground = true
+                updateStatus = "Uppdaterar film & serier..."
 
-                withContext(Dispatchers.Main) {
-                    fun List<GroupedMedia>.withExtras(type: MediaType): List<GroupedMedia> {
-                        val favsForType = allFavs.filter { it.type == type }.map { it.toMediaSource() }
-                        val historyForType = history.filter { it.type == type }
-                        return listOf(
-                            GroupedMedia(title = "🕒 HISTORIK", categoryId = "HISTORY", items = historyForType),
-                            GroupedMedia(title = "⭐ FAVORITER", categoryId = "FAVORITES", items = favsForType)
-                        ) + this
+                withContext(Dispatchers.IO) {
+                    _repository.syncVodLibrary(creds.second, creds.third)
+                    val movieData = _repository.getJustCategories(MediaType.MOVIE, creds.second, creds.third, forceRefresh = true)
+                    val seriesData = _repository.getJustCategories(MediaType.SERIES, creds.second, creds.third, forceRefresh = true)
+                    val allFavs = mediaDao.getFavorites()
+                    val history = sessionManager.getHistory()
+
+                    withContext(Dispatchers.Main) {
+                        fun List<GroupedMedia>.withExtras(type: MediaType): List<GroupedMedia> {
+                            val favsForType = allFavs.filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }.map { it.toMediaSource() }
+                            val historyForType = history.filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }
+                            return listOf(
+                                GroupedMedia(title = "🕒 HISTORIK", categoryId = "HISTORY", items = historyForType),
+                                GroupedMedia(title = "⭐ FAVORITER", categoryId = "FAVORITES", items = favsForType)
+                            ) + this
+                        }
+
+                        uiState = uiState.copy(
+                            movieCategories = movieData.withExtras(MediaType.MOVIE),
+                            seriesCategories = seriesData.withExtras(MediaType.SERIES)
+                        )
+
+                        loadItemsForCategory(MediaType.MOVIE, movieData.firstOrNull()?.categoryId)
+                        loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
+
+                        _recentlyAdded.value = mediaDao.getRecentlyAdded().filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
                     }
-
-                    uiState = uiState.copy(
-                        movieCategories = movieData.withExtras(MediaType.MOVIE),
-                        seriesCategories = seriesData.withExtras(MediaType.SERIES)
-                    )
-
-                    loadItemsForCategory(MediaType.MOVIE, movieData.firstOrNull()?.categoryId)
-                    loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
-                    
-                    _recentlyAdded.value = mediaDao.getRecentlyAdded().map { it.toMediaSource() }
                 }
-            }
 
-            isUpdatingBackground = false
-            updateStatus = "Film & serier uppdaterade!"
-            delay(2000)
-            updateStatus = null
+                updateStatus = "Film & serier uppdaterade!"
+                delay(2000)
+                updateStatus = null
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateStatus = "Synkningen misslyckades. Försök igen."
+            } finally {
+                isUpdatingBackground = false
+            }
         }
     }
 
     fun refreshEpgOnly() {
+        if (isUpdatingBackground) return
+        if (requiresSyncSelection) { openSyncSelection(); return }
         viewModelScope.launch {
-            val creds = sessionManager.getLogin() ?: return@launch
-            isUpdatingBackground = true
-            updateStatus = "Uppdaterar tablåer..."
-            _repository.fetchAndStoreEpg(creds.second, creds.third, forceRefresh = true)
-            fullEpgData.clear()
-            loadedFullEpgIds.clear()
-            isUpdatingBackground = false
-            updateStatus = "Tablåer uppdaterade!"
-            delay(2000)
-            updateStatus = null
+            try {
+                val creds = sessionManager.getLogin() ?: return@launch
+                isUpdatingBackground = true
+                updateStatus = "Uppdaterar tablåer..."
+                _repository.fetchAndStoreEpg(creds.second, creds.third, forceRefresh = true)
+                fullEpgData.clear()
+                loadedFullEpgIds.clear()
+                updateStatus = "Tablåer uppdaterade!"
+                delay(2000)
+                updateStatus = null
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateStatus = "Synkningen misslyckades. Försök igen."
+            } finally {
+                isUpdatingBackground = false
+            }
         }
     }
 
@@ -909,7 +998,7 @@ class MediaViewModel(
         sessionManager.addToHistory(media, episode)
         val newHistory = sessionManager.getHistory()
         uiState = uiState.copy(
-            history = newHistory,
+            history = newHistory.filter { it.categoryId in sessionManager.getSyncCategories(it.type) },
             movieCategories = uiState.movieCategories.updateHistoryInCategory(newHistory, MediaType.MOVIE),
             seriesCategories = uiState.seriesCategories.updateHistoryInCategory(newHistory, MediaType.SERIES)
         )
@@ -918,7 +1007,7 @@ class MediaViewModel(
     private fun List<GroupedMedia>.updateHistoryInCategory(history: List<MediaSource>, type: MediaType): List<GroupedMedia> {
         return this.map { group ->
             if (group.categoryId == "HISTORY") {
-                group.copy(items = history.filter { it.type == type })
+                group.copy(items = history.filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) })
             } else {
                 group
             }

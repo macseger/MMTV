@@ -143,6 +143,22 @@ class SessionManager(context: Context) {
         return prefs.getBoolean("use_tunneling", false)
     }
 
+    fun hasSyncSelection(): Boolean = prefs.getBoolean("sync_selection_configured", false)
+
+    fun getSyncCategories(type: com.example.mmtv.model.MediaType): Set<String> =
+        prefs.getStringSet("sync_categories_${type.name}", emptySet())?.toSet() ?: emptySet()
+
+    fun saveSyncSelection(selection: Map<com.example.mmtv.model.MediaType, Set<String>>) {
+        prefs.edit(commit = true) {
+            selection.forEach { (type, ids) -> putStringSet("sync_categories_${type.name}", ids) }
+            putBoolean("sync_selection_configured", true)
+            putBoolean("sync_selection_pending", true)
+        }
+    }
+
+    fun isSyncSelectionPending(): Boolean = prefs.getBoolean("sync_selection_pending", false)
+    fun markSyncSelectionComplete() { prefs.edit { putBoolean("sync_selection_pending", false) } }
+
     fun setSyncOnlyLive(enabled: Boolean) {
         prefs.edit { putBoolean("sync_only_live", enabled) }
     }

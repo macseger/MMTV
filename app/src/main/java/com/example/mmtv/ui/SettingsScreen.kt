@@ -214,7 +214,7 @@ fun SettingsScreen(
             item {
                 SettingsAction(
                     title = "Visa detaljerad videouppspelning",
-                    subtitle = "Upplösning, FPS och uppskattad nätverkshastighet uppe till höger",
+                    subtitle = "Visa alltid kvalitet, FPS och nätverkshastighet. Annars visas rutan i 5 sekunder vid start.",
                     icon = Icons.Default.Info,
                     value = if (showPlaybackDetails) stringResource(R.string.on) else stringResource(R.string.off),
                     onClick = { onTogglePlaybackDetails(!showPlaybackDetails) }

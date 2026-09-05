@@ -1,6 +1,7 @@
 package com.example.mmtv.ui
 
 import com.example.mmtv.ui.theme.FocusBorderColor
+import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import android.view.KeyEvent
 import androidx.annotation.OptIn
@@ -89,9 +90,13 @@ fun PlayerScreen(
     val exoPlayer = remember(isLiveStream) { viewModel.getOrInitializePlayer(isLiveStream) }
 
     val showPlaybackDetails = remember { sessionManager.getShowPlaybackDetails() }
+    var showIntroDetails by remember(url) { mutableStateOf(true) }
+    val detailsVisible = showPlaybackDetails || showIntroDetails
+    val frameRateEstimator = remember(url) { FrameRateEstimator() }
+    var measuredFps by remember(url) { mutableStateOf<Float?>(null) }
     var networkBitrate by remember(url) { mutableStateOf<Long?>(null) }
     var detailVideoFormat by remember(url) { mutableStateOf<Format?>(null) }
-    DisposableEffect(exoPlayer, url, showPlaybackDetails) {
+    DisposableEffect(exoPlayer, url, detailsVisible) {
         val listener = object : AnalyticsListener {
             override fun onBandwidthEstimate(
                 eventTime: AnalyticsListener.EventTime,
@@ -104,15 +109,35 @@ fun PlayerScreen(
                 }
             }
         }
-        if (showPlaybackDetails) exoPlayer.addAnalyticsListener(listener)
-        onDispose { if (showPlaybackDetails) exoPlayer.removeAnalyticsListener(listener) }
+        val frameListener = VideoFrameMetadataListener { presentationTimeUs, _, _, _ ->
+            frameRateEstimator.addFrame(presentationTimeUs)
+        }
+        if (detailsVisible) {
+            exoPlayer.addAnalyticsListener(listener)
+            exoPlayer.setVideoFrameMetadataListener(frameListener)
+        }
+        onDispose {
+            if (detailsVisible) {
+                exoPlayer.removeAnalyticsListener(listener)
+                exoPlayer.clearVideoFrameMetadataListener(frameListener)
+            }
+        }
     }
-    LaunchedEffect(exoPlayer, url, showPlaybackDetails) {
-        if (showPlaybackDetails) {
+    LaunchedEffect(exoPlayer, url, detailsVisible) {
+        if (detailsVisible) {
             while (true) {
                 detailVideoFormat = exoPlayer.videoFormat
-                delay(1000)
+                measuredFps = frameRateEstimator.framesPerSecond()
+                delay(500)
             }
+        }
+    }
+
+    val hasVideoDetails = detailVideoFormat != null
+    LaunchedEffect(url, hasVideoDetails) {
+        if (hasVideoDetails) {
+            delay(5000)
+            showIntroDetails = false
         }
     }
 
@@ -730,14 +755,16 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        if (showPlaybackDetails) {
+        if (detailsVisible) {
             val format = detailVideoFormat
             val resolution = if (format != null && format.width > 0 && format.height > 0) {
-                "${format.width}×${format.height}"
+                "${videoQualityLabel(format.width, format.height)} · ${format.width}×${format.height}"
             } else "Upplösning —"
-            val fps = format?.frameRate?.takeIf { it > 0 && it.isFinite() }?.let {
+            val sourceFps = format?.frameRate?.takeIf { it > 0 && it.isFinite() }
+            val fps = (sourceFps ?: measuredFps)?.let {
                 String.format(Locale.getDefault(), "%.2f", it).trimEnd('0').trimEnd('.', ',')
-            } ?: "—"
+            }
+            val fpsText = fps?.let { " · ${if (sourceFps == null) "≈ " else ""}$it FPS" } ?: ""
             val network = networkBitrate?.let {
                 String.format(Locale.getDefault(), "≈ %.1f Mbit/s", it / 1_000_000.0)
             } ?: "—"
@@ -748,7 +775,7 @@ fun PlayerScreen(
                 shape = RoundedCornerShape(6.dp)
             ) {
                 Text(
-                    text = "$resolution · $fps FPS\nNät $network",
+                    text = "$resolution$fpsText\nNät $network",
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     color = Color.White.copy(alpha = 0.9f),
                     fontSize = 12.sp,

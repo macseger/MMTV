@@ -3,6 +3,7 @@ package com.example.mmtv.ui
 import com.example.mmtv.ui.theme.FocusBorderColor
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import android.view.KeyEvent
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
@@ -208,7 +209,7 @@ fun PlayerScreen(
             val allEpisodes = episodesMap.keys
                 .sortedBy { it.toIntOrNull() ?: 0 }
                 .flatMap { seasonKey ->
-                    episodesMap[seasonKey]?.sortedBy { it.id?.toIntOrNull() ?: 0 } ?: emptyList()
+                    episodesMap[seasonKey] ?: emptyList()
                 }
             
             val currentId = viewModel.playingEpisode?.id ?: media.id.toString()
@@ -809,6 +810,9 @@ fun PlayerScreen(
                 subtitleIconFocusRequester = subtitleIconFocusRequester,
                 isTvMode = viewModel.isTvMode,
                 themeColor = viewModel.currentThemeColor,
+                onPlayNext = if (isSeries && nextEpisode != null) {
+                    { onPlayNextEpisode(nextEpisode) }
+                } else null,
                 onToggleSubtitles = { overlayState = OverlayState.SUBTITLES }
             )
         }
@@ -1050,8 +1054,10 @@ fun VodControlOverlay(
     subtitleIconFocusRequester: FocusRequester,
     isTvMode: Boolean = true,
     themeColor: Color = Color(0xFF2196F3),
+    onPlayNext: (() -> Unit)? = null,
     onToggleSubtitles: () -> Unit
 ) {
+    val nextControlFocusRequester = remember { FocusRequester() }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1207,7 +1213,13 @@ fun VodControlOverlay(
                     onClick = onToggleSubtitles,
                     modifier = Modifier
                         .focusRequester(subtitleIconFocusRequester)
-                        .onFocusChanged { isSubFocused = it.isFocused },
+                        .onFocusChanged { isSubFocused = it.isFocused }
+                        .onPreviewKeyEvent {
+                            if (onPlayNext != null && it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                                if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) nextControlFocusRequester.requestFocus()
+                                true
+                            } else false
+                        },
                     shape = RoundedCornerShape(12.dp),
                     color = if (isSubFocused) themeColor else Color.White.copy(alpha = 0.1f),
                     contentColor = if (isSubFocused) Color.Black else Color.White
@@ -1230,6 +1242,35 @@ fun VodControlOverlay(
                         )
                     }
                 }
+                    if (onPlayNext != null) {
+                        Spacer(modifier = Modifier.width(12.dp))
+                        var nextFocused by remember { mutableStateOf(false) }
+                        Surface(
+                            onClick = onPlayNext,
+                            modifier = Modifier
+                                .focusRequester(nextControlFocusRequester)
+                                .onFocusChanged { nextFocused = it.isFocused }
+                                .onPreviewKeyEvent {
+                                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                                        if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) subtitleIconFocusRequester.requestFocus()
+                                        true
+                                    } else false
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            border = if (nextFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
+                            color = if (nextFocused) themeColor else Color.White.copy(alpha = 0.1f),
+                            contentColor = if (nextFocused) Color.Black else Color.White
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.SkipNext, null, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Spela nästa avsnitt", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
+                            }
+                        }
+                    }
             }
             }
             

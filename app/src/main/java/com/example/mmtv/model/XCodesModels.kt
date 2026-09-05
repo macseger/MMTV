@@ -96,7 +96,8 @@ data class Episode(
     val title: String?,
     @SerializedName("container_extension") val containerExtension: String?,
     @SerializedName("season") val seasonNumber: Int?,
-    val info: EpisodeInfo?
+    val info: EpisodeInfo?,
+    @SerializedName("episode_num") val episodeNumber: Int? = null
 )
 
 data class EpisodeInfo(

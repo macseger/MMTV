@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -404,12 +405,13 @@ fun DetailsScreen(
 
                         // Avsnitt för vald säsong
                         val episodes = seriesInfo.episodes[selectedSeason] ?: emptyList()
-                        items(episodes, key = { it.id ?: "" }) { episode ->
+                        itemsIndexed(episodes, key = { index, episode -> episode.id ?: "episode_$index" }) { index, episode ->
                             val episodeId = episode.id
                             val position = episodeId?.let(sessionManager::getPlaybackPosition) ?: 0L
                             val duration = episodeId?.let(sessionManager::getPlaybackDuration) ?: 0L
                             EpisodeItem(
                                 episode = episode,
+                                episodeNumber = episode.episodeNumber ?: (index + 1),
                                 progress = episodeWatchProgress(position, duration, episode.info?.duration)
                             ) {
                                 val pos = sessionManager.getPlaybackPosition(episode.id ?: "0")
@@ -506,7 +508,7 @@ data class ResumeData(
 )
 
 @Composable
-fun EpisodeItem(episode: Episode, progress: Float? = null, onClick: () -> Unit) {
+fun EpisodeItem(episode: Episode, episodeNumber: Int, progress: Float? = null, onClick: () -> Unit) {
     var hasFocus by remember { mutableStateOf(false) }
     Surface(
         modifier = Modifier
@@ -547,7 +549,7 @@ fun EpisodeItem(episode: Episode, progress: Float? = null, onClick: () -> Unit) 
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = episode.title ?: "Avsnitt",
+                    text = "Avsnitt $episodeNumber · ${episode.title.orEmpty()}",
                     color = Color.White,
                     style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
                 )

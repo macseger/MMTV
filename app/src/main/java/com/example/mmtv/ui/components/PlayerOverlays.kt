@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -818,6 +819,11 @@ fun SideOverlay(
     // Positionera och fokusera först när rätt lista är synlig. Då försöker inte
     // både listan och en enskild rad flytta fokus samtidigt.
     val selectedChannelId = viewModel.selectedMedia?.id
+    val panelSlideProgress by animateFloatAsState(
+        targetValue = if (isVisible) 0f else -1f,
+        animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
+        label = "sideOverlaySlide"
+    )
     LaunchedEffect(isVisible, overlayState, playlist, selectedChannelId) {
         if (!isVisible) return@LaunchedEffect
 
@@ -835,21 +841,31 @@ fun SideOverlay(
         }
     }
 
-    // TV:n kan inte kompositera en stor, transparent och animerad overlay ovanpå
-    // video utan långa GPU-stopp. Visa därför TV-menyn direkt och rita bara panelen.
-    if (isVisible) {
-        Box(modifier = Modifier.fillMaxSize()) {
+    // Overlayn ligger kvar i Compose-trädet när den döljs. Bara dess lager flyttas
+    // åt vänster, vilket bevarar LazyColumn-, fokus- och scrollstate mellan öppningar.
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clipToBounds()
+    ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clickable(
+                        enabled = isVisible,
                         interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                         indication = null,
                         onClick = onDismiss
                     )
             )
 
-            Row(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        translationX = panelSlideProgress * size.width
+                    }
+            ) {
                 val showCategories = overlayState == "CATEGORIES"
                 
                 if (showCategories) {
@@ -1027,7 +1043,6 @@ fun SideOverlay(
                     }
                 }
             }
-        }
     }
 }
 

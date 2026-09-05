@@ -514,6 +514,7 @@ class MainActivity : AppCompatActivity() {
                                         val loginInfo = sessionManager.getLogin()
                                         var autoPlayEnabled by remember { mutableStateOf(sessionManager.getAutoPlayNext()) }
                                         var useExternalEpg by remember { mutableStateOf(sessionManager.getUseExternalSwedishEpg()) }
+                                        var showPlaybackDetails by remember { mutableStateOf(sessionManager.getShowPlaybackDetails()) }
                                         var useTunneling by remember { mutableStateOf(sessionManager.getUseTunneling()) }
                                         
                                         SettingsScreen(
@@ -522,6 +523,11 @@ class MainActivity : AppCompatActivity() {
                                             autoPlayEnabled = autoPlayEnabled,
                                             useExternalEpg = useExternalEpg,
                                             useTunneling = useTunneling,
+                                            showPlaybackDetails = showPlaybackDetails,
+                                            onTogglePlaybackDetails = { enabled ->
+                                                showPlaybackDetails = enabled
+                                                sessionManager.setShowPlaybackDetails(enabled)
+                                            },
                                             isTvMode = sharedViewModel.isTvMode,
                                             isUpdating = sharedViewModel.isUpdatingBackground,
                                             isCheckingForAppUpdate = sharedViewModel.isCheckingForAppUpdate,

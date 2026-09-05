@@ -34,6 +34,8 @@ fun SettingsScreen(
     autoPlayEnabled: Boolean,
     useExternalEpg: Boolean,
     useTunneling: Boolean,
+    showPlaybackDetails: Boolean,
+    onTogglePlaybackDetails: (Boolean) -> Unit,
     isTvMode: Boolean,
     isUpdating: Boolean,
     isCheckingForAppUpdate: Boolean,
@@ -206,6 +208,16 @@ fun SettingsScreen(
                     icon = Icons.Default.Bolt,
                     value = if (useTunneling) stringResource(R.string.on) else stringResource(R.string.off),
                     onClick = { onToggleTunneling(!useTunneling) }
+                )
+            }
+
+            item {
+                SettingsAction(
+                    title = "Visa detaljerad videouppspelning",
+                    subtitle = "Upplösning, FPS och uppskattad nätverkshastighet uppe till höger",
+                    icon = Icons.Default.Info,
+                    value = if (showPlaybackDetails) stringResource(R.string.on) else stringResource(R.string.off),
+                    onClick = { onTogglePlaybackDetails(!showPlaybackDetails) }
                 )
             }
 

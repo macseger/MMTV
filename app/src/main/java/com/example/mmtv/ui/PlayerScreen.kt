@@ -1,6 +1,7 @@
 package com.example.mmtv.ui
 
 import com.example.mmtv.ui.theme.FocusBorderColor
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import android.view.KeyEvent
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
@@ -86,6 +87,34 @@ fun PlayerScreen(
     val sessionManager = remember { SessionManager(context) }
     val isLiveStream = media?.type == MediaType.LIVE
     val exoPlayer = remember(isLiveStream) { viewModel.getOrInitializePlayer(isLiveStream) }
+
+    val showPlaybackDetails = remember { sessionManager.getShowPlaybackDetails() }
+    var networkBitrate by remember(url) { mutableStateOf<Long?>(null) }
+    var detailVideoFormat by remember(url) { mutableStateOf<Format?>(null) }
+    DisposableEffect(exoPlayer, url, showPlaybackDetails) {
+        val listener = object : AnalyticsListener {
+            override fun onBandwidthEstimate(
+                eventTime: AnalyticsListener.EventTime,
+                totalLoadTimeMs: Int,
+                totalBytesLoaded: Long,
+                bitrateEstimate: Long
+            ) {
+                if (totalLoadTimeMs > 0 && totalBytesLoaded > 0 && bitrateEstimate > 0) {
+                    networkBitrate = bitrateEstimate
+                }
+            }
+        }
+        if (showPlaybackDetails) exoPlayer.addAnalyticsListener(listener)
+        onDispose { if (showPlaybackDetails) exoPlayer.removeAnalyticsListener(listener) }
+    }
+    LaunchedEffect(exoPlayer, url, showPlaybackDetails) {
+        if (showPlaybackDetails) {
+            while (true) {
+                detailVideoFormat = exoPlayer.videoFormat
+                delay(1000)
+            }
+        }
+    }
 
     // --- STATES ---
     var isPlaying by remember { mutableStateOf(true) }
@@ -700,6 +729,33 @@ fun PlayerScreen(
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        if (showPlaybackDetails) {
+            val format = detailVideoFormat
+            val resolution = if (format != null && format.width > 0 && format.height > 0) {
+                "${format.width}×${format.height}"
+            } else "Upplösning —"
+            val fps = format?.frameRate?.takeIf { it > 0 && it.isFinite() }?.let {
+                String.format(Locale.getDefault(), "%.2f", it).trimEnd('0').trimEnd('.', ',')
+            } ?: "—"
+            val network = networkBitrate?.let {
+                String.format(Locale.getDefault(), "≈ %.1f Mbit/s", it / 1_000_000.0)
+            } ?: "—"
+            Surface(
+                modifier = Modifier.align(Alignment.TopEnd)
+                    .padding(top = 16.dp, end = if (viewModel.isTvMode) 16.dp else 88.dp),
+                color = Color.Black.copy(alpha = 0.65f),
+                shape = RoundedCornerShape(6.dp)
+            ) {
+                Text(
+                    text = "$resolution · $fps FPS\nNät $network",
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+            }
+        }
 
         // --- PHONE MODE CAST BUTTON ---
         if (!viewModel.isTvMode) {

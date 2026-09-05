@@ -129,6 +129,12 @@ class SessionManager(context: Context) {
         return prefs.getBoolean("use_external_se_epg", false)
     }
 
+    fun setShowPlaybackDetails(enabled: Boolean) {
+        prefs.edit { putBoolean("show_playback_details", enabled) }
+    }
+
+    fun getShowPlaybackDetails(): Boolean = prefs.getBoolean("show_playback_details", false)
+
     fun setUseTunneling(enabled: Boolean) {
         prefs.edit { putBoolean("use_tunneling", enabled) }
     }

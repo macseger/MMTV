@@ -149,8 +149,15 @@ fun LoginScreen(viewModel: MediaViewModel, onLogin: (String, String, String) -> 
                 keyboardActions = KeyboardActions(
                     onDone = { 
                         focusManager.clearFocus()
-                        val finalHost = if (!host.startsWith("http")) "http://$host" else host
-                        onLogin(finalHost, username, password) 
+                        val cleanHost = host.trim()
+                        val cleanUser = username.trim()
+                        val cleanPass = password.trim()
+                        val finalHost = if (cleanHost.startsWith("http://", ignoreCase = true) || cleanHost.startsWith("https://", ignoreCase = true)) {
+                            cleanHost
+                        } else {
+                            "http://$cleanHost"
+                        }
+                        onLogin(finalHost, cleanUser, cleanPass) 
                     }
                 )
             )
@@ -158,8 +165,15 @@ fun LoginScreen(viewModel: MediaViewModel, onLogin: (String, String, String) -> 
             
             Button(
                 onClick = { 
-                    val finalHost = if (!host.startsWith("http")) "http://$host" else host
-                    onLogin(finalHost, username, password) 
+                    val cleanHost = host.trim()
+                    val cleanUser = username.trim()
+                    val cleanPass = password.trim()
+                    val finalHost = if (cleanHost.startsWith("http://", ignoreCase = true) || cleanHost.startsWith("https://", ignoreCase = true)) {
+                        cleanHost
+                    } else {
+                        "http://$cleanHost"
+                    }
+                    onLogin(finalHost, cleanUser, cleanPass) 
                 },
                 modifier = Modifier.widthIn(max = 400.dp).fillMaxWidth(),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)

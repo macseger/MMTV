@@ -10,6 +10,7 @@ data class LoginResponse(
 data class UserInfo(
     val username: String?,
     val status: String?,
+    @SerializedName("auth") val auth: Any? = null,
     @SerializedName("exp_date") val expDate: String?,
     @SerializedName("active_cons") val activeCons: String?,
     @SerializedName("max_connections") val maxConnections: String?

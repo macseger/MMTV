@@ -1,13 +1,32 @@
 package com.example.mmtv.ui
 
+import android.util.Log
 import com.example.mmtv.model.GroupedMedia
 import com.example.mmtv.model.MediaType
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
-// One request at a time, one attempt per section, and a bounded total startup wait.
 internal suspend fun loadCategoryCatalog(
-    timeoutMillis: Long = 20_000,
+    timeoutMillis: Long = 45_000,
     fetch: suspend (MediaType) -> List<GroupedMedia>
-): Map<MediaType, List<GroupedMedia>> = withTimeout(timeoutMillis) {
-    MediaType.entries.associateWith { type -> fetch(type) }
+): Map<MediaType, List<GroupedMedia>> {
+    val result = mutableMapOf<MediaType, List<GroupedMedia>>()
+    
+    withTimeoutOrNull(timeoutMillis) {
+        for (type in MediaType.entries) {
+            try {
+                result[type] = fetch(type)
+            } catch (e: Exception) {
+                Log.e("CategoryCatalog", "Kunde inte hämta kategorier för $type: ${e.message}")
+                result[type] = emptyList()
+            }
+        }
+    }
+    
+    for (type in MediaType.entries) {
+        if (!result.containsKey(type)) {
+            result[type] = emptyList()
+        }
+    }
+    
+    return result
 }

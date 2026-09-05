@@ -325,36 +325,44 @@ class MediaRepository(
     suspend fun syncLiveChannels(user: String, pass: String) = withContext(Dispatchers.IO) {
         liveSyncMutex.withLock {
             try {
-                val liveCats = api.getLiveCategories(user, pass)
-                if (!session.hasSyncSelection()) return@withContext
+                val liveCats = try { api.getLiveCategories(user, pass) } catch (e: Exception) { emptyList() }
+                if (liveCats.isEmpty() || !session.hasSyncSelection()) return@withContext
                 val selected = session.getSyncCategories(MediaType.LIVE)
-                val liveStreams = liveCats.filter { it.categoryId in selected }.flatMap { category ->
-                    api.getLiveStreams(user, pass, categoryId = category.categoryId)
-                        .filter { it.categoryId == category.categoryId }
+
+                val liveEntities = mutableListOf<MediaEntity>()
+                var itemIndex = 0
+
+                for (category in liveCats.filter { it.categoryId in selected }) {
+                    try {
+                        val streams = api.getLiveStreams(user, pass, categoryId = category.categoryId)
+                        val catName = category.categoryName.ifBlank { "Okänd" }
+                        for (stream in streams) {
+                            val targetCatId = stream.categoryId?.takeIf { it.isNotBlank() && it != "0" } ?: category.categoryId
+                            val originalName = stream.name ?: ""
+                            liveEntities.add(
+                                MediaEntity(
+                                    id = stream.streamId,
+                                    title = originalName,
+                                    type = MediaType.LIVE,
+                                    categoryId = targetCatId,
+                                    categoryName = catName,
+                                    icon = stream.streamIcon,
+                                    epgId = stream.epgId,
+                                    itemOrder = itemIndex++,
+                                    addedDate = 0L
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MediaRepository", "Kunde inte hämta live kanaler för kategori ${category.categoryId}: ${e.message}")
+                    }
                 }
-                val categoriesById = liveCats.associateBy { it.categoryId }
-                val liveEntities = liveStreams.mapIndexed { index, stream ->
-                    val cat = categoriesById[stream.categoryId]
-                    // Vi behåller ursprungligt namn från servern enligt önskemål
-                    val originalName = stream.name ?: ""
-                    MediaEntity(
-                        id = stream.streamId,
-                        title = originalName,
-                        type = MediaType.LIVE,
-                        categoryId = stream.categoryId ?: "",
-                        categoryName = cat?.categoryName ?: "Okänd",
-                        icon = stream.streamIcon,
-                        epgId = stream.epgId,
-                        itemOrder = index,
-                        addedDate = 0L
-                    )
-                }
+
                 if (selected == session.getSyncCategories(MediaType.LIVE)) {
                     mediaDao.replaceTypePreservingFavorites(MediaType.LIVE, liveEntities)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                throw e
             }
         }
     }
@@ -373,34 +381,43 @@ class MediaRepository(
     suspend fun syncMovies(user: String, pass: String) = withContext(Dispatchers.IO) {
         movieSyncMutex.withLock {
             try {
-                val movieCats = api.getMovieCategories(user, pass)
-                if (!session.hasSyncSelection()) return@withContext
+                val movieCats = try { api.getMovieCategories(user, pass) } catch (e: Exception) { emptyList() }
+                if (movieCats.isEmpty() || !session.hasSyncSelection()) return@withContext
                 val selected = session.getSyncCategories(MediaType.MOVIE)
-                val movies = movieCats.filter { it.categoryId in selected }.flatMap { category ->
-                    api.getMovies(user, pass, categoryId = category.categoryId)
-                        .filter { it.categoryId == category.categoryId }
+
+                val movieEntities = mutableListOf<MediaEntity>()
+                var itemIndex = 0
+
+                for (category in movieCats.filter { it.categoryId in selected }) {
+                    try {
+                        val movies = api.getMovies(user, pass, categoryId = category.categoryId)
+                        val catName = category.categoryName.ifBlank { "Okänd" }
+                        for (movie in movies) {
+                            val targetCatId = movie.categoryId?.takeIf { it.isNotBlank() && it != "0" } ?: category.categoryId
+                            movieEntities.add(
+                                MediaEntity(
+                                    id = movie.streamId,
+                                    title = movie.name ?: "",
+                                    type = MediaType.MOVIE,
+                                    categoryId = targetCatId,
+                                    categoryName = catName,
+                                    icon = movie.streamIcon,
+                                    extension = movie.containerExtension ?: "mp4",
+                                    itemOrder = itemIndex++,
+                                    addedDate = parseDateToUnix(movie.added)
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MediaRepository", "Kunde inte hämta filmer för kategori ${category.categoryId}: ${e.message}")
+                    }
                 }
-                val categoriesById = movieCats.associateBy { it.categoryId }
-                val movieEntities = movies.mapIndexed { index, movie ->
-                    val cat = categoriesById[movie.categoryId]
-                    MediaEntity(
-                        id = movie.streamId,
-                        title = movie.name ?: "",
-                        type = MediaType.MOVIE,
-                        categoryId = movie.categoryId ?: "",
-                        categoryName = cat?.categoryName ?: "Okänd",
-                        icon = movie.streamIcon,
-                        extension = movie.containerExtension ?: "mp4",
-                        itemOrder = index,
-                        addedDate = parseDateToUnix(movie.added)
-                    )
-                }
+
                 if (selected == session.getSyncCategories(MediaType.MOVIE)) {
                     mediaDao.replaceTypePreservingFavorites(MediaType.MOVIE, movieEntities)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                throw e
             }
         }
     }
@@ -408,48 +425,57 @@ class MediaRepository(
     suspend fun syncSeries(user: String, pass: String) = withContext(Dispatchers.IO) {
         seriesSyncMutex.withLock {
             try {
-                val seriesCats = api.getSeriesCategories(user, pass)
-                if (!session.hasSyncSelection()) return@withContext
+                val seriesCats = try { api.getSeriesCategories(user, pass) } catch (e: Exception) { emptyList() }
+                if (seriesCats.isEmpty() || !session.hasSyncSelection()) return@withContext
                 val selected = session.getSyncCategories(MediaType.SERIES)
-                val seriesItems = seriesCats.filter { it.categoryId in selected }.flatMap { category ->
-                    api.getSeries(user, pass, categoryId = category.categoryId)
-                        .filter { it.categoryId == category.categoryId }
+
+                val seriesEntities = mutableListOf<MediaEntity>()
+                var itemIndex = 0
+
+                for (category in seriesCats.filter { it.categoryId in selected }) {
+                    try {
+                        val seriesItems = api.getSeries(user, pass, categoryId = category.categoryId)
+                        val catName = category.categoryName.ifBlank { "Okänd" }
+                        for (item in seriesItems) {
+                            val targetCatId = item.categoryId?.takeIf { it.isNotBlank() && it != "0" } ?: category.categoryId
+                            seriesEntities.add(
+                                MediaEntity(
+                                    id = item.seriesId,
+                                    title = item.name ?: "",
+                                    type = MediaType.SERIES,
+                                    categoryId = targetCatId,
+                                    categoryName = catName,
+                                    icon = item.cover,
+                                    itemOrder = itemIndex++,
+                                    addedDate = parseDateToUnix(item.lastModified)
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MediaRepository", "Kunde inte hämta serier för kategori ${category.categoryId}: ${e.message}")
+                    }
                 }
-                val categoriesById = seriesCats.associateBy { it.categoryId }
-                val seriesEntities = seriesItems.mapIndexed { index, item ->
-                    val cat = categoriesById[item.categoryId]
-                    MediaEntity(
-                        id = item.seriesId,
-                        title = item.name ?: "",
-                        type = MediaType.SERIES,
-                        categoryId = item.categoryId ?: "",
-                        categoryName = cat?.categoryName ?: "Okänd",
-                        icon = item.cover,
-                        itemOrder = index,
-                        addedDate = parseDateToUnix(item.lastModified)
-                    )
-                }
+
                 if (selected == session.getSyncCategories(MediaType.SERIES)) {
                     mediaDao.replaceTypePreservingFavorites(MediaType.SERIES, seriesEntities)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                throw e
             }
         }
     }
 
     suspend fun syncVodLibrary(user: String, pass: String) = coroutineScope {
-        val movieJob = async { syncMovies(user, pass) }
-        val seriesJob = async { syncSeries(user, pass) }
+        val movieJob = async { try { syncMovies(user, pass) } catch (e: Exception) { e.printStackTrace() } }
+        val seriesJob = async { try { syncSeries(user, pass) } catch (e: Exception) { e.printStackTrace() } }
         movieJob.await()
         seriesJob.await()
     }
 
     suspend fun syncLibrary(user: String, pass: String) = coroutineScope {
         val selection = MediaType.entries.associateWith(session::getSyncCategories)
-        val liveJob = async { syncLiveChannels(user, pass) }
-        val vodJob = async { syncVodLibrary(user, pass) }
+        val liveJob = async { try { syncLiveChannels(user, pass) } catch (e: Exception) { e.printStackTrace() } }
+        val vodJob = async { try { syncVodLibrary(user, pass) } catch (e: Exception) { e.printStackTrace() } }
         liveJob.await()
         vodJob.await()
         if (selection == MediaType.entries.associateWith(session::getSyncCategories)) session.markSyncSelectionComplete()
@@ -457,47 +483,58 @@ class MediaRepository(
 
     suspend fun fetchAndStoreEpg(user: String, pass: String, forceRefresh: Boolean = false) = withContext(Dispatchers.IO) {
         epgSyncMutex.withLock {
-            if (!session.hasSyncSelection()) return@withContext
-            val selectedLive = mediaDao.getMediaByType(MediaType.LIVE)
-                .filter { it.categoryId in session.getSyncCategories(MediaType.LIVE) }
-            val scope = selectedLive.map { "${it.id}:${it.epgId}" }.sorted().joinToString("|") + session.getUseExternalSwedishEpg()
-            val scopeFile = File(cacheDir, "${accountCacheKey()}_epg_scope")
-            val scopeChanged = !scopeFile.exists() || scopeFile.readText() != scope
-            val refreshInterval = 3 * 60 * 60 * 1000L
-            if (!forceRefresh && !scopeChanged && System.currentTimeMillis() - scopeFile.lastModified() < refreshInterval) {
-                return@withContext
-            }
-            if (scopeChanged || forceRefresh) {
-                mediaDao.clearEpg()
-                mediaDao.clearChannelMetadata()
-            }
-            epgCache.clear()
-            if (selectedLive.isEmpty()) {
-                scopeFile.writeText(scope)
-                return@withContext
-            }
-
-            // Bounded requests: only the selected stream IDs, with account-scoped disk caching.
-            val channelApiWorked = fetchSelectedChannelEpg(user, pass, selectedLive, forceRefresh)
-            if (!channelApiWorked) {
-                val xmlFile = File(cacheDir, "${accountCacheKey()}_full_epg.xml")
-                val stale = !xmlFile.exists() || System.currentTimeMillis() - xmlFile.lastModified() > 24 * 60 * 60 * 1000L
-                if (forceRefresh || stale) downloadEpgFile(xmlFile) { api.getFullEpg(user, pass) }
-                parseAndStore(xmlFile, true)
-            }
-            if (session.getUseExternalSwedishEpg()) {
-                val xmlFile = File(cacheDir, "swedish_epg.xml")
-                val stale = !xmlFile.exists() || System.currentTimeMillis() - xmlFile.lastModified() > 24 * 60 * 60 * 1000L
-                if (forceRefresh || stale) downloadEpgFile(xmlFile) {
-                    api.getExternalEpg("https://epgshare01.online/epgshare01/epg_ripper_SE1.xml.gz")
+            try {
+                if (!session.hasSyncSelection()) return@withContext
+                val selectedLive = mediaDao.getMediaByType(MediaType.LIVE)
+                    .filter { it.categoryId in session.getSyncCategories(MediaType.LIVE) }
+                val scope = selectedLive.map { "${it.id}:${it.epgId}" }.sorted().joinToString("|") + session.getUseExternalSwedishEpg()
+                val scopeFile = File(cacheDir, "${accountCacheKey()}_epg_scope")
+                val scopeChanged = !scopeFile.exists() || scopeFile.readText() != scope
+                val refreshInterval = 3 * 60 * 60 * 1000L
+                if (!forceRefresh && !scopeChanged && System.currentTimeMillis() - scopeFile.lastModified() < refreshInterval) {
+                    return@withContext
                 }
-                // Server data may have replaced the previous external entries.
-                parseAndStore(xmlFile, false)
+                if (scopeChanged || forceRefresh) {
+                    mediaDao.clearEpg()
+                    mediaDao.clearChannelMetadata()
+                }
+                epgCache.clear()
+                if (selectedLive.isEmpty()) {
+                    scopeFile.writeText(scope)
+                    return@withContext
+                }
+
+                // Bounded requests: only the selected stream IDs, with account-scoped disk caching.
+                val channelApiWorked = try { fetchSelectedChannelEpg(user, pass, selectedLive, forceRefresh) } catch (e: Exception) { false }
+                if (!channelApiWorked) {
+                    try {
+                        val xmlFile = File(cacheDir, "${accountCacheKey()}_full_epg.xml")
+                        val stale = !xmlFile.exists() || System.currentTimeMillis() - xmlFile.lastModified() > 24 * 60 * 60 * 1000L
+                        if (forceRefresh || stale) downloadEpgFile(xmlFile) { api.getFullEpg(user, pass) }
+                        parseAndStore(xmlFile, true)
+                    } catch (e: Exception) {
+                        android.util.Log.e("MediaRepository", "Kunde inte ladda full EPG: ${e.message}")
+                    }
+                }
+                if (session.getUseExternalSwedishEpg()) {
+                    try {
+                        val xmlFile = File(cacheDir, "swedish_epg.xml")
+                        val stale = !xmlFile.exists() || System.currentTimeMillis() - xmlFile.lastModified() > 24 * 60 * 60 * 1000L
+                        if (forceRefresh || stale) downloadEpgFile(xmlFile) {
+                            api.getExternalEpg("https://epgshare01.online/epgshare01/epg_ripper_SE1.xml.gz")
+                        }
+                        parseAndStore(xmlFile, false)
+                    } catch (e: Exception) {
+                        android.util.Log.e("MediaRepository", "Kunde inte ladda extern SE EPG: ${e.message}")
+                    }
+                }
+                mediaDao.deleteOldEpg(System.currentTimeMillis() / 1000)
+                scopeFile.writeText(scope)
+                epgCache.clear()
+                syncPiconsFromGithub(forceRefresh)
+            } catch (e: Exception) {
+                android.util.Log.e("MediaRepository", "EPG-synk fel: ${e.message}")
             }
-            mediaDao.deleteOldEpg(System.currentTimeMillis() / 1000)
-            scopeFile.writeText(scope)
-            epgCache.clear()
-            syncPiconsFromGithub(forceRefresh)
         }
     }
 

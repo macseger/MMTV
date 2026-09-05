@@ -41,6 +41,8 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.KeyEventType
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -231,18 +233,21 @@ class MainActivity : AppCompatActivity() {
                                         LoginScreen(
                                             viewModel = sharedViewModel,
                                             onLogin = { h, u, p ->
-                                                sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), database.mediaDao(), context))
+                                                val cleanHost = h.trim()
+                                                val cleanUser = u.trim()
+                                                val cleanPass = p.trim()
+                                                sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(cleanHost), database.mediaDao(), context))
                                                 
                                                 lifecycleScope.launch {
                                                     // 1. Kontrollera inloggningen först
-                                                    val loginSuccess = sharedViewModel.login(h, u, p)
+                                                    val loginSuccess = sharedViewModel.login(cleanHost, cleanUser, cleanPass)
                                                     if (!loginSuccess) return@launch
 
                                                     navController.navigate("home") {
                                                         popUpTo("login") { inclusive = true }
                                                     }
                                                     scheduleDataSync(context)
-                                                    sharedViewModel.fetchData(u, p, forceRefresh = true)
+                                                    sharedViewModel.fetchData(cleanUser, cleanPass, forceRefresh = true)
                                                 }
                                             },
                                             isProvisioning = isProvisioning,
@@ -649,8 +654,16 @@ class MainActivity : AppCompatActivity() {
                                         .align(Alignment.BottomStart)
                                         .padding(16.dp)
                                 ) {
+                                    val statusText = sharedViewModel.updateStatus ?: ""
+                                    val isProgress = statusText.startsWith("Uppdaterar") || 
+                                                    statusText.startsWith("Synkar") || 
+                                                    statusText.startsWith("Hämtar") || 
+                                                    statusText.startsWith("Kollar") || 
+                                                    statusText.startsWith("Optimerar") || 
+                                                    statusText.startsWith("Extraherar")
+
                                     Surface(
-                                        color = Color.Black.copy(alpha = 0.8f),
+                                        color = Color.Black.copy(alpha = 0.85f),
                                         shape = RoundedCornerShape(8.dp),
                                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
                                         modifier = Modifier.clip(RoundedCornerShape(8.dp))
@@ -660,13 +673,22 @@ class MainActivity : AppCompatActivity() {
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                                         ) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(20.dp),
-                                                strokeWidth = 2.dp,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
+                                            if (isProgress) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(20.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            } else {
+                                                Icon(
+                                                    imageVector = Icons.Default.CheckCircle,
+                                                    contentDescription = null,
+                                                    tint = Color(0xFF4CAF50),
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
                                             Text(
-                                                text = sharedViewModel.updateStatus ?: "",
+                                                text = statusText,
                                                 color = Color.White,
                                                 fontSize = 14.sp,
                                                 fontWeight = FontWeight.Bold

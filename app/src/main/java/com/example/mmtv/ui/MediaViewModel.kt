@@ -217,6 +217,21 @@ class MediaViewModel(
 
     var updateStatus by mutableStateOf<String?>(null)
         private set
+
+    private var updateStatusJob: kotlinx.coroutines.Job? = null
+
+    fun showStatusMessage(message: String?, durationMs: Long = 5000L) {
+        updateStatusJob?.cancel()
+        updateStatus = message
+        if (message != null && durationMs > 0) {
+            updateStatusJob = viewModelScope.launch {
+                delay(durationMs)
+                if (updateStatus == message) {
+                    updateStatus = null
+                }
+            }
+        }
+    }
     
     var isUpdatingBackground by mutableStateOf(false)
         private set
@@ -289,17 +304,36 @@ class MediaViewModel(
 
     suspend fun login(h: String, u: String, p: String): Boolean {
         loginError = null
+        val host = h.trim()
+        val user = u.trim()
+        val pass = p.trim()
         return try {
-            val response = _repository.api.login(u, p)
-            val success = response.userInfo?.status == "Active"
+            val response = _repository.api.login(user, pass)
+            val userInfo = response.userInfo
+            val statusStr = userInfo?.status?.trim()
+            val authStr = userInfo?.auth?.toString()?.trim()
+
+            val isAuthOk = authStr == "1" || authStr == "1.0" || authStr?.equals("true", ignoreCase = true) == true
+            val isStatusActive = statusStr?.equals("Active", ignoreCase = true) == true || statusStr == "1"
+            val isNotBlocked = statusStr?.equals("Banned", ignoreCase = true) != true 
+                    && statusStr?.equals("Disabled", ignoreCase = true) != true
+                    && statusStr?.equals("Expired", ignoreCase = true) != true
+
+            val success = (isAuthOk || isStatusActive || userInfo != null) && isNotBlocked
             if (success) {
-                sessionManager.saveLogin(h, u, p)
+                sessionManager.saveLogin(host, user, pass)
             } else {
-                loginError = "Ogiltiga inloggningsuppgifter eller konto inte aktivt"
+                loginError = if (statusStr?.equals("Expired", ignoreCase = true) == true) {
+                    "Konto har gått ut"
+                } else if (statusStr?.equals("Banned", ignoreCase = true) == true || statusStr?.equals("Disabled", ignoreCase = true) == true) {
+                    "Konto är avstängt"
+                } else {
+                    "Ogiltiga inloggningsuppgifter eller konto inte aktivt"
+                }
             }
             success
         } catch (e: Exception) {
-            loginError = "Anslutningsfel: ${e.message}"
+            loginError = "Anslutningsfel: ${e.message ?: "Kunde inte ansluta till servern"}"
             false
         }
     }
@@ -341,13 +375,21 @@ class MediaViewModel(
             uiState = uiState.copy(isLoading = true)
             try {
                 // 1. Hämta kategorier först (mycket snabbt)
-                updateStatus = "Hämtar kategorier..."
+                showStatusMessage("Hämtar kategorier...")
                 syncCategoryOptions = loadSyncCategoryOptions(user, pass, forceRefresh)
+                if (syncCategoryOptions.values.all { it.isEmpty() }) {
+                    uiState = uiState.copy(isLoading = false)
+                    isUpdatingBackground = false
+                    startupError = "Kunde inte hämta några kategorier från servern. Kontrollera server-URL och anslutningen."
+                    showStatusMessage(null)
+                    onComplete?.invoke(false)
+                    return@launch
+                }
                 if (!sessionManager.hasSyncSelection()) {
                     showSyncSelection = true
                     uiState = uiState.copy(isLoading = false)
                     isUpdatingBackground = false
-                    updateStatus = null
+                    showStatusMessage(null)
                     onComplete?.invoke(true)
                     return@launch
                 }
@@ -411,10 +453,9 @@ class MediaViewModel(
                     
                     val isDbEmpty = sessionManager.isSyncSelectionPending()
                     if (forceRefresh || isDbEmpty) {
-                        updateStatus = "Synkar valda kategorier..."
+                        showStatusMessage("Synkar valda kategorier...")
                         _repository.syncLibrary(user, pass)
 
-                        updateStatus = "Hämtar tablåer..."
                         _repository.fetchAndStoreEpg(user, pass, forceRefresh)
                         _repository.resolveLiveIcons()
                         withContext(Dispatchers.Main) {
@@ -452,7 +493,6 @@ class MediaViewModel(
                         }
                         
                         // Uppdatera EPG asynkront
-                        updateStatus = "Kollar tablåer..."
                         _repository.fetchAndStoreEpg(user, pass, forceRefresh)
                         withContext(Dispatchers.Main) {
                             fullEpgData.clear()
@@ -462,9 +502,7 @@ class MediaViewModel(
                     }
 
                     withContext(Dispatchers.Main) {
-                        updateStatus = "Klart!"
-                        delay(3000)
-                        updateStatus = null
+                        showStatusMessage("Innehållet är uppdaterat")
                         isUpdatingBackground = false
                     }
                 }
@@ -474,9 +512,9 @@ class MediaViewModel(
                 isUpdatingBackground = false
                 if (uiState.liveCategories.isEmpty()) {
                     startupError = "Servern svarade inte i tid eller kategorierna kunde inte läsas. Inga automatiska nya försök görs."
-                    updateStatus = null
+                    showStatusMessage(null)
                 } else {
-                    updateStatus = "Synkningen misslyckades. Försök igen i Inställningar."
+                    showStatusMessage("Synkningen misslyckades. Försök igen i Inställningar.")
                 }
                 onComplete?.invoke(false)
             } finally {
@@ -777,7 +815,7 @@ class MediaViewModel(
             try {
                 val creds = sessionManager.getLogin() ?: return@launch
                 isUpdatingBackground = true
-                updateStatus = "Uppdaterar TV-kanaler..."
+                showStatusMessage("Uppdaterar TV-kanaler...")
 
                 withContext(Dispatchers.IO) {
                     _repository.syncLiveChannels(creds.second, creds.third)
@@ -803,13 +841,11 @@ class MediaViewModel(
                     }
                 }
 
-                updateStatus = "TV-kanaler uppdaterade!"
-                delay(2000)
-                updateStatus = null
+                showStatusMessage("Spellista för TV-Kanaler uppdaterades")
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                updateStatus = "Synkningen misslyckades. Försök igen."
+                showStatusMessage("Synkningen misslyckades. Försök igen.")
             } finally {
                 isUpdatingBackground = false
             }
@@ -823,7 +859,7 @@ class MediaViewModel(
             try {
                 val creds = sessionManager.getLogin() ?: return@launch
                 isUpdatingBackground = true
-                updateStatus = "Uppdaterar film & serier..."
+                showStatusMessage("Uppdaterar film & serier...")
 
                 withContext(Dispatchers.IO) {
                     _repository.syncVodLibrary(creds.second, creds.third)
@@ -854,13 +890,11 @@ class MediaViewModel(
                     }
                 }
 
-                updateStatus = "Film & serier uppdaterade!"
-                delay(2000)
-                updateStatus = null
+                showStatusMessage("Spellista för Film/Serier uppdaterades")
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                updateStatus = "Synkningen misslyckades. Försök igen."
+                showStatusMessage("Synkningen misslyckades. Försök igen.")
             } finally {
                 isUpdatingBackground = false
             }
@@ -874,17 +908,15 @@ class MediaViewModel(
             try {
                 val creds = sessionManager.getLogin() ?: return@launch
                 isUpdatingBackground = true
-                updateStatus = "Uppdaterar tablåer..."
+                showStatusMessage("Uppdaterar tablåer...")
                 _repository.fetchAndStoreEpg(creds.second, creds.third, forceRefresh = true)
                 fullEpgData.clear()
                 loadedFullEpgIds.clear()
-                updateStatus = "Tablåer uppdaterade!"
-                delay(2000)
-                updateStatus = null
+                showStatusMessage("TV-Tablån är uppdaterad")
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
-                updateStatus = "Synkningen misslyckades. Försök igen."
+                showStatusMessage("Synkningen misslyckades. Försök igen.")
             } finally {
                 isUpdatingBackground = false
             }
@@ -894,14 +926,12 @@ class MediaViewModel(
     fun performOptimization() {
         viewModelScope.launch(Dispatchers.IO) {
             isUpdatingBackground = true
-            updateStatus = "Optimerar databas..."
+            showStatusMessage("Optimerar databas...")
             database.openHelper.writableDatabase.execSQL("VACUUM")
             val now = System.currentTimeMillis() / 1000
             mediaDao.deleteOldEpg(now)
             withContext(Dispatchers.Main) {
-                updateStatus = "Optimering klar!"
-                delay(2000)
-                updateStatus = null
+                showStatusMessage("Databasen har optimerats")
                 isUpdatingBackground = false
             }
         }
@@ -910,12 +940,10 @@ class MediaViewModel(
     fun extractPicons() {
         viewModelScope.launch(Dispatchers.IO) {
             isUpdatingBackground = true
-            updateStatus = "Extraherar lokala ikoner..."
+            showStatusMessage("Extraherar lokala ikoner...")
             _repository.extractPiconsIfNeeded()
             withContext(Dispatchers.Main) {
-                updateStatus = "Ikoner extraherade!"
-                delay(2000)
-                updateStatus = null
+                showStatusMessage("Lokala ikoner extraherades")
                 isUpdatingBackground = false
             }
         }

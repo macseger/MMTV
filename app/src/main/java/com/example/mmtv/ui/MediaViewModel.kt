@@ -26,6 +26,7 @@ import androidx.palette.graphics.Palette
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 
@@ -100,9 +101,10 @@ class MediaViewModel(
 
     // Caches för Compose-reaktivitet utan suspending-overhead i UI-loopen
     val fullEpgData = mutableStateMapOf<String, List<EpgListing>>()
-    private val fetchingEpgIds = mutableSetOf<Int>()
-    private val fetchingFullEpgIds = mutableSetOf<String>()
-    private val prefetchingCategoryIds = mutableSetOf<String>()
+    private val fetchingEpgIds = ConcurrentHashMap.newKeySet<Int>()
+    private val fetchingFullEpgIds = ConcurrentHashMap.newKeySet<String>()
+    private val prefetchingCategoryIds = ConcurrentHashMap.newKeySet<String>()
+    private val loadedFullEpgIds = ConcurrentHashMap.newKeySet<String>()
     
     // Cache för nuvarande program och ikoner
     private val currentEpgCache = mutableMapOf<String, EpgListing?>()
@@ -250,6 +252,7 @@ class MediaViewModel(
         uiState = MediaUiState()
         fullEpgData.clear()
         channelToEpgMap.clear()
+        loadedFullEpgIds.clear()
         _dbSearchResults.value = emptyList()
     }
 
@@ -334,7 +337,7 @@ class MediaViewModel(
                 onComplete?.invoke(true)
                 
                 // 2. Fortsätt med resten i bakgrunden efter en kort delay för att prioritera UI-rendering
-                launch(Dispatchers.IO) {
+                withContext(Dispatchers.IO) {
                     delay(1500) // Ge UI:t tid att rita upp sig själv först
                     
                     // Lokala ikoner i bakgrunden
@@ -348,6 +351,15 @@ class MediaViewModel(
                         } else {
                             updateStatus = "Synkar hela biblioteket..."
                             _repository.syncLibrary(user, pass)
+                        }
+
+                        updateStatus = "Hämtar tablåer..."
+                        _repository.fetchAndStoreEpg(user, pass, forceRefresh)
+                        _repository.resolveLiveIcons()
+                        withContext(Dispatchers.Main) {
+                            fullEpgData.clear()
+                            loadedFullEpgIds.clear()
+                            currentEpgCache.clear()
                         }
                         
                         // Ladda in items för de första kategorierna när biblioteket är redo
@@ -381,12 +393,19 @@ class MediaViewModel(
                         // Uppdatera EPG asynkront
                         updateStatus = "Kollar tablåer..."
                         _repository.fetchAndStoreEpg(user, pass, forceRefresh)
+                        withContext(Dispatchers.Main) {
+                            fullEpgData.clear()
+                            loadedFullEpgIds.clear()
+                            currentEpgCache.clear()
+                        }
                     }
 
-                    isUpdatingBackground = false
-                    updateStatus = "Klart!"
-                    delay(3000)
-                    updateStatus = null
+                    withContext(Dispatchers.Main) {
+                        isUpdatingBackground = false
+                        updateStatus = "Klart!"
+                        delay(3000)
+                        updateStatus = null
+                    }
                 }
 
             } catch (e: Exception) {
@@ -514,7 +533,7 @@ class MediaViewModel(
         // per-rad-sökningar när användaren bläddrar med fjärrkontrollen.
         val itemsToPrefetch = category.items
         val epgIds = itemsToPrefetch.mapNotNull { it.epgId }.distinct()
-        val missingEpgIds = epgIds.filterNot { fullEpgData.containsKey(it) }
+        val missingEpgIds = epgIds.filterNot { loadedFullEpgIds.contains(it) }
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -522,6 +541,7 @@ class MediaViewModel(
                 val epgByChannel = _repository.getEpgForChannels(missingEpgIds)
                 withContext(Dispatchers.Main) {
                     fullEpgData.putAll(epgByChannel)
+                    loadedFullEpgIds.addAll(missingEpgIds)
                 }
             }
             } finally {
@@ -583,6 +603,7 @@ class MediaViewModel(
                     return current
                 }
             }
+            if (loadedFullEpgIds.contains(epgId)) return null
         }
 
         // 3. Om vi saknar data, hämta i bakgrunden
@@ -632,6 +653,7 @@ class MediaViewModel(
         
         if (epgId != null) {
             fullEpgData[epgId]?.let { return it }
+            if (loadedFullEpgIds.contains(epgId)) return emptyList()
         }
         
         val key = epgId ?: "unknown_$id"
@@ -650,7 +672,10 @@ class MediaViewModel(
                         if (epg.isNotEmpty()) {
                             withContext(Dispatchers.Main) {
                                 fullEpgData[finalEpgId] = epg
+                                loadedFullEpgIds.add(finalEpgId)
                             }
+                        } else {
+                            withContext(Dispatchers.Main) { loadedFullEpgIds.add(finalEpgId) }
                         }
                     }
                 } catch (e: Exception) {
@@ -685,6 +710,13 @@ class MediaViewModel(
             
             withContext(Dispatchers.IO) {
                 _repository.syncLiveChannels(creds.second, creds.third)
+                _repository.fetchAndStoreEpg(creds.second, creds.third)
+                _repository.resolveLiveIcons()
+                withContext(Dispatchers.Main) {
+                    fullEpgData.clear()
+                    loadedFullEpgIds.clear()
+                    currentEpgCache.clear()
+                }
                 val liveData = _repository.getJustCategories(MediaType.LIVE, creds.second, creds.third, forceRefresh = true)
                 val allFavs = mediaDao.getFavorites()
                 
@@ -756,6 +788,7 @@ class MediaViewModel(
             updateStatus = "Uppdaterar tablåer..."
             _repository.fetchAndStoreEpg(creds.second, creds.third, forceRefresh = true)
             fullEpgData.clear()
+            loadedFullEpgIds.clear()
             isUpdatingBackground = false
             updateStatus = "Tablåer uppdaterade!"
             delay(2000)

@@ -32,6 +32,9 @@ class DataSyncWorker(
                 Log.d("DataSyncWorker", "Syncing full library")
                 repository.syncLibrary(user, pass)
             }
+
+            repository.fetchAndStoreEpg(user, pass)
+            repository.resolveLiveIcons()
             
             Log.d("DataSyncWorker", "Background sync completed successfully")
             Result.success()

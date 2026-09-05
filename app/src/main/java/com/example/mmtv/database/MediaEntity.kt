@@ -1,9 +1,18 @@
 package com.example.mmtv.database
 
 import androidx.room.Entity
+import androidx.room.Index
 import com.example.mmtv.model.MediaType
 
-@Entity(tableName = "media_items", primaryKeys = ["id", "type"])
+@Entity(
+    tableName = "media_items",
+    primaryKeys = ["id", "type"],
+    indices = [
+        Index(value = ["type", "categoryId", "itemOrder"]),
+        Index(value = ["isFavorite", "favoriteDate"]),
+        Index(value = ["addedDate"])
+    ]
+)
 data class MediaEntity(
     val id: Int, 
     val title: String,

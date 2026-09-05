@@ -10,7 +10,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.mmtv.model.MediaType
 
-@Database(entities = [MediaEntity::class, EpgEntity::class, ChannelEntity::class, PiconEntity::class], version = 13, exportSchema = false)
+@Database(entities = [MediaEntity::class, EpgEntity::class, ChannelEntity::class, PiconEntity::class], version = 14, exportSchema = false)
 @TypeConverters(MediaConverters::class)
 abstract class MediaDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao
@@ -28,6 +28,7 @@ abstract class MediaDatabase : RoomDatabase() {
                 )
                 .fallbackToDestructiveMigration()
                 .addMigrations(MIGRATION_12_13)
+                .addMigrations(MIGRATION_13_14)
                 .build()
                 INSTANCE = instance
                 instance
@@ -37,6 +38,14 @@ abstract class MediaDatabase : RoomDatabase() {
         private val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE media_items ADD COLUMN resolvedIcon TEXT")
+            }
+        }
+
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_media_items_type_categoryId_itemOrder ON media_items(type, categoryId, itemOrder)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_media_items_isFavorite_favoriteDate ON media_items(isFavorite, favoriteDate)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_media_items_addedDate ON media_items(addedDate)")
             }
         }
     }

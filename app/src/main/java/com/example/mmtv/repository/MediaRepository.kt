@@ -99,12 +99,13 @@ class MediaRepository(
     suspend fun getGroupedLive(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
         val categories = getLiveCategories(user, pass, forceRefresh)
         val streams = getLiveStreams(user, pass, forceRefresh = forceRefresh)
+        val streamsByCategory = streams.groupBy { it.categoryId }
         
         categories.map { cat ->
             GroupedMedia(
                 title = cat.categoryName,
                 categoryId = cat.categoryId,
-                items = streams.filter { it.categoryId == cat.categoryId }.map { 
+                items = streamsByCategory[cat.categoryId].orEmpty().map {
                     MediaSource(
                         id = it.streamId,
                         title = it.name,
@@ -120,12 +121,13 @@ class MediaRepository(
     suspend fun getGroupedMovies(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
         val categories = getMovieCategories(user, pass, forceRefresh)
         val movies = getMovies(user, pass, forceRefresh = forceRefresh)
+        val moviesByCategory = movies.groupBy { it.categoryId }
         
         categories.map { cat ->
             GroupedMedia(
                 title = cat.categoryName,
                 categoryId = cat.categoryId,
-                items = movies.filter { it.categoryId == cat.categoryId }.map { 
+                items = moviesByCategory[cat.categoryId].orEmpty().map {
                     MediaSource(
                         id = it.streamId,
                         title = it.name,
@@ -143,12 +145,13 @@ class MediaRepository(
     suspend fun getGroupedSeries(user: String, pass: String, forceRefresh: Boolean = false): List<GroupedMedia> = withContext(Dispatchers.IO) {
         val categories = getSeriesCategories(user, pass, forceRefresh)
         val series = getSeries(user, pass, forceRefresh = forceRefresh)
+        val seriesByCategory = series.groupBy { it.categoryId }
         
         categories.map { cat ->
             GroupedMedia(
                 title = cat.categoryName,
                 categoryId = cat.categoryId,
-                items = series.filter { it.categoryId == cat.categoryId }.map { 
+                items = seriesByCategory[cat.categoryId].orEmpty().map {
                     MediaSource(
                         id = it.seriesId,
                         title = it.name,
@@ -318,12 +321,13 @@ class MediaRepository(
             }
             mediaDao.deleteByType(MediaType.LIVE)
             mediaDao.insertAll(liveEntities)
-            fetchAndStoreEpg(user, pass)
-            resolveAndStoreLiveIcons()
         } catch (e: Exception) {
             e.printStackTrace()
+            throw e
         }
     }
+
+    suspend fun resolveLiveIcons() = resolveAndStoreLiveIcons()
 
     /** Körs enbart under kanaluppdateringen. Overlayen ska aldrig behöva matcha picons. */
     private suspend fun resolveAndStoreLiveIcons() = withContext(Dispatchers.IO) {
@@ -356,6 +360,7 @@ class MediaRepository(
             mediaDao.insertAll(movieEntities)
         } catch (e: Exception) {
             e.printStackTrace()
+            throw e
         }
     }
 
@@ -380,6 +385,7 @@ class MediaRepository(
             mediaDao.insertAll(seriesEntities)
         } catch (e: Exception) {
             e.printStackTrace()
+            throw e
         }
     }
 

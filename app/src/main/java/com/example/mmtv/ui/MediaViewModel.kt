@@ -27,6 +27,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
+import com.example.mmtv.ui.theme.AccentColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 
@@ -124,6 +125,8 @@ class MediaViewModel(
     private suspend fun loadSyncCategoryOptions(user: String, pass: String, forceRefresh: Boolean): Map<MediaType, List<GroupedMedia>> =
         loadCategoryCatalog { type -> _repository.getJustCategories(type, user, pass, forceRefresh, true) }
 
+    fun dismissStartupError() { startupError = null }
+
     fun dismissSyncSelection() { if (!requiresSyncSelection) showSyncSelection = false }
 
     fun saveSyncSelection(selection: Map<MediaType, Set<String>>) {
@@ -178,34 +181,36 @@ class MediaViewModel(
 
     var searchQuery by mutableStateOf("")
 
-    var currentThemeColor by mutableStateOf(Color(0xFF2196F3)) // Standard Blå
+    var currentThemeColor by mutableStateOf(AccentColor)
         private set
+    private var themeColorJob: kotlinx.coroutines.Job? = null
 
     fun updateThemeColorFromIcon(iconUrl: String?) {
-        if (iconUrl.isNullOrBlank()) {
-            currentThemeColor = Color(0xFF2196F3)
-            return
-        }
-        
-        viewModelScope.launch(Dispatchers.IO) {
+        themeColorJob?.cancel()
+        // Use a readable turquoise until a valid picon supplies its own color.
+        currentThemeColor = AccentColor
+        if (iconUrl.isNullOrBlank()) return
+
+        themeColorJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                val url = URL(iconUrl)
-                val connection = url.openConnection()
+                val connection = URL(iconUrl).openConnection()
                 connection.connectTimeout = 3000
                 connection.readTimeout = 3000
-                val inputStream = connection.getInputStream()
-                val bitmap = BitmapFactory.decodeStream(inputStream)
-                
-                if (bitmap != null) {
+                val bitmap = connection.getInputStream().use { BitmapFactory.decodeStream(it) }
+                    ?: return@launch
+                try {
                     val palette = Palette.from(bitmap).generate()
-                    // Vi letar efter en livlig färg (Vibrant), annars tar vi den dominerande
-                    val colorInt = palette.getVibrantColor(palette.getDominantColor(0xFF2196F3.toInt()))
+                    val colorInt = palette.getVibrantColor(palette.getDominantColor(AccentColor.toArgb()))
                     withContext(Dispatchers.Main) {
                         currentThemeColor = Color(colorInt)
                     }
+                } finally {
+                    bitmap.recycle()
                 }
-            } catch (e: Exception) {
-                // Vid fel behåller vi förra eller kör standard
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Missing/unreadable picons keep the turquoise fallback.
             }
         }
     }
@@ -358,7 +363,7 @@ class MediaViewModel(
                 val allFavs = withContext(Dispatchers.IO) { mediaDao.getFavorites() }
                 
                 fun List<GroupedMedia>.withFavoritesAndHistory(type: MediaType): List<GroupedMedia> {
-                    val favsForType = allFavs.filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }.map { it.toMediaSource() }
+                    val favsForType = allFavs.filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }.map { it.toMediaSource() }.let { if (type == MediaType.LIVE) it.sortedBy { item -> item.favoriteDate } else it }
                     val historyForType = sessionManager.getHistory().filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }
                     var result = this
 
@@ -574,7 +579,8 @@ class MediaViewModel(
                     // Om det inte redan finns i Favoriter (och matchar typen), lägg till det
                     val itemToAdd = updatedList.flatMap { it.items }.find { it.id == id && it.type == type }
                     if (itemToAdd != null && currentItems.none { it.id == id }) {
-                        currentItems.add(0, itemToAdd)
+                        if (type == MediaType.LIVE) currentItems.add(itemToAdd)
+                        else currentItems.add(0, itemToAdd)
                     }
                 } else {
                     currentItems.removeAll { it.id == id }
@@ -786,7 +792,7 @@ class MediaViewModel(
                     val allFavs = mediaDao.getFavorites()
 
                     withContext(Dispatchers.Main) {
-                        val favsForType = allFavs.filter { it.type == MediaType.LIVE && it.categoryId in sessionManager.getSyncCategories(MediaType.LIVE) }.map { it.toMediaSource() }
+                        val favsForType = allFavs.filter { it.type == MediaType.LIVE && it.categoryId in sessionManager.getSyncCategories(MediaType.LIVE) }.map { it.toMediaSource() }.sortedBy { it.favoriteDate }
                         uiState = uiState.copy(
                             liveCategories = listOf(
                                 GroupedMedia(title = "📺 ALLA KANALER", categoryId = "ALL_CHANNELS", items = emptyList()),
@@ -828,7 +834,7 @@ class MediaViewModel(
 
                     withContext(Dispatchers.Main) {
                         fun List<GroupedMedia>.withExtras(type: MediaType): List<GroupedMedia> {
-                            val favsForType = allFavs.filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }.map { it.toMediaSource() }
+                            val favsForType = allFavs.filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }.map { it.toMediaSource() }.let { if (type == MediaType.LIVE) it.sortedBy { item -> item.favoriteDate } else it }
                             val historyForType = history.filter { it.type == type && it.categoryId in sessionManager.getSyncCategories(type) }
                             return listOf(
                                 GroupedMedia(title = "🕒 HISTORIK", categoryId = "HISTORY", items = historyForType),

@@ -627,17 +627,11 @@ class MainActivity : AppCompatActivity() {
                                 }
                                 sharedViewModel.startupError?.let { message ->
                                     AlertDialog(
-                                        onDismissRequest = {},
+                                        onDismissRequest = { sharedViewModel.dismissStartupError() },
                                         title = { Text("Kunde inte hämta kategorier") },
                                         text = { Text(message) },
                                         confirmButton = {
-                                            Button(onClick = { sharedViewModel.refreshDataManually() }) { Text("Försök igen") }
-                                        },
-                                        dismissButton = {
-                                            TextButton(onClick = {
-                                                sharedViewModel.logout()
-                                                navController.navigate("login") { popUpTo("home") { inclusive = true } }
-                                            }) { Text("Till inloggning") }
+                                            Button(onClick = { sharedViewModel.refreshDataManually() }) { Text("Testa igen") }
                                         }
                                     )
                                 }

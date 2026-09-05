@@ -777,6 +777,52 @@ fun QuickInfoOverlay(
     }
 }
 
+// En liten, passiv TV-panel. Använder bara befintlig cache och följer
+// overlayens befintliga lageranimation även när menyn ligger utanför skärmen.
+@Composable
+private fun TvSideEpgPanel(
+    channel: MediaSource?,
+    viewModel: MediaViewModel,
+    now: Long,
+    modifier: Modifier = Modifier
+) {
+    val listings = channel?.let { viewModel.getCachedFullEpgForId(it.id) }.orEmpty()
+    val upcoming = remember(channel?.id, listings, now) {
+        listings.asSequence().filter { (it.stopTimestamp ?: 0) > now }.take(5).toList()
+    }
+    Column(
+        modifier = modifier
+            .background(Color(0xE6101010))
+            .padding(24.dp)
+    ) {
+        Text(
+            text = channel?.title.orEmpty(),
+            style = MaterialTheme.typography.titleLarge,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "PROGRAMGUIDE",
+            style = MaterialTheme.typography.labelLarge,
+            color = viewModel.currentThemeColor
+        )
+        Spacer(Modifier.height(12.dp))
+        if (upcoming.isEmpty()) {
+            Text("Ingen programinformation", color = Color.LightGray)
+        } else {
+            upcoming.forEach { epg ->
+                MiniProgramGuideItem(
+                    epg = epg,
+                    isCurrent = (epg.startTimestamp ?: 0) <= now && (epg.stopTimestamp ?: 0) > now,
+                    themeColor = viewModel.currentThemeColor
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun SideOverlay(
     isVisible: Boolean,
@@ -961,7 +1007,14 @@ fun SideOverlay(
                     }
                 }
 
-                if (overlayState == "CHANNELS" && !viewModel.isTvMode) {
+                if (overlayState == "CHANNELS" && viewModel.isTvMode) {
+                    TvSideEpgPanel(
+                        channel = focusedChannel,
+                        viewModel = viewModel,
+                        now = now,
+                        modifier = Modifier.weight(1f).fillMaxHeight()
+                    )
+                } else if (overlayState == "CHANNELS" && !viewModel.isTvMode) {
                     Column(
                         modifier = Modifier
                             .fillMaxHeight()

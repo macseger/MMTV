@@ -40,6 +40,20 @@ interface MediaDao {
     @Query("UPDATE media_items SET isFavorite = 0, favoriteDate = 0")
     suspend fun clearAllFavorites()
 
+    @Query("UPDATE media_items SET isFavorite = 0, favoriteDate = 0 WHERE type = :type")
+    suspend fun clearFavoritesByType(type: com.example.mmtv.model.MediaType)
+
+    @Query("UPDATE media_items SET isFavorite = 1, favoriteDate = :favDate WHERE type = :type AND id IN (:ids)")
+    suspend fun setFavoritesByIds(type: com.example.mmtv.model.MediaType, ids: List<Int>, favDate: Long)
+
+    @Transaction
+    suspend fun updateLiveFavorites(favIds: Set<Int>) {
+        clearFavoritesByType(com.example.mmtv.model.MediaType.LIVE)
+        if (favIds.isNotEmpty()) {
+            setFavoritesByIds(com.example.mmtv.model.MediaType.LIVE, favIds.toList(), System.currentTimeMillis())
+        }
+    }
+
     @Query("SELECT * FROM media_items WHERE type != 'LIVE' ORDER BY addedDate DESC LIMIT 10")
     suspend fun getRecentlyAdded(): List<MediaEntity>
 

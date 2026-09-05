@@ -530,6 +530,7 @@ class MainActivity : AppCompatActivity() {
                                                 }
                                             },
                                             onSelectSyncCategories = { sharedViewModel.openSyncSelection() },
+                                            onOpenTvFavorites = { sharedViewModel.openTvFavoritesDialog() },
                                             onRefreshLibrary = { sharedViewModel.refreshVodLibrary() },
                                             onRefreshTv = { sharedViewModel.refreshTvChannels() },
                                             onRefreshEpg = { sharedViewModel.refreshEpgOnly() },
@@ -636,6 +637,10 @@ class MainActivity : AppCompatActivity() {
 
                                 if (sharedViewModel.showSyncSelection) {
                                     com.example.mmtv.ui.SyncCategoryDialog(sharedViewModel)
+                                }
+
+                                if (sharedViewModel.showTvFavoritesDialog) {
+                                    TvFavoritesDialog(sharedViewModel)
                                 }
 
                                 // Overlay for background updates

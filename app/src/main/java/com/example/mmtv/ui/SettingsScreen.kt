@@ -51,6 +51,7 @@ fun SettingsScreen(
     onLogout: () -> Unit,
     onRefreshLibrary: () -> Unit,
     onSelectSyncCategories: () -> Unit,
+    onOpenTvFavorites: () -> Unit = {},
     onRefreshTv: () -> Unit,
     onRefreshEpg: () -> Unit,
     onExtractPicons: () -> Unit,
@@ -140,6 +141,15 @@ fun SettingsScreen(
                     icon = Icons.Default.Checklist,
                     isLoading = isUpdating,
                     onClick = onSelectSyncCategories
+                )
+            }
+
+            item {
+                SettingsAction(
+                    title = "Skapa TV Favoritlista",
+                    subtitle = "Välj snabbt vilka TV-kanaler du vill ha som favoriter ur alla dina kanaler.",
+                    icon = Icons.Default.Star,
+                    onClick = onOpenTvFavorites
                 )
             }
 

@@ -100,6 +100,51 @@ class MediaViewModel(
         private set
     var isLoadingSyncCategories by mutableStateOf(false)
         private set
+    var showTvFavoritesDialog by mutableStateOf(false)
+        private set
+
+    fun openTvFavoritesDialog() {
+        showTvFavoritesDialog = true
+    }
+
+    fun dismissTvFavoritesDialog() {
+        showTvFavoritesDialog = false
+    }
+
+    suspend fun getAllLiveChannelsForFavorites(): List<MediaSource> = withContext(Dispatchers.IO) {
+        mediaDao.getMediaByType(MediaType.LIVE)
+            .filter { it.categoryId in sessionManager.getSyncCategories(MediaType.LIVE) }
+            .map { it.toMediaSource() }
+    }
+
+    fun saveLiveFavorites(selectedIds: Set<Int>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            mediaDao.updateLiveFavorites(selectedIds)
+            val updatedFavs = mediaDao.getFavorites()
+                .filter { it.categoryId in sessionManager.getSyncCategories(it.type) }
+                .map { it.toMediaSource() }
+
+            withContext(Dispatchers.Main) {
+                _favorites.value = updatedFavs
+                showTvFavoritesDialog = false
+
+                val favsForLive = updatedFavs.filter { it.type == MediaType.LIVE }.sortedBy { it.favoriteDate }
+                uiState = uiState.copy(
+                    liveCategories = uiState.liveCategories.map { group ->
+                        if (group.categoryId == "FAVORITES") {
+                            group.copy(items = favsForLive)
+                        } else {
+                            group.copy(items = group.items.map { item ->
+                                item.copy(isFavorite = item.id in selectedIds)
+                            })
+                        }
+                    }
+                )
+                showStatusMessage("Favoritlistan för TV har uppdaterats")
+            }
+        }
+    }
+
     var startupError by mutableStateOf<String?>(null)
         private set
     var syncSelectionError by mutableStateOf<String?>(null)

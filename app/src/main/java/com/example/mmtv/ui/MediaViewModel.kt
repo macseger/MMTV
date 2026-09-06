@@ -728,10 +728,9 @@ class MediaViewModel(
     }
 
     /** Ren cacheläsning för overlayen; startar aldrig databas eller nätverk. */
-    fun getCachedCurrentEpgForId(id: Int): EpgListing? {
-        val now = System.currentTimeMillis() / 1000
+    fun getCachedCurrentEpgForId(id: Int, currentTime: Long = System.currentTimeMillis() / 1000): EpgListing? {
         return getCachedFullEpgForId(id).find {
-            (it.startTimestamp ?: 0) <= now && (it.stopTimestamp ?: 0) > now
+            (it.startTimestamp ?: 0) <= currentTime && (it.stopTimestamp ?: 0) > currentTime
         }
     }
 

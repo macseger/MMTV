@@ -137,7 +137,14 @@ fun EpgGrid(
     BackHandler { onClose() }
     
     val blueTheme = Color(0xFF1E88E5)
-    val now = remember { System.currentTimeMillis() / 1000 }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    LaunchedEffect(Unit) {
+        now = System.currentTimeMillis() / 1000
+        while (true) {
+            delay(10000)
+            now = System.currentTimeMillis() / 1000
+        }
+    }
     val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
     

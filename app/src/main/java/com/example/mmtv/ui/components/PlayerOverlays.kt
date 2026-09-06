@@ -302,7 +302,7 @@ fun ChannelListItem(
     var hasFocus by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
-    val epg = viewModel.getCachedCurrentEpgForId(item.id)
+    val epg = viewModel.getCachedCurrentEpgForId(item.id, now)
     val piconUrl = item.icon
 
     // Optimering: Skippa animateColorAsState för omedelbar respons
@@ -543,13 +543,15 @@ fun QuickInfoOverlay(
     // Ticker för att uppdatera klocka och framsteg
     var currentTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(Unit) {
+        currentTime = System.currentTimeMillis()
         while (true) {
-            delay(10000) // Uppdatera var 10:e sekund
+            delay(1000) // Uppdatera varje sekund för mjuk klocka och framsteg
             currentTime = System.currentTimeMillis()
         }
     }
 
-    val epg = viewModel.getCachedCurrentEpgForId(media.id)
+    val now = currentTime / 1000
+    val epg = viewModel.getCachedCurrentEpgForId(media.id, now)
     val piconUrl = media.icon
     
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
@@ -856,8 +858,10 @@ fun SideOverlay(
     var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     LaunchedEffect(isVisible) {
         if (isVisible) {
+            now = System.currentTimeMillis() / 1000
+            viewModel.prefetchEpgForCategory(viewModel.lastLiveCategoryIndex)
             while (true) {
-                delay(30000)
+                delay(1000)
                 now = System.currentTimeMillis() / 1000
             }
         }
@@ -1030,7 +1034,7 @@ fun SideOverlay(
                             },
                             label = "detailAnim"
                         ) { targetChannel ->
-                            val currentEpg = targetChannel?.let { viewModel.getCachedCurrentEpgForId(it.id) }
+                            val currentEpg = targetChannel?.let { viewModel.getCachedCurrentEpgForId(it.id, now) }
                             ModernProgramDetailBox(epg = currentEpg, channel = targetChannel, viewModel = viewModel)
                         }
 
@@ -1114,9 +1118,17 @@ fun EpgModal(
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     val piconUrl = media.icon
 
+    var nowTs by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    LaunchedEffect(Unit) {
+        nowTs = System.currentTimeMillis() / 1000
+        while (true) {
+            delay(1000)
+            nowTs = System.currentTimeMillis() / 1000
+        }
+    }
+
     // För-beräkna och formatera EPG-data för att undvika tungt jobb i listan
-    val formattedEpg = remember(fullEpg) {
-        val nowTs = System.currentTimeMillis() / 1000
+    val formattedEpg = remember(fullEpg, nowTs) {
         fullEpg.filter { (it.stopTimestamp ?: 0) > nowTs }.map { epg ->
             val startTs = epg.startTimestamp ?: 0L
             val stopTs = epg.stopTimestamp ?: 0L

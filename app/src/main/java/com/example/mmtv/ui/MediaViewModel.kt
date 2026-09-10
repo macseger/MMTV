@@ -422,217 +422,249 @@ class MediaViewModel(
         }
     }
 
+    private suspend fun publishStartupCatalog(catalog: Map<MediaType, List<GroupedMedia>>) {
+        val selection = MediaType.entries.associateWith(sessionManager::getSyncCategories)
+        val allFavs = withContext(Dispatchers.IO) { mediaDao.getFavorites() }
+        val history = sessionManager.getHistory()
+
+        fun groups(type: MediaType, previous: List<GroupedMedia>): List<GroupedMedia> {
+            val categories = catalog[type].orEmpty().filter { it.categoryId in selection.getValue(type) }
+            val retained = mergeStartupCategories(
+                previous.filter { it.categoryId in selection.getValue(type) },
+                categories
+            )
+            val favorites = allFavs.filter {
+                it.type == type && (it.isFavorite || it.categoryId in selection.getValue(type))
+            }.map { it.toMediaSource() }.let { items ->
+                if (type == MediaType.LIVE) items.sortedBy { it.favoriteDate } else items
+            }
+            val first = if (type == MediaType.LIVE) {
+                GroupedMedia("📺 ALLA KANALER",
+                    previous.firstOrNull { it.categoryId == "ALL_CHANNELS" }?.items.orEmpty(), "ALL_CHANNELS")
+            } else {
+                GroupedMedia("🕒 HISTORIK",
+                    history.filter { it.type == type && (it.isFavorite || it.categoryId in selection.getValue(type)) },
+                    "HISTORY")
+            }
+            return listOf(first, GroupedMedia("⭐ FAVORITER", favorites, "FAVORITES")) + retained
+        }
+
+        val oldState = uiState
+        val live = groups(MediaType.LIVE, oldState.liveCategories)
+        val movies = groups(MediaType.MOVIE, oldState.movieCategories)
+        val series = groups(MediaType.SERIES, oldState.seriesCategories)
+        val ppv = live.filter { category ->
+            listOf("TV4 Play", "Viaplay", "Svensk Hockey.tv", "Telia play").any {
+                category.title?.contains(it, ignoreCase = true) == true
+            }
+        }
+        fun restoredIndex(old: List<GroupedMedia>, index: Int, updated: List<GroupedMedia>, fallback: Int = 0): Int {
+            val id = old.getOrNull(index)?.categoryId
+            return updated.indexOfFirst { id != null && it.categoryId == id }
+                .takeIf { it >= 0 } ?: fallback.coerceIn(0, updated.lastIndex.coerceAtLeast(0))
+        }
+        val liveDefault = live.indexOfFirst { it.categoryId == "FAVORITES" && it.items.isNotEmpty() }
+            .takeIf { it >= 0 } ?: if (live.size > 2) 2 else 0
+        uiState = oldState.copy(
+            liveCategories = live, movieCategories = movies, seriesCategories = series,
+            ppvCategories = ppv, isLoading = false
+        )
+        lastLiveCategoryIndex = restoredIndex(oldState.liveCategories, lastLiveCategoryIndex, live, liveDefault)
+        lastMovieCategoryIndex = restoredIndex(oldState.movieCategories, lastMovieCategoryIndex, movies)
+        lastSeriesCategoryIndex = restoredIndex(oldState.seriesCategories, lastSeriesCategoryIndex, series)
+        lastPpvCategoryIndex = restoredIndex(oldState.ppvCategories, lastPpvCategoryIndex, ppv)
+        _favorites.value = allFavs.filter { it.categoryId in selection.getValue(it.type) }.map { it.toMediaSource() }
+    }
+
+    private suspend fun loadStartupItems(reload: Boolean = false) {
+        val initialRequests = listOf(
+            MediaType.LIVE to uiState.liveCategories.getOrNull(lastLiveCategoryIndex),
+            MediaType.LIVE to uiState.liveCategories.getOrNull(2),
+            MediaType.LIVE to uiState.ppvCategories.getOrNull(lastPpvCategoryIndex),
+            MediaType.MOVIE to uiState.movieCategories.getOrNull(lastMovieCategoryIndex),
+            MediaType.MOVIE to uiState.movieCategories.getOrNull(2),
+            MediaType.SERIES to uiState.seriesCategories.getOrNull(lastSeriesCategoryIndex),
+            MediaType.SERIES to uiState.seriesCategories.getOrNull(2)
+        )
+        val loadedRequests = if (reload) {
+            listOf(
+                MediaType.LIVE to (uiState.liveCategories + uiState.ppvCategories),
+                MediaType.MOVIE to uiState.movieCategories,
+                MediaType.SERIES to uiState.seriesCategories
+            ).flatMap { (type, groups) -> groups.filter { it.items.isNotEmpty() }.map { type to it } }
+        } else emptyList()
+        val requests = (initialRequests + loadedRequests).distinctBy { (type, group) -> type to group?.categoryId }
+        for ((type, group) in requests) {
+            if (group != null && (reload || group.items.isEmpty())) {
+                loadCategoryItems(type, group.categoryId)
+            }
+        }
+        prefetchEpgForCategory(lastLiveCategoryIndex)
+    }
+
     fun fetchData(user: String, pass: String, forceRefresh: Boolean = false, onComplete: ((Boolean) -> Unit)? = null) {
         if (isFetching) return
         isFetching = true
         startupError = null
         isUpdatingBackground = true
-        
+
         viewModelScope.launch {
+            var contentAvailable = false
+            var completionReported = false
+            fun reportReady(success: Boolean) {
+                if (!completionReported) {
+                    completionReported = true
+                    onComplete?.invoke(success)
+                }
+            }
             uiState = uiState.copy(isLoading = true)
             try {
-                // 1. Hämta kategorier först (mycket snabbt)
+                // Returning users can browse Room content before any catalog/network work.
+                if (sessionManager.hasSyncSelection()) {
+                    val localCatalog = withContext(Dispatchers.IO) {
+                        MediaType.entries.associateWith { type ->
+                            val selected = sessionManager.getSyncCategories(type)
+                            mediaDao.getCategoriesByType(type).filter { it.categoryId in selected }
+                                .distinctBy { it.categoryId }.map {
+                                GroupedMedia(it.categoryName, emptyList(), it.categoryId)
+                            }
+                        }
+                    }
+                    if (localCatalog.values.any { it.isNotEmpty() }) {
+                        publishStartupCatalog(localCatalog)
+                        loadStartupItems()
+                        contentAvailable = true
+                        reportReady(true)
+                    }
+                }
+
                 showStatusMessage("Hämtar kategorier...")
                 syncCategoryOptions = loadSyncCategoryOptions(user, pass, forceRefresh)
-                if (syncCategoryOptions.values.all { it.isEmpty() }) {
-                    uiState = uiState.copy(isLoading = false)
-                    isUpdatingBackground = false
+                if (syncCategoryOptions.values.all { it.isEmpty() } && !contentAvailable) {
                     startupError = "Kunde inte hämta några kategorier från servern. Kontrollera server-URL och anslutningen."
                     showStatusMessage(null)
-                    onComplete?.invoke(false)
+                    reportReady(false)
                     return@launch
                 }
                 if (!sessionManager.hasSyncSelection()) {
                     showSyncSelection = true
-                    uiState = uiState.copy(isLoading = false)
-                    isUpdatingBackground = false
                     showStatusMessage(null)
-                    onComplete?.invoke(true)
+                    reportReady(true)
                     return@launch
                 }
-                val liveData = syncCategoryOptions[MediaType.LIVE].orEmpty().filter { it.categoryId in sessionManager.getSyncCategories(MediaType.LIVE) }
-                val movieData = syncCategoryOptions[MediaType.MOVIE].orEmpty().filter { it.categoryId in sessionManager.getSyncCategories(MediaType.MOVIE) }
-                val seriesData = syncCategoryOptions[MediaType.SERIES].orEmpty().filter { it.categoryId in sessionManager.getSyncCategories(MediaType.SERIES) }
-                
-                val ppvKeywords = listOf("TV4 Play", "Viaplay", "Svensk Hockey.tv", "Telia play")
-                val ppvData = liveData.filter { cat -> 
-                    ppvKeywords.any { keyword -> cat.title?.contains(keyword, ignoreCase = true) == true }
+
+                // Empty/failed sections retain their local categories and loaded items.
+                publishStartupCatalog(syncCategoryOptions)
+                loadStartupItems()
+                contentAvailable = true
+                reportReady(true)
+
+                val needsLibrarySync = forceRefresh || sessionManager.isSyncSelectionPending()
+                if (needsLibrarySync) {
+                    showStatusMessage("Synkar valda kategorier...")
+                    _repository.syncLibrary(user, pass)
+                    // Newly synchronized channels become usable before picons and EPG finish.
+                    loadStartupItems(reload = true)
                 }
 
-                val allFavs = withContext(Dispatchers.IO) { mediaDao.getFavorites() }
-                
-                fun List<GroupedMedia>.withFavoritesAndHistory(type: MediaType): List<GroupedMedia> {
-                    val favsForType = allFavs.filter { it.type == type && (it.isFavorite || it.categoryId in sessionManager.getSyncCategories(type)) }.map { it.toMediaSource() }.let { if (type == MediaType.LIVE) it.sortedBy { item -> item.favoriteDate } else it }
-                    val historyForType = sessionManager.getHistory().filter { it.type == type && (it.isFavorite || it.categoryId in sessionManager.getSyncCategories(type)) }
-                    var result = this
+                val iconsChanged = _repository.extractPiconsIfNeeded(rematchExisting = false)
+                _repository.fetchAndStoreEpg(user, pass, forceRefresh)
+                if (needsLibrarySync) _repository.resolveLiveIcons()
 
-                    if (type == MediaType.LIVE) {
-                        result = listOf(
-                            GroupedMedia(title = "📺 ALLA KANALER", categoryId = "ALL_CHANNELS", items = emptyList()),
-                            GroupedMedia(title = "⭐ FAVORITER", categoryId = "FAVORITES", items = favsForType)
-                        ) + result
-                    } else {
-                        result = listOf(
-                            GroupedMedia(title = "🕒 HISTORIK", categoryId = "HISTORY", items = historyForType),
-                            GroupedMedia(title = "⭐ FAVORITER", categoryId = "FAVORITES", items = favsForType)
-                        ) + result
-                    }
-                    return result
-                }
-
-                // Uppdatera UI direkt med kategorierna
-                uiState = uiState.copy(
-                    liveCategories = liveData.withFavoritesAndHistory(MediaType.LIVE),
-                    movieCategories = movieData.withFavoritesAndHistory(MediaType.MOVIE),
-                    seriesCategories = seriesData.withFavoritesAndHistory(MediaType.SERIES),
-                    ppvCategories = ppvData,
-                    isLoading = false
-                )
-
-                // Om användaren har sparade favoriter, välj "FAVORITER"-kategorin (index 1) direkt
-                val favIndex = uiState.liveCategories.indexOfFirst { it.categoryId == "FAVORITES" && it.items.isNotEmpty() }
-                if (favIndex >= 0) {
-                    lastLiveCategoryIndex = favIndex
-                } else if (lastLiveCategoryIndex <= 1) {
-                    lastLiveCategoryIndex = uiState.liveCategories.indexOfFirst {
-                        it.categoryId == liveData.firstOrNull()?.categoryId
-                    }.takeIf { it >= 0 } ?: 0
-                }
-
-                // SLÄPP IN ANVÄNDAREN NU!
-                onComplete?.invoke(true)
-                
-                // 2. Fortsätt med resten i bakgrunden efter en kort delay för att prioritera UI-rendering
-                withContext(Dispatchers.IO) {
-                    delay(1500) // Ge UI:t tid att rita upp sig själv först
-                    
-                    // Lokala ikoner i bakgrunden
-                    _repository.extractPiconsIfNeeded()
-                    
-                    val isDbEmpty = sessionManager.isSyncSelectionPending()
-                    if (forceRefresh || isDbEmpty) {
-                        showStatusMessage("Synkar valda kategorier...")
-                        _repository.syncLibrary(user, pass)
-
-                        _repository.fetchAndStoreEpg(user, pass, forceRefresh)
-                        _repository.resolveLiveIcons()
-                        withContext(Dispatchers.Main) {
-                            fullEpgData.clear()
-                            loadedFullEpgIds.clear()
-                            currentEpgCache.clear()
-                        }
-                        
-                        // Ladda in items för de första kategorierna när biblioteket är redo
-                        withContext(Dispatchers.Main) {
-                            loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
-
-                            if (ppvData.isNotEmpty()) {
-                                loadItemsForCategory(MediaType.LIVE, ppvData.firstOrNull()?.categoryId)
-                            }
-                            
-                            // Om vi bara synkade live, kan vi ändå försöka ladda VOD om de fanns i DB sen innan
-                            loadItemsForCategory(MediaType.MOVIE, movieData.firstOrNull()?.categoryId)
-                            loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
-                            
-                            // Uppdatera Flow-data
-                            _recentlyAdded.value = mediaDao.getRecentlyAdded().filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
-                            _favorites.value = mediaDao.getFavorites().filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
-                        }
-                    } else {
-                        // DB inte tom, ladda in items direkt
-                        withContext(Dispatchers.Main) {
-                            loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
-
-                            if (ppvData.isNotEmpty()) {
-                                loadItemsForCategory(MediaType.LIVE, ppvData.firstOrNull()?.categoryId)
-                            }
-                            loadItemsForCategory(MediaType.MOVIE, movieData.firstOrNull()?.categoryId)
-                            loadItemsForCategory(MediaType.SERIES, seriesData.firstOrNull()?.categoryId)
-                        }
-                        
-                        // Uppdatera EPG asynkront
-                        _repository.fetchAndStoreEpg(user, pass, forceRefresh)
-                        withContext(Dispatchers.Main) {
-                            fullEpgData.clear()
-                            loadedFullEpgIds.clear()
-                            currentEpgCache.clear()
-                        }
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        showStatusMessage("Innehållet är uppdaterat")
-                        isUpdatingBackground = false
+                fullEpgData.clear()
+                loadedFullEpgIds.clear()
+                currentEpgCache.clear()
+                if (needsLibrarySync || iconsChanged) {
+                    // Refresh displayed data after icon changes without discarding other loaded lists.
+                    val loadedLiveIds = (uiState.liveCategories + uiState.ppvCategories)
+                        .filter { it.items.isNotEmpty() }.mapNotNull { it.categoryId }.distinct()
+                    for (id in loadedLiveIds) loadCategoryItems(MediaType.LIVE, id)
+                    publishStartupCatalog(syncCategoryOptions)
+                    val selected = MediaType.entries.associateWith(sessionManager::getSyncCategories)
+                    _recentlyAdded.value = withContext(Dispatchers.IO) {
+                        mediaDao.getRecentlyAdded().filter { it.categoryId in selected.getValue(it.type) }
+                            .map { it.toMediaSource() }
                     }
                 }
-
+                prefetchEpgForCategory(lastLiveCategoryIndex)
+                showStatusMessage(if (syncCategoryOptions.values.all { it.isEmpty() }) {
+                    "Visar sparade kategorier. Kategorierna kunde inte uppdateras."
+                } else "Innehållet är uppdaterat")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
-                uiState = uiState.copy(isLoading = false)
-                isUpdatingBackground = false
-                if (uiState.liveCategories.isEmpty()) {
+                if (!contentAvailable) {
                     startupError = "Servern svarade inte i tid eller kategorierna kunde inte läsas. Inga automatiska nya försök görs."
                     showStatusMessage(null)
                 } else {
                     showStatusMessage("Synkningen misslyckades. Försök igen i Inställningar.")
                 }
-                onComplete?.invoke(false)
+                reportReady(false)
             } finally {
+                uiState = uiState.copy(isLoading = false)
+                isUpdatingBackground = false
                 isFetching = false
             }
         }
     }
 
     fun loadItemsForCategory(type: MediaType, categoryId: String?) {
+        viewModelScope.launch { loadCategoryItems(type, categoryId) }
+    }
+
+    private suspend fun loadCategoryItems(type: MediaType, categoryId: String?) {
         if (categoryId == null) return
-        
+
         // Returnera tidigt för specialkategorier (Favoriter/Historik) som inte hämtas från API/DB-kategorier
         if (categoryId == "FAVORITES" || categoryId == "HISTORY") return
 
-        viewModelScope.launch {
-            val items = if (categoryId == "ALL_CHANNELS") {
-                mediaDao.getMediaByType(MediaType.LIVE).filter { it.categoryId in sessionManager.getSyncCategories(MediaType.LIVE) }.map { it.toMediaSource() }
-            } else {
-                _repository.getMediaForCategory(type, categoryId)
+        val items = if (categoryId == "ALL_CHANNELS") {
+            withContext(Dispatchers.IO) {
+                val selected = sessionManager.getSyncCategories(MediaType.LIVE)
+                mediaDao.getMediaByType(MediaType.LIVE).filter { it.categoryId in selected }.map { it.toMediaSource() }
             }
-            
-            // Mappa kanal-ID till EPG-ID direkt (Optimering: använd batch-uppdatering)
-            if (type == MediaType.LIVE) {
-                val newMappings = mutableMapOf<Int, String>()
-                items.forEach { item ->
-                    item.epgId?.let { epgId -> newMappings[item.id] = epgId }
-                }
-                if (newMappings.isNotEmpty()) {
-                    channelToEpgMap.putAll(newMappings)
-                }
-                
-                // Om detta är den aktuella spellistan i PlayerScreen, uppdatera den
-                if (uiState.liveCategories.getOrNull(lastLiveCategoryIndex)?.categoryId == categoryId) {
-                    currentPlaylist = items
-                }
+        } else {
+            _repository.getMediaForCategory(type, categoryId)
+        }
+
+        // Mappa kanal-ID till EPG-ID direkt (Optimering: använd batch-uppdatering)
+        if (type == MediaType.LIVE) {
+            val newMappings = mutableMapOf<Int, String>()
+            items.forEach { item ->
+                item.epgId?.let { epgId -> newMappings[item.id] = epgId }
+            }
+            if (newMappings.isNotEmpty()) {
+                channelToEpgMap.putAll(newMappings)
             }
 
-            uiState = when (type) {
-                MediaType.LIVE -> uiState.copy(
-                    liveCategories = uiState.liveCategories.map { 
-                        if (it.categoryId == categoryId) it.copy(items = items) else it 
-                    },
-                    ppvCategories = uiState.ppvCategories.map {
-                        if (it.categoryId == categoryId) it.copy(items = items) else it
-                    }
-                )
-                MediaType.MOVIE -> uiState.copy(movieCategories = uiState.movieCategories.map { 
-                    if (it.categoryId == categoryId) it.copy(items = items) else it 
-                })
-                MediaType.SERIES -> uiState.copy(seriesCategories = uiState.seriesCategories.map { 
-                    if (it.categoryId == categoryId) it.copy(items = items) else it 
-                })
+            // Om detta är den aktuella spellistan i PlayerScreen, uppdatera den
+            if (uiState.liveCategories.getOrNull(lastLiveCategoryIndex)?.categoryId == categoryId) {
+                currentPlaylist = items
             }
+        }
 
-            // Kategorin måste finnas i uiState innan batchcachen kan byggas.
-            if (type == MediaType.LIVE &&
-                uiState.liveCategories.getOrNull(lastLiveCategoryIndex)?.categoryId == categoryId
-            ) {
-                prefetchEpgForCategory(lastLiveCategoryIndex)
-            }
+        uiState = when (type) {
+            MediaType.LIVE -> uiState.copy(
+                liveCategories = uiState.liveCategories.map {
+                    if (it.categoryId == categoryId) it.copy(items = items) else it
+                },
+                ppvCategories = uiState.ppvCategories.map {
+                    if (it.categoryId == categoryId) it.copy(items = items) else it
+                }
+            )
+            MediaType.MOVIE -> uiState.copy(movieCategories = uiState.movieCategories.map {
+                if (it.categoryId == categoryId) it.copy(items = items) else it
+            })
+            MediaType.SERIES -> uiState.copy(seriesCategories = uiState.seriesCategories.map {
+                if (it.categoryId == categoryId) it.copy(items = items) else it
+            })
+        }
+
+        // Kategorin måste finnas i uiState innan batchcachen kan byggas.
+        if (type == MediaType.LIVE &&
+            uiState.liveCategories.getOrNull(lastLiveCategoryIndex)?.categoryId == categoryId
+        ) {
+            prefetchEpgForCategory(lastLiveCategoryIndex)
         }
     }
 

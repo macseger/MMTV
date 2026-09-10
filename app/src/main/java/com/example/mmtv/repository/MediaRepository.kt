@@ -271,7 +271,7 @@ class MediaRepository(
         mediaDao.searchMedia("%$query%")
     }
 
-    suspend fun extractPiconsIfNeeded() = withContext(Dispatchers.IO) {
+    suspend fun extractPiconsIfNeeded(rematchExisting: Boolean = true): Boolean = withContext(Dispatchers.IO) {
         val piconsDir = File(context.filesDir, "picons")
         val zipFileInAssets = "picons.zip"
         
@@ -280,15 +280,14 @@ class MediaRepository(
             val assets = context.assets.list("") ?: emptyArray()
             if (!assets.contains(zipFileInAssets)) {
                 android.util.Log.e("Picons", "Hittade inte picons.zip i assets!")
-                return@withContext
+                return@withContext false
             }
 
-            // Om mappen redan finns och inte är tom, kör ändå kalkylering av ikoner
+            // Startup uses persisted resolved icons. Explicit extraction can still rematch them.
             val lastExtractionFile = File(piconsDir, ".last_extracted")
             if (piconsDir.exists() && piconsDir.list()?.isNotEmpty() == true && lastExtractionFile.exists()) {
-                android.util.Log.d("Picons", "Ikoner redan extraherade, kör ikonmatchning...")
-                resolveAndStoreLiveIcons()
-                return@withContext
+                if (rematchExisting) resolveAndStoreLiveIcons()
+                return@withContext rematchExisting
             }
 
             if (!piconsDir.exists()) piconsDir.mkdirs()
@@ -318,9 +317,11 @@ class MediaRepository(
                     resolveAndStoreLiveIcons()
                 }
             }
+            true
         } catch (e: Exception) {
             android.util.Log.e("Picons", "Fel vid extrahering: ${e.message}")
             e.printStackTrace()
+            false
         }
     }
 
@@ -376,7 +377,10 @@ class MediaRepository(
         iconCache.clear()
         mediaDao.getMediaByType(MediaType.LIVE).forEach { channel ->
             val resolved = getIconForChannel(channel.epgId, channel.title)
-            mediaDao.updateResolvedIcon(channel.id, MediaType.LIVE, resolved ?: channel.icon)
+            val icon = resolved ?: channel.icon
+            if (icon != channel.resolvedIcon) {
+                mediaDao.updateResolvedIcon(channel.id, MediaType.LIVE, icon)
+            }
         }
     }
 

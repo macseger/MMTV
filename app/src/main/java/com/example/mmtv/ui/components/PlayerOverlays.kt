@@ -295,8 +295,8 @@ fun CategoryListItem(title: String, isSelected: Boolean, viewModel: MediaViewMod
 fun ChannelListItem(
     item: MediaSource,
     isSelected: Boolean,
+    isVisible: Boolean,
     viewModel: MediaViewModel,
-    now: Long,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -305,7 +305,6 @@ fun ChannelListItem(
 
     SideEffect { OverlayDiagnostics.channelRecomposed(item.id) }
 
-    val epg = viewModel.getCachedCurrentEpgForId(item.id, now)
     val piconUrl = item.icon
 
     // Optimering: Skippa animateColorAsState för omedelbar respons
@@ -378,37 +377,57 @@ fun ChannelListItem(
                     overflow = TextOverflow.Ellipsis
                 )
                 
-                val localEpg = epg
-                if (localEpg != null) {
-                    Text(
-                        text = localEpg.title ?: "", 
-                        style = MaterialTheme.typography.bodyMedium, 
-                        color = if (hasFocus) Color.White else Color.LightGray, 
-                        maxLines = 1, 
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    val start = localEpg.startTimestamp ?: 0L
-                    val stop = localEpg.stopTimestamp ?: 0L
-                    if (now in start..stop) {
-                        val progress = (now - start).toFloat() / (stop - start).toFloat()
-                        LinearProgressIndicator(
-                            progress = { progress.coerceIn(0f, 1f) },
-                            modifier = Modifier.padding(top = 6.dp).fillMaxWidth().height(4.dp).clip(CircleShape),
-                            color = viewModel.currentThemeColor,
-                            trackColor = Color.White.copy(alpha = 0.1f)
-                        )
-                    }
-                } else {
-                    Text(
-                        text = "Ingen programinfo", 
-                        style = MaterialTheme.typography.bodySmall, 
-                        color = Color.Gray.copy(alpha = 0.5f), 
-                        maxLines = 1
-                    )
-                }
+                ChannelProgramStatus(item.id, viewModel, hasFocus, isVisible)
             }
         }
+    }
+}
+
+@Composable
+private fun ChannelProgramStatus(
+    channelId: Int,
+    viewModel: MediaViewModel,
+    hasFocus: Boolean,
+    isVisible: Boolean
+) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    LaunchedEffect(isVisible) {
+        if (isVisible) {
+            while (true) {
+                delay(1000)
+                now = System.currentTimeMillis() / 1000
+            }
+        }
+    }
+
+    val epg = viewModel.getCachedCurrentEpgForId(channelId, now)
+    if (epg != null) {
+        Text(
+            text = epg.title ?: "",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (hasFocus) Color.White else Color.LightGray,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+
+        val start = epg.startTimestamp ?: 0L
+        val stop = epg.stopTimestamp ?: 0L
+        if (now in start..stop) {
+            val progress = (now - start).toFloat() / (stop - start).toFloat()
+            LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                modifier = Modifier.padding(top = 6.dp).fillMaxWidth().height(4.dp).clip(CircleShape),
+                color = viewModel.currentThemeColor,
+                trackColor = Color.White.copy(alpha = 0.1f)
+            )
+        }
+    } else {
+        Text(
+            text = "Ingen programinfo",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color.Gray.copy(alpha = 0.5f),
+            maxLines = 1
+        )
     }
 }
 
@@ -794,15 +813,6 @@ private fun ChannelListPane(
     onOverlayStateChange: (String) -> Unit,
     onMediaSelected: (MediaSource) -> Unit
 ) {
-    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
-    LaunchedEffect(isVisible) {
-        if (isVisible) {
-            while (true) {
-                delay(1000)
-                now = System.currentTimeMillis() / 1000
-            }
-        }
-    }
     LazyColumn(
         state = channelListState,
         modifier = Modifier.fillMaxSize(),
@@ -817,8 +827,8 @@ private fun ChannelListPane(
             ChannelListItem(
                 item = item,
                 isSelected = item.id == viewModel.selectedMedia?.id,
+                isVisible = isVisible,
                 viewModel = viewModel,
-                now = now,
                 modifier = Modifier
                     .focusRequester(focusRequester)
                     .onFocusChanged {

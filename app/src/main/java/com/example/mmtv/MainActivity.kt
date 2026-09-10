@@ -591,9 +591,11 @@ class MainActivity : AppCompatActivity() {
                                                 playMedia(navController, newMedia, sessionManager, sharedViewModel, sharedViewModel.currentPlaylist)
                                             },
                                             onCategorySelected = { index ->
-                                                sharedViewModel.lastLiveCategoryIndex = index
-                                                sharedViewModel.currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(index)?.items ?: emptyList()
-                                                sharedViewModel.prefetchEpgForCategory(index)
+                                                if (sharedViewModel.lastLiveCategoryIndex != index) {
+                                                    sharedViewModel.lastLiveCategoryIndex = index
+                                                    sharedViewModel.currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(index)?.items ?: emptyList()
+                                                    sharedViewModel.prefetchEpgForCategory(index)
+                                                }
                                             },
                                             onBackPressed = {
                                                 navController.popBackStack()

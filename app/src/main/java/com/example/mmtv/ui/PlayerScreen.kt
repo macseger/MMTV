@@ -146,7 +146,6 @@ fun PlayerScreen(
     var isPlaying by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(false) }
     var overlayState by remember { mutableStateOf(OverlayState.NONE) }
-    var focusedChannel by remember { mutableStateOf(media) }
     var showSeekFeedback by remember { mutableStateOf(false) }
     var seekMessage by remember { mutableStateOf("") }
     
@@ -445,14 +444,7 @@ fun PlayerScreen(
     LaunchedEffect(overlayState) {
         when (overlayState) {
             OverlayState.CATEGORIES -> Unit
-            OverlayState.CHANNELS -> {
-                if (playlist.isNotEmpty()) {
-                    // SideOverlay sätter fokus först när den förpositionerade raden
-                    // faktiskt har komponerats. Ett gammalt FocusRequester får inte
-                    // flytta listan en andra gång.
-                    if (media != null) focusedChannel = media
-                }
-            }
+            OverlayState.CHANNELS -> Unit
             OverlayState.QUICK_INFO -> {
                 resetAutoHideTimer()
                 scope.launch {
@@ -636,7 +628,6 @@ fun PlayerScreen(
                                     if (media?.type == MediaType.LIVE) {
                                         // SideOverlay positionerar och fokuserar den aktuella kanalen
                                         // efter att rätt rad faktiskt har komponerats.
-                                        focusedChannel = media
                                         overlayState = OverlayState.CHANNELS
                                     } else {
                                         if (isRepeat) performSeek(-10000L, true)
@@ -972,7 +963,7 @@ fun PlayerScreen(
             categories = categories,
             playlist = playlist,
             viewModel = viewModel,
-            focusedChannel = focusedChannel,
+            initialFocusedChannel = media,
             categoryListState = categoryListState,
             channelListState = channelListState,
             categoryFocusRequesters = categoryFocusRequesters,
@@ -986,7 +977,6 @@ fun PlayerScreen(
                     onMediaSelected(selectedChannel)
                 }
             },
-            onFocusedChannelChanged = { focusedChannel = it },
             onOverlayStateChange = { overlayState = OverlayState.valueOf(it) },
             onDismiss = { overlayState = OverlayState.NONE }
         )

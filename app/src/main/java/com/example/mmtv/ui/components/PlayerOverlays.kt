@@ -901,20 +901,29 @@ fun SideOverlay(
     categories: List<GroupedMedia>,
     playlist: List<MediaSource>,
     viewModel: MediaViewModel,
-    focusedChannel: MediaSource?,
+    initialFocusedChannel: MediaSource?,
     categoryListState: LazyListState,
     channelListState: LazyListState,
     categoryFocusRequesters: MutableMap<Int, FocusRequester>,
     channelFocusRequesters: MutableMap<Int, FocusRequester>,
     onCategorySelected: (Int) -> Unit,
     onMediaSelected: (MediaSource) -> Unit,
-    onFocusedChannelChanged: (MediaSource) -> Unit,
     onOverlayStateChange: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
     SideEffect { OverlayDiagnostics.sideOverlayRecomposed() }
 
+    var focusedChannel by remember { mutableStateOf(initialFocusedChannel) }
+    val updateFocusedChannel: (MediaSource) -> Unit = remember {
+        { channel ->
+            if (focusedChannel?.id != channel.id || focusedChannel?.type != channel.type) {
+                focusedChannel = channel
+            }
+        }
+    }
+
     fun measuredCategorySelected(index: Int) {
+        if (viewModel.lastLiveCategoryIndex == index) return
         val started = OverlayDiagnostics.categorySelectedStart(index)
         onCategorySelected(index)
         OverlayDiagnostics.categorySelectedEnd(index, started)
@@ -932,6 +941,9 @@ fun SideOverlay(
 
     LaunchedEffect(isVisible) {
         if (isVisible) {
+            // Restore the channel that opened the overlay without exposing focus
+            // state to the parent PlayerScreen.
+            focusedChannel = initialFocusedChannel
             viewModel.prefetchEpgForCategory(viewModel.lastLiveCategoryIndex)
             while (true) {
                 delay(1000)
@@ -1062,7 +1074,7 @@ fun SideOverlay(
                         viewModel = viewModel,
                         channelListState = channelListState,
                         channelFocusRequesters = channelFocusRequesters,
-                        onFocusedChannelChanged = onFocusedChannelChanged,
+                        onFocusedChannelChanged = updateFocusedChannel,
                         onOverlayStateChange = onOverlayStateChange,
                         onMediaSelected = onMediaSelected
                     )

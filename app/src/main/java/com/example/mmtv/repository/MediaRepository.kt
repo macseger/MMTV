@@ -514,9 +514,11 @@ class MediaRepository(
                     StartupDiagnostics.event("epg_skip", "reason=no_selection")
                     return@withContext
                 }
-                val selectedLive = mediaDao.getMediaByType(MediaType.LIVE)
-                    .filter { it.isFavorite || it.categoryId in session.getSyncCategories(MediaType.LIVE) }
-                val scope = selectedLive.map { "${it.id}:${it.epgId}" }.sorted().joinToString("|") + session.getUseExternalSwedishEpg()
+                val selectedCategories = session.getSyncCategories(MediaType.LIVE).toList()
+                val scopeRows = StartupDiagnostics.timed("epg_scope_query", "selected_categories=${selectedCategories.size}") {
+                    mediaDao.getEpgScopeRows(MediaType.LIVE, selectedCategories)
+                }
+                val scope = scopeRows.map { "${it.id}:${it.epgId}" }.sorted().joinToString("|") + session.getUseExternalSwedishEpg()
                 val scopeFile = File(cacheDir, "${accountCacheKey()}_epg_scope")
                 val scopeChanged = !scopeFile.exists() || scopeFile.readText() != scope
                 val refreshInterval = 3 * 60 * 60 * 1000L
@@ -524,19 +526,21 @@ class MediaRepository(
                     StartupDiagnostics.event("epg_skip", "reason=fresh_scope age_ms=${System.currentTimeMillis() - scopeFile.lastModified()}")
                     return@withContext
                 }
-                StartupDiagnostics.event("epg_refresh", "reason=${if (forceRefresh) "forced" else if (scopeChanged) "scope_changed_or_missing" else "scope_expired"} selected_live=${selectedLive.size}")
+                StartupDiagnostics.event("epg_refresh", "reason=${if (forceRefresh) "forced" else if (scopeChanged) "scope_changed_or_missing" else "scope_expired"} selected_live=${scopeRows.size}")
                 if (scopeChanged || forceRefresh) {
                     mediaDao.clearEpg()
                     mediaDao.clearChannelMetadata()
                 }
                 epgCache.clear()
-                if (selectedLive.isEmpty()) {
+                if (scopeRows.isEmpty()) {
                     StartupDiagnostics.event("epg_skip", "reason=no_selected_live")
                     scopeFile.writeText(scope)
                     return@withContext
                 }
 
                 // Bounded requests: only the selected stream IDs, with account-scoped disk caching.
+                val selectedLive = mediaDao.getMediaByType(MediaType.LIVE)
+                    .filter { it.isFavorite || it.categoryId in selectedCategories }
                 val channelApiWorked = try { fetchSelectedChannelEpg(user, pass, selectedLive, forceRefresh) } catch (e: Exception) { false }
                 StartupDiagnostics.event("epg_channel_api", "usable=$channelApiWorked")
                 if (!channelApiWorked) {

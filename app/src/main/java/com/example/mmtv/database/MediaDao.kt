@@ -23,6 +23,9 @@ interface MediaDao {
     @Query("SELECT * FROM media_items WHERE type = :type ORDER BY categoryOrder ASC, itemOrder ASC")
     suspend fun getMediaByType(type: com.example.mmtv.model.MediaType): List<MediaEntity>
 
+    @Query("SELECT id, epgId FROM media_items WHERE type = :type AND (isFavorite = 1 OR categoryId IN (:categoryIds))")
+    suspend fun getEpgScopeRows(type: com.example.mmtv.model.MediaType, categoryIds: List<String>): List<EpgScopeRow>
+
     @Query("SELECT DISTINCT categoryId, categoryName FROM media_items WHERE type = :type ORDER BY categoryOrder ASC")
     suspend fun getCategoriesByType(type: com.example.mmtv.model.MediaType): List<CategorySimple>
 
@@ -147,4 +150,9 @@ data class DiagnosticCounts(
     val epgListings: Long,
     val channelMetadata: Long,
     val picons: Long
+)
+
+data class EpgScopeRow(
+    val id: Int,
+    val epgId: String?
 )

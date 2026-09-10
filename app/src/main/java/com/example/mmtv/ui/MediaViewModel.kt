@@ -7,6 +7,7 @@ import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.*
 import com.example.mmtv.repository.MediaRepository
 import com.example.mmtv.util.StartupDiagnostics
+import com.example.mmtv.util.OverlayDiagnostics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -754,26 +755,40 @@ class MediaViewModel(
 
         // Populera channelToEpgMap direkt för alla kanaler i kategorin
         val itemsToPrefetch = category.items
+        var mapWrites = 0
         itemsToPrefetch.forEach { item ->
             val epgId = item.epgId?.takeIf { it.isNotBlank() } ?: "stream:${item.id}"
-            channelToEpgMap[item.id] = epgId
+            if (channelToEpgMap[item.id] != epgId) {
+                channelToEpgMap[item.id] = epgId
+                mapWrites++
+            }
         }
-
-        if (!prefetchingCategoryIds.add(categoryKey)) return
+        val diagnosticStart = OverlayDiagnostics.prefetchStart(categoryIndex, category.categoryId, itemsToPrefetch.size, mapWrites)
+        if (!prefetchingCategoryIds.add(categoryKey)) {
+            OverlayDiagnostics.prefetchEnd(categoryIndex, diagnosticStart, 0, 0)
+            return
+        }
 
         val epgIds = itemsToPrefetch.mapNotNull { channelToEpgMap[it.id] }.distinct()
         val missingEpgIds = epgIds.filterNot { loadedFullEpgIds.contains(it) }
 
+        if (missingEpgIds.isEmpty()) {
+            prefetchingCategoryIds.remove(categoryKey)
+            OverlayDiagnostics.prefetchEnd(categoryIndex, diagnosticStart, 0, 0)
+            return
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
+            var putAllEntries = 0
             try {
-                if (missingEpgIds.isNotEmpty()) {
-                    val epgByChannel = _repository.getEpgForChannels(missingEpgIds)
-                    withContext(Dispatchers.Main) {
-                        fullEpgData.putAll(epgByChannel)
-                        loadedFullEpgIds.addAll(missingEpgIds)
-                    }
+                val epgByChannel = _repository.getEpgForChannels(missingEpgIds)
+                putAllEntries = epgByChannel.size
+                withContext(Dispatchers.Main) {
+                    fullEpgData.putAll(epgByChannel)
+                    loadedFullEpgIds.addAll(missingEpgIds)
                 }
             } finally {
+                OverlayDiagnostics.prefetchEnd(categoryIndex, diagnosticStart, missingEpgIds.size, putAllEntries)
                 withContext(Dispatchers.Main) {
                     prefetchingCategoryIds.remove(categoryKey)
                 }

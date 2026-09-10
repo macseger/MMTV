@@ -12,6 +12,7 @@ class MmtvApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         com.example.mmtv.util.StartupDiagnostics.initialize(this)
+        com.example.mmtv.util.OverlayDiagnostics.initialize(this)
     }
 
     override fun newImageLoader(): ImageLoader {

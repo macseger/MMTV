@@ -50,6 +50,7 @@ import com.example.mmtv.model.GroupedMedia
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.ui.MediaViewModel
+import com.example.mmtv.util.OverlayDiagnostics
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -301,6 +302,8 @@ fun ChannelListItem(
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     val context = LocalContext.current
+
+    SideEffect { OverlayDiagnostics.channelRecomposed(item.id) }
 
     val epg = viewModel.getCachedCurrentEpgForId(item.id, now)
     val piconUrl = item.icon
@@ -780,15 +783,80 @@ fun QuickInfoOverlay(
     }
 }
 
+@Composable
+private fun ChannelListPane(
+    isVisible: Boolean,
+    playlist: List<MediaSource>,
+    viewModel: MediaViewModel,
+    channelListState: LazyListState,
+    channelFocusRequesters: MutableMap<Int, FocusRequester>,
+    onFocusedChannelChanged: (MediaSource) -> Unit,
+    onOverlayStateChange: (String) -> Unit,
+    onMediaSelected: (MediaSource) -> Unit
+) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    LaunchedEffect(isVisible) {
+        if (isVisible) {
+            while (true) {
+                delay(1000)
+                now = System.currentTimeMillis() / 1000
+            }
+        }
+    }
+    LazyColumn(
+        state = channelListState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 100.dp)
+    ) {
+        itemsIndexed(
+            items = playlist,
+            key = { _, item -> item.id },
+            contentType = { _, _ -> "channel" }
+        ) { _, item ->
+            val focusRequester = channelFocusRequesters.getOrPut(item.id) { FocusRequester() }
+            ChannelListItem(
+                item = item,
+                isSelected = item.id == viewModel.selectedMedia?.id,
+                viewModel = viewModel,
+                now = now,
+                modifier = Modifier
+                    .focusRequester(focusRequester)
+                    .onFocusChanged {
+                        if (it.isFocused) {
+                            OverlayDiagnostics.focusEvent("channel", item.id)
+                            onFocusedChannelChanged(item)
+                        }
+                    }
+                    .onKeyEvent {
+                        if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                            onOverlayStateChange("CATEGORIES")
+                            true
+                        } else false
+                    },
+                onClick = { onMediaSelected(item) }
+            )
+        }
+    }
+}
+
 // En liten, passiv TV-panel. Använder bara befintlig cache och följer
 // overlayens befintliga lageranimation även när menyn ligger utanför skärmen.
 @Composable
 private fun TvSideEpgPanel(
+    isVisible: Boolean,
     channel: MediaSource?,
     viewModel: MediaViewModel,
-    now: Long,
     modifier: Modifier = Modifier
 ) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    LaunchedEffect(isVisible) {
+        if (isVisible) {
+            while (true) {
+                delay(1000)
+                now = System.currentTimeMillis() / 1000
+            }
+        }
+    }
     val listings = channel?.let { viewModel.getCachedFullEpgForId(it.id) }.orEmpty()
     val upcoming = remember(channel?.id, listings, now) {
         listings.asSequence().filter { (it.stopTimestamp ?: 0) > now }.take(5).toList()
@@ -844,6 +912,14 @@ fun SideOverlay(
     onOverlayStateChange: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
+    SideEffect { OverlayDiagnostics.sideOverlayRecomposed() }
+
+    fun measuredCategorySelected(index: Int) {
+        val started = OverlayDiagnostics.categorySelectedStart(index)
+        onCategorySelected(index)
+        OverlayDiagnostics.categorySelectedEnd(index, started)
+    }
+
     if (isVisible) {
         BackHandler {
             if (overlayState == "CHANNELS") {
@@ -854,15 +930,12 @@ fun SideOverlay(
         }
     }
 
-    // Ticker för att uppdatera EPG-visning
-    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     LaunchedEffect(isVisible) {
         if (isVisible) {
-            now = System.currentTimeMillis() / 1000
             viewModel.prefetchEpgForCategory(viewModel.lastLiveCategoryIndex)
             while (true) {
                 delay(1000)
-                now = System.currentTimeMillis() / 1000
+                OverlayDiagnostics.reportSideOverlaySecond(true)
             }
         }
     }
@@ -943,18 +1016,21 @@ fun SideOverlay(
                                 modifier = Modifier
                                     .focusRequester(categoryFocusRequesters.getOrPut(index) { FocusRequester() })
                                     .onFocusChanged {
-                                        if (it.isFocused) onCategorySelected(index)
+                                        if (it.isFocused) {
+                                            OverlayDiagnostics.focusEvent("category", index)
+                                            measuredCategorySelected(index)
+                                        }
                                     }
                                     .onKeyEvent {
                                         if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                                             // Tvinga uppdatering direkt vid navigering till höger
-                                            onCategorySelected(index)
+                                            measuredCategorySelected(index)
                                             onOverlayStateChange("CHANNELS")
                                             true
                                         } else false
                                     },
-                                onClick = { 
-                                    onCategorySelected(index)
+                                    onClick = {
+                                    measuredCategorySelected(index)
                                     onOverlayStateChange("CHANNELS") 
                                 }
                             )
@@ -980,46 +1056,35 @@ fun SideOverlay(
                         letterSpacing = 2.sp
                     )
 
-                    LazyColumn(
-                        state = channelListState,
-                        modifier = Modifier.fillMaxSize(),
-                        // Optimering för Android TV: Spara plats för objekt som inte syns än
-                        contentPadding = PaddingValues(bottom = 100.dp)
-                    ) {
-                        itemsIndexed(
-                            items = playlist, 
-                            key = { _, item -> item.id }, // Använd stabilt ID som nyckel för bättre prestanda vid scroll
-                            contentType = { _, _ -> "channel" }
-                        ) { _, item ->
-                            val focusRequester = channelFocusRequesters.getOrPut(item.id) { FocusRequester() }
-                            ChannelListItem(
-                                item = item,
-                                isSelected = item.id == viewModel.selectedMedia?.id,
-                                viewModel = viewModel,
-                                now = now,
-                                modifier = Modifier
-                                    .focusRequester(focusRequester)
-                                    .onFocusChanged { if (it.isFocused) onFocusedChannelChanged(item) }
-                                    .onKeyEvent {
-                                        if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                            onOverlayStateChange("CATEGORIES")
-                                            true
-                                        } else false
-                                    },
-                                onClick = { onMediaSelected(item) }
-                            )
-                        }
-                    }
+                    ChannelListPane(
+                        isVisible = isVisible,
+                        playlist = playlist,
+                        viewModel = viewModel,
+                        channelListState = channelListState,
+                        channelFocusRequesters = channelFocusRequesters,
+                        onFocusedChannelChanged = onFocusedChannelChanged,
+                        onOverlayStateChange = onOverlayStateChange,
+                        onMediaSelected = onMediaSelected
+                    )
                 }
 
                 if (overlayState == "CHANNELS" && viewModel.isTvMode) {
                     TvSideEpgPanel(
+                        isVisible = isVisible,
                         channel = focusedChannel,
                         viewModel = viewModel,
-                        now = now,
                         modifier = Modifier.weight(1f).fillMaxHeight()
                     )
                 } else if (overlayState == "CHANNELS" && !viewModel.isTvMode) {
+                    var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+                    LaunchedEffect(isVisible) {
+                        if (isVisible) {
+                            while (true) {
+                                delay(1000)
+                                now = System.currentTimeMillis() / 1000
+                            }
+                        }
+                    }
                     Column(
                         modifier = Modifier
                             .fillMaxHeight()

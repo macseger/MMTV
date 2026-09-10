@@ -127,7 +127,7 @@ class MainActivity : AppCompatActivity() {
                             val (h, u, p) = loginInfo
                             sharedViewModel.updateRepository(MediaRepository(ApiClient.getClient(h), database.mediaDao(), context))
                             if (sharedViewModel.uiState.liveStreamsGrouped.isEmpty()) {
-                                sharedViewModel.fetchData(u, p, forceRefresh = false)
+                                sharedViewModel.fetchData(u, p, forceRefresh = false, diagnosticTrigger = "process_startup")
                             }
                             scheduleDataSync(context)
                         }
@@ -244,7 +244,7 @@ class MainActivity : AppCompatActivity() {
                                                         popUpTo("login") { inclusive = true }
                                                     }
                                                     scheduleDataSync(context)
-                                                    sharedViewModel.fetchData(cleanUser, cleanPass, forceRefresh = true)
+                                                    sharedViewModel.fetchData(cleanUser, cleanPass, forceRefresh = true, diagnosticTrigger = "login")
                                                 }
                                             },
                                             isProvisioning = isProvisioning,
@@ -722,6 +722,7 @@ class MainActivity : AppCompatActivity() {
             ExistingPeriodicWorkPolicy.KEEP,
             syncRequest
         )
+        com.example.mmtv.util.StartupDiagnostics.event("worker_enqueue_requested", "name=MMTVDataSync policy=KEEP requested_id=${syncRequest.id}")
     }
 
     private fun playMedia(

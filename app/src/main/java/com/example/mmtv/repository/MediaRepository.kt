@@ -1,6 +1,7 @@
 package com.example.mmtv.repository
 
 import android.content.Context
+import com.example.mmtv.util.StartupDiagnostics
 import com.example.mmtv.api.XCodesApi
 import com.example.mmtv.database.*
 import com.example.mmtv.model.*
@@ -272,6 +273,7 @@ class MediaRepository(
     }
 
     suspend fun extractPiconsIfNeeded(rematchExisting: Boolean = true): Boolean = withContext(Dispatchers.IO) {
+        StartupDiagnostics.timed("picon_extraction_check") {
         val piconsDir = File(context.filesDir, "picons")
         val zipFileInAssets = "picons.zip"
         
@@ -323,9 +325,11 @@ class MediaRepository(
             e.printStackTrace()
             false
         }
+        }
     }
 
     suspend fun syncLiveChannels(user: String, pass: String) = withContext(Dispatchers.IO) {
+        StartupDiagnostics.timed("sync_live_including_mutex_wait") {
         liveSyncMutex.withLock {
             try {
                 val liveCats = try { api.getLiveCategories(user, pass) } catch (e: Exception) { emptyList() }
@@ -368,12 +372,14 @@ class MediaRepository(
                 e.printStackTrace()
             }
         }
+        }
     }
 
     suspend fun resolveLiveIcons() = resolveAndStoreLiveIcons()
 
     /** Körs enbart under kanaluppdateringen. Overlayen ska aldrig behöva matcha picons. */
     private suspend fun resolveAndStoreLiveIcons() = withContext(Dispatchers.IO) {
+        StartupDiagnostics.timed("resolve_live_icons") {
         iconCache.clear()
         mediaDao.getMediaByType(MediaType.LIVE).forEach { channel ->
             val resolved = getIconForChannel(channel.epgId, channel.title)
@@ -382,9 +388,11 @@ class MediaRepository(
                 mediaDao.updateResolvedIcon(channel.id, MediaType.LIVE, icon)
             }
         }
+        }
     }
 
     suspend fun syncMovies(user: String, pass: String) = withContext(Dispatchers.IO) {
+        StartupDiagnostics.timed("sync_movies_including_mutex_wait") {
         movieSyncMutex.withLock {
             try {
                 val movieCats = try { api.getMovieCategories(user, pass) } catch (e: Exception) { emptyList() }
@@ -426,9 +434,11 @@ class MediaRepository(
                 e.printStackTrace()
             }
         }
+        }
     }
 
     suspend fun syncSeries(user: String, pass: String) = withContext(Dispatchers.IO) {
+        StartupDiagnostics.timed("sync_series_including_mutex_wait") {
         seriesSyncMutex.withLock {
             try {
                 val seriesCats = try { api.getSeriesCategories(user, pass) } catch (e: Exception) { emptyList() }
@@ -469,6 +479,7 @@ class MediaRepository(
                 e.printStackTrace()
             }
         }
+        }
     }
 
     suspend fun syncVodLibrary(user: String, pass: String) = coroutineScope {
@@ -479,18 +490,30 @@ class MediaRepository(
     }
 
     suspend fun syncLibrary(user: String, pass: String) = coroutineScope {
+        StartupDiagnostics.timed("sync_library") {
+        StartupDiagnostics.event("sync_library_state", "pending=${session.isSyncSelectionPending()}")
+        StartupDiagnostics.rows(mediaDao, "library_before")
         val selection = MediaType.entries.associateWith(session::getSyncCategories)
         val liveJob = async { try { syncLiveChannels(user, pass) } catch (e: Exception) { e.printStackTrace() } }
         val vodJob = async { try { syncVodLibrary(user, pass) } catch (e: Exception) { e.printStackTrace() } }
         liveJob.await()
         vodJob.await()
         if (selection == MediaType.entries.associateWith(session::getSyncCategories)) session.markSyncSelectionComplete()
+        StartupDiagnostics.event("sync_library_state_end", "pending=${session.isSyncSelectionPending()}")
+        StartupDiagnostics.rows(mediaDao, "library_after")
+        }
     }
 
     suspend fun fetchAndStoreEpg(user: String, pass: String, forceRefresh: Boolean = false) = withContext(Dispatchers.IO) {
+        StartupDiagnostics.timed("epg_refresh_including_mutex_wait") {
         epgSyncMutex.withLock {
+            StartupDiagnostics.event("epg_lock_acquired", "force=$forceRefresh pending=${session.isSyncSelectionPending()}")
+            StartupDiagnostics.rows(mediaDao, "epg_before")
             try {
-                if (!session.hasSyncSelection()) return@withContext
+                if (!session.hasSyncSelection()) {
+                    StartupDiagnostics.event("epg_skip", "reason=no_selection")
+                    return@withContext
+                }
                 val selectedLive = mediaDao.getMediaByType(MediaType.LIVE)
                     .filter { it.isFavorite || it.categoryId in session.getSyncCategories(MediaType.LIVE) }
                 val scope = selectedLive.map { "${it.id}:${it.epgId}" }.sorted().joinToString("|") + session.getUseExternalSwedishEpg()
@@ -498,20 +521,24 @@ class MediaRepository(
                 val scopeChanged = !scopeFile.exists() || scopeFile.readText() != scope
                 val refreshInterval = 3 * 60 * 60 * 1000L
                 if (!forceRefresh && !scopeChanged && System.currentTimeMillis() - scopeFile.lastModified() < refreshInterval) {
+                    StartupDiagnostics.event("epg_skip", "reason=fresh_scope age_ms=${System.currentTimeMillis() - scopeFile.lastModified()}")
                     return@withContext
                 }
+                StartupDiagnostics.event("epg_refresh", "reason=${if (forceRefresh) "forced" else if (scopeChanged) "scope_changed_or_missing" else "scope_expired"} selected_live=${selectedLive.size}")
                 if (scopeChanged || forceRefresh) {
                     mediaDao.clearEpg()
                     mediaDao.clearChannelMetadata()
                 }
                 epgCache.clear()
                 if (selectedLive.isEmpty()) {
+                    StartupDiagnostics.event("epg_skip", "reason=no_selected_live")
                     scopeFile.writeText(scope)
                     return@withContext
                 }
 
                 // Bounded requests: only the selected stream IDs, with account-scoped disk caching.
                 val channelApiWorked = try { fetchSelectedChannelEpg(user, pass, selectedLive, forceRefresh) } catch (e: Exception) { false }
+                StartupDiagnostics.event("epg_channel_api", "usable=$channelApiWorked")
                 if (!channelApiWorked) {
                     try {
                         val xmlFile = File(cacheDir, "${accountCacheKey()}_full_epg.xml")
@@ -544,13 +571,18 @@ class MediaRepository(
                         android.util.Log.e("MediaRepository", "Kunde inte ladda extern SE EPG: ${e.message}")
                     }
                 }
-                mediaDao.deleteOldEpg(System.currentTimeMillis() / 1000)
+                StartupDiagnostics.timed("delete_old_epg", "trigger=epg_refresh") {
+                    mediaDao.deleteOldEpg(System.currentTimeMillis() / 1000)
+                }
                 scopeFile.writeText(scope)
                 epgCache.clear()
                 syncPiconsFromGithub(forceRefresh)
             } catch (e: Exception) {
                 android.util.Log.e("MediaRepository", "EPG-synk fel: ${e.message}")
+            } finally {
+                StartupDiagnostics.rows(mediaDao, "epg_after")
             }
+        }
         }
     }
 
@@ -619,6 +651,7 @@ class MediaRepository(
     }
 
     private suspend fun syncPiconsFromGithub(forceRefresh: Boolean) = withContext(Dispatchers.IO) {
+        StartupDiagnostics.timed("picon_github") {
         if (!forceRefresh && mediaDao.getAllPicons().isNotEmpty()) return@withContext
 
         try {
@@ -644,6 +677,7 @@ class MediaRepository(
             }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
         }
     }
 

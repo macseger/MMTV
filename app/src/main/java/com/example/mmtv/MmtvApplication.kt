@@ -9,6 +9,11 @@ import coil.request.CachePolicy
 import coil.util.DebugLogger
 
 class MmtvApplication : Application(), ImageLoaderFactory {
+    override fun onCreate() {
+        super.onCreate()
+        com.example.mmtv.util.StartupDiagnostics.initialize(this)
+    }
+
     override fun newImageLoader(): ImageLoader {
         return ImageLoader.Builder(this)
             .memoryCache {

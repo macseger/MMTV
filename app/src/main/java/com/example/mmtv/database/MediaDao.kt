@@ -4,6 +4,10 @@ import androidx.room.*
 
 @Dao
 interface MediaDao {
+    // One read-only statement keeps all four diagnostic counts in the same snapshot.
+    @Query("SELECT (SELECT COUNT(*) FROM media_items) AS mediaItems, (SELECT COUNT(*) FROM epg_listings) AS epgListings, (SELECT COUNT(*) FROM channel_metadata) AS channelMetadata, (SELECT COUNT(*) FROM picons) AS picons")
+    suspend fun getDiagnosticCounts(): DiagnosticCounts
+
     @Query("SELECT * FROM media_items WHERE LOWER(title) LIKE LOWER(:query)")
     suspend fun searchMedia(query: String): List<MediaEntity>
 
@@ -136,4 +140,11 @@ interface MediaDao {
 data class CategorySimple(
     val categoryId: String?,
     val categoryName: String?
+)
+
+data class DiagnosticCounts(
+    val mediaItems: Long,
+    val epgListings: Long,
+    val channelMetadata: Long,
+    val picons: Long
 )

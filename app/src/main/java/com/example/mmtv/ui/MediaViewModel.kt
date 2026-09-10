@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.*
 import com.example.mmtv.repository.MediaRepository
+import com.example.mmtv.util.StartupDiagnostics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
@@ -331,7 +332,9 @@ class MediaViewModel(
         
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis() / 1000
-            mediaDao.deleteOldEpg(now)
+            StartupDiagnostics.timed("delete_old_epg", "trigger=viewmodel_init") {
+                mediaDao.deleteOldEpg(now)
+            }
         }
     }
 
@@ -477,6 +480,7 @@ class MediaViewModel(
     }
 
     private suspend fun loadStartupItems(reload: Boolean = false) {
+        StartupDiagnostics.timed("startup_items", "reload=$reload") {
         val initialRequests = listOf(
             MediaType.LIVE to uiState.liveCategories.getOrNull(lastLiveCategoryIndex),
             MediaType.LIVE to uiState.liveCategories.getOrNull(2),
@@ -500,31 +504,41 @@ class MediaViewModel(
             }
         }
         prefetchEpgForCategory(lastLiveCategoryIndex)
+        }
     }
 
-    fun fetchData(user: String, pass: String, forceRefresh: Boolean = false, onComplete: ((Boolean) -> Unit)? = null) {
-        if (isFetching) return
+    fun fetchData(user: String, pass: String, forceRefresh: Boolean = false, onComplete: ((Boolean) -> Unit)? = null, diagnosticTrigger: String = "fetchData") {
+        if (isFetching) {
+            StartupDiagnostics.event("startup_skip", "reason=already_fetching trigger=$diagnosticTrigger force=$forceRefresh")
+            return
+        }
         isFetching = true
         startupError = null
         isUpdatingBackground = true
 
-        viewModelScope.launch {
+        viewModelScope.launch(StartupDiagnostics.Trigger("foreground:$diagnosticTrigger")) {
+            val diagnosticSpan = StartupDiagnostics.start("foreground_startup", "force=$forceRefresh pending=${sessionManager.isSyncSelectionPending()}")
+            var diagnosticOutcome = "returned"
             var contentAvailable = false
             var completionReported = false
             fun reportReady(success: Boolean) {
                 if (!completionReported) {
                     completionReported = true
+                    StartupDiagnostics.event("startup_ready", "span=${diagnosticSpan.id} success=$success elapsed_ms=${android.os.SystemClock.elapsedRealtime() - diagnosticSpan.started}")
                     onComplete?.invoke(success)
                 }
             }
             uiState = uiState.copy(isLoading = true)
             try {
+                StartupDiagnostics.rows(mediaDao, "startup_before")
                 // Returning users can browse Room content before any catalog/network work.
                 if (sessionManager.hasSyncSelection()) {
                     val localCatalog = withContext(Dispatchers.IO) {
                         MediaType.entries.associateWith { type ->
                             val selected = sessionManager.getSyncCategories(type)
-                            mediaDao.getCategoriesByType(type).filter { it.categoryId in selected }
+                            StartupDiagnostics.timed("room_categories", "type=$type") {
+                                mediaDao.getCategoriesByType(type)
+                            }.filter { it.categoryId in selected }
                                 .distinctBy { it.categoryId }.map {
                                 GroupedMedia(it.categoryName, emptyList(), it.categoryId)
                             }
@@ -539,7 +553,9 @@ class MediaViewModel(
                 }
 
                 showStatusMessage("Hämtar kategorier...")
-                syncCategoryOptions = loadSyncCategoryOptions(user, pass, forceRefresh)
+                syncCategoryOptions = StartupDiagnostics.timed("category_catalog", "force=$forceRefresh") {
+                    loadSyncCategoryOptions(user, pass, forceRefresh)
+                }
                 if (syncCategoryOptions.values.all { it.isEmpty() } && !contentAvailable) {
                     startupError = "Kunde inte hämta några kategorier från servern. Kontrollera server-URL och anslutningen."
                     showStatusMessage(null)
@@ -560,6 +576,7 @@ class MediaViewModel(
                 reportReady(true)
 
                 val needsLibrarySync = forceRefresh || sessionManager.isSyncSelectionPending()
+                StartupDiagnostics.event("library_decision", "sync=$needsLibrarySync force=$forceRefresh pending=${sessionManager.isSyncSelectionPending()}")
                 if (needsLibrarySync) {
                     showStatusMessage("Synkar valda kategorier...")
                     _repository.syncLibrary(user, pass)
@@ -591,8 +608,10 @@ class MediaViewModel(
                     "Visar sparade kategorier. Kategorierna kunde inte uppdateras."
                 } else "Innehållet är uppdaterat")
             } catch (e: kotlinx.coroutines.CancellationException) {
+                diagnosticOutcome = "cancelled"
                 throw e
             } catch (e: Exception) {
+                diagnosticOutcome = "caught_${e.javaClass.simpleName}"
                 if (!contentAvailable) {
                     startupError = "Servern svarade inte i tid eller kategorierna kunde inte läsas. Inga automatiska nya försök görs."
                     showStatusMessage(null)
@@ -604,6 +623,12 @@ class MediaViewModel(
                 uiState = uiState.copy(isLoading = false)
                 isUpdatingBackground = false
                 isFetching = false
+                try {
+                    StartupDiagnostics.rows(mediaDao, "startup_after")
+                    StartupDiagnostics.event("startup_state_end", "pending=${sessionManager.isSyncSelectionPending()}")
+                } finally {
+                    StartupDiagnostics.end(diagnosticSpan, diagnosticOutcome)
+                }
             }
         }
     }
@@ -618,7 +643,8 @@ class MediaViewModel(
         // Returnera tidigt för specialkategorier (Favoriter/Historik) som inte hämtas från API/DB-kategorier
         if (categoryId == "FAVORITES" || categoryId == "HISTORY") return
 
-        val items = if (categoryId == "ALL_CHANNELS") {
+        val items = StartupDiagnostics.timed("room_category_items", "type=$type all_channels=${categoryId == "ALL_CHANNELS"}") {
+        if (categoryId == "ALL_CHANNELS") {
             withContext(Dispatchers.IO) {
                 val selected = sessionManager.getSyncCategories(MediaType.LIVE)
                 mediaDao.getMediaByType(MediaType.LIVE).filter { it.categoryId in selected }.map { it.toMediaSource() }
@@ -626,6 +652,8 @@ class MediaViewModel(
         } else {
             _repository.getMediaForCategory(type, categoryId)
         }
+        }
+        StartupDiagnostics.event("category_items_loaded", "type=$type count=${items.size}")
 
         // Mappa kanal-ID till EPG-ID direkt (Optimering: använd batch-uppdatering)
         if (type == MediaType.LIVE) {

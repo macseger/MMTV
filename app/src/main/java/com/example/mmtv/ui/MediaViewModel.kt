@@ -501,10 +501,9 @@ class MediaViewModel(
         val requests = (initialRequests + loadedRequests).distinctBy { (type, group) -> type to group?.categoryId }
         for ((type, group) in requests) {
             if (group != null && (reload || group.items.isEmpty())) {
-                loadCategoryItems(type, group.categoryId)
+                loadCategoryItems(type, group.categoryId, prefetchEpg = false)
             }
         }
-        prefetchEpgForCategory(lastLiveCategoryIndex)
         }
     }
 
@@ -596,7 +595,9 @@ class MediaViewModel(
                     // Refresh displayed data after icon changes without discarding other loaded lists.
                     val loadedLiveIds = (uiState.liveCategories + uiState.ppvCategories)
                         .filter { it.items.isNotEmpty() }.mapNotNull { it.categoryId }.distinct()
-                    for (id in loadedLiveIds) loadCategoryItems(MediaType.LIVE, id)
+                    for (id in loadedLiveIds) {
+                        loadCategoryItems(MediaType.LIVE, id, prefetchEpg = false)
+                    }
                     publishStartupCatalog(syncCategoryOptions)
                     val selected = MediaType.entries.associateWith(sessionManager::getSyncCategories)
                     _recentlyAdded.value = withContext(Dispatchers.IO) {
@@ -638,7 +639,11 @@ class MediaViewModel(
         viewModelScope.launch { loadCategoryItems(type, categoryId) }
     }
 
-    private suspend fun loadCategoryItems(type: MediaType, categoryId: String?) {
+    private suspend fun loadCategoryItems(
+        type: MediaType,
+        categoryId: String?,
+        prefetchEpg: Boolean = true
+    ) {
         if (categoryId == null) return
 
         // Returnera tidigt för specialkategorier (Favoriter/Historik) som inte hämtas från API/DB-kategorier
@@ -690,7 +695,7 @@ class MediaViewModel(
         }
 
         // Kategorin måste finnas i uiState innan batchcachen kan byggas.
-        if (type == MediaType.LIVE &&
+        if (prefetchEpg && type == MediaType.LIVE &&
             uiState.liveCategories.getOrNull(lastLiveCategoryIndex)?.categoryId == categoryId
         ) {
             prefetchEpgForCategory(lastLiveCategoryIndex)

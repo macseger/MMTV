@@ -858,6 +858,26 @@ class MediaRepository(
             .mapValues { (_, entities) -> entities.map { it.toEpgListing() } }
     }
 
+    suspend fun getEpgForChannels(
+        epgIds: Collection<String>,
+        windowStartTimestamp: Long,
+        windowEndTimestamp: Long
+    ): Map<String, List<EpgListing>> = withContext(Dispatchers.IO) {
+        if (epgIds.isEmpty() || windowEndTimestamp <= windowStartTimestamp) {
+            return@withContext emptyMap()
+        }
+        epgIds.distinct().chunked(900)
+            .flatMap {
+                mediaDao.getEpgForChannelsWithLimit(
+                    epgIds = it,
+                    currentTime = windowStartTimestamp,
+                    endLimit = windowEndTimestamp
+                )
+            }
+            .groupBy { it.epgId }
+            .mapValues { (_, entities) -> entities.map { it.toEpgListing() } }
+    }
+
     suspend fun getIconForChannel(epgId: String?, channelName: String?): String? = withContext(Dispatchers.IO) {
         val cacheKey = epgId ?: channelName ?: return@withContext null
         if (iconCache.containsKey(cacheKey)) return@withContext iconCache[cacheKey]

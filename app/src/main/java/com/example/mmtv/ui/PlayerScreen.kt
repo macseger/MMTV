@@ -68,7 +68,7 @@ import java.util.*
 import kotlin.math.absoluteValue
 
 enum class OverlayState {
-    NONE, CHANNELS, CATEGORIES, SUBTITLES, QUICK_INFO, EPG_INFO, FULL_EPG
+    NONE, CHANNELS, CATEGORIES, SUBTITLES, QUICK_INFO, EPG_INFO, FULL_EPG, FAVORITE_TIMELINE
 }
 
 @OptIn(UnstableApi::class)
@@ -512,6 +512,9 @@ fun PlayerScreen(
             OverlayState.FULL_EPG -> {
                 // EpgGrid hanterar sitt eget fokus internt
             }
+            OverlayState.FAVORITE_TIMELINE -> {
+                // FavoriteEpgTimeline owns focus and D-pad navigation while mounted.
+            }
             else -> { 
                 delay(50)
                 mainFocusRequester.safeFocus() 
@@ -633,6 +636,9 @@ fun PlayerScreen(
                 .onKeyEvent { keyEvent ->
                 // ... (Key handling logic)
                 val nativeEvent = keyEvent.nativeKeyEvent
+                if (overlayState == OverlayState.FAVORITE_TIMELINE) {
+                    return@onKeyEvent false
+                }
                 when (nativeEvent.action) {
                     KeyEvent.ACTION_DOWN -> {
                         if (overlayState == OverlayState.QUICK_INFO) resetAutoHideTimer()
@@ -695,7 +701,8 @@ fun PlayerScreen(
                                         if (isRepeat) performSeek(10000L, true)
                                         else performSeek(10000L)
                                     } else {
-                                        overlayState = OverlayState.SUBTITLES
+                                        viewModel.prepareFavoriteTimeline()
+                                        overlayState = OverlayState.FAVORITE_TIMELINE
                                     }
                                     true
                                 } else if (overlayState == OverlayState.CATEGORIES) {
@@ -1054,6 +1061,24 @@ fun PlayerScreen(
                     onMediaSelected(it) 
                 },
                 onClose = { overlayState = OverlayState.NONE }
+            )
+        }
+
+        if (overlayState == OverlayState.FAVORITE_TIMELINE && isLiveStream) {
+            val timelineState by viewModel.favoriteTimelineState.collectAsState()
+            val initialTimelineChannelId = media?.id?.takeIf { currentId ->
+                favorites.any { it.type == MediaType.LIVE && it.id == currentId }
+            }
+            FavoriteEpgTimeline(
+                state = timelineState,
+                initialChannelId = initialTimelineChannelId,
+                onChannelSelected = { selectedChannel ->
+                    overlayState = OverlayState.NONE
+                    if (selectedChannel.id != media?.id || selectedChannel.type != media?.type) {
+                        onMediaSelected(selectedChannel)
+                    }
+                },
+                onDismiss = { overlayState = OverlayState.NONE }
             )
         }
 

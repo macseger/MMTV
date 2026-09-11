@@ -48,6 +48,36 @@ data class MediaUiState(
     val movies get() = movieCategories
     val series get() = seriesCategories
 }
+enum class FavoriteTimelineStatus {
+    IDLE,
+    LOADING,
+    READY,
+    EMPTY,
+    ERROR
+}
+
+data class FavoriteTimelineCacheKey(
+    val orderedFavoriteChannelIds: List<Int>,
+    val windowStartTimestamp: Long,
+    val windowEndTimestamp: Long,
+    val epgRevision: Long
+)
+
+data class FavoriteTimelineRow(
+    val channel: MediaSource,
+    val epgId: String,
+    val programs: List<EpgListing>
+)
+
+data class FavoriteTimelineState(
+    val status: FavoriteTimelineStatus = FavoriteTimelineStatus.IDLE,
+    val rows: List<FavoriteTimelineRow> = emptyList(),
+    val windowStartTimestamp: Long = 0L,
+    val windowEndTimestamp: Long = 0L,
+    val epgRevision: Long = 0L,
+    val cacheKey: FavoriteTimelineCacheKey? = null,
+    val errorMessage: String? = null
+)
 
 class MediaViewModel(
     private var _repository: MediaRepository, 
@@ -58,6 +88,8 @@ class MediaViewModel(
 
     private companion object {
         const val SEARCH_RESULTS_PER_TYPE = 100
+        const val FAVORITE_TIMELINE_BUCKET_SECONDS = 30 * 60L
+        const val FAVORITE_TIMELINE_WINDOW_SECONDS = 4 * 60 * 60L
     }
 
     private val playerFactory = MmtvPlayer(context)
@@ -134,7 +166,7 @@ class MediaViewModel(
                 .map { it.toMediaSource() }
 
             withContext(Dispatchers.Main) {
-                _favorites.value = updatedFavs
+                updateFavorites(updatedFavs)
                 showTvFavoritesDialog = false
 
                 val selectedSet = orderedIds.toSet()
@@ -204,7 +236,7 @@ class MediaViewModel(
         if (availableSelection.values.all { it.isEmpty() }) return
         sessionManager.saveSyncSelection(availableSelection)
         showSyncSelection = false
-        _favorites.value = emptyList()
+        updateFavorites(emptyList())
         _recentlyAdded.value = emptyList()
         _dbSearchResults.value = emptyList()
         lastLiveCategoryIndex = 0
@@ -314,6 +346,209 @@ class MediaViewModel(
 
     private val _favorites = MutableStateFlow<List<MediaSource>>(emptyList())
     val favorites: StateFlow<List<MediaSource>> = _favorites.asStateFlow()
+    private val favoriteTimelineLock = Any()
+    private var favoriteTimelineGeneration = 0L
+    private var favoriteTimelineEpgRevision = 0L
+    private var favoriteTimelinePreparationJob: Job? = null
+    private val _favoriteTimelineState = MutableStateFlow(FavoriteTimelineState())
+    val favoriteTimelineState: StateFlow<FavoriteTimelineState> = _favoriteTimelineState.asStateFlow()
+
+    private fun favoriteTimelineWindow(referenceTimestamp: Long): Pair<Long, Long> {
+        val start = referenceTimestamp - (referenceTimestamp % FAVORITE_TIMELINE_BUCKET_SECONDS)
+        return start to (start + FAVORITE_TIMELINE_WINDOW_SECONDS)
+    }
+
+    private fun orderedLiveFavoriteIds(items: List<MediaSource>): List<Int> =
+        items.asSequence()
+            .filter { it.type == MediaType.LIVE }
+            .sortedBy { it.favoriteDate }
+            .map { it.id }
+            .toList()
+
+    private fun updateFavorites(items: List<MediaSource>) {
+        val referenceTimestamp = System.currentTimeMillis() / 1000
+        val (windowStart, windowEnd) = favoriteTimelineWindow(referenceTimestamp)
+        val newOrderedIds = orderedLiveFavoriteIds(items)
+
+        synchronized(favoriteTimelineLock) {
+            val oldOrderedIds = orderedLiveFavoriteIds(_favorites.value)
+            if (oldOrderedIds != newOrderedIds) {
+                favoriteTimelineGeneration++
+                favoriteTimelinePreparationJob?.cancel()
+                favoriteTimelinePreparationJob = null
+                _favoriteTimelineState.value = FavoriteTimelineState(
+                    epgRevision = favoriteTimelineEpgRevision
+                )
+            }
+            _favorites.value = items
+
+            if (newOrderedIds.isEmpty()) {
+                favoriteTimelineGeneration++
+                favoriteTimelinePreparationJob?.cancel()
+                favoriteTimelinePreparationJob = null
+                val key = FavoriteTimelineCacheKey(
+                    orderedFavoriteChannelIds = emptyList(),
+                    windowStartTimestamp = windowStart,
+                    windowEndTimestamp = windowEnd,
+                    epgRevision = favoriteTimelineEpgRevision
+                )
+                _favoriteTimelineState.value = FavoriteTimelineState(
+                    status = FavoriteTimelineStatus.EMPTY,
+                    windowStartTimestamp = windowStart,
+                    windowEndTimestamp = windowEnd,
+                    epgRevision = favoriteTimelineEpgRevision,
+                    cacheKey = key
+                )
+            }
+        }
+    }
+
+    private fun invalidateFavoriteTimeline(epgChanged: Boolean = false) {
+        synchronized(favoriteTimelineLock) {
+            favoriteTimelineGeneration++
+            if (epgChanged) favoriteTimelineEpgRevision++
+            favoriteTimelinePreparationJob?.cancel()
+            favoriteTimelinePreparationJob = null
+            _favoriteTimelineState.value = FavoriteTimelineState(
+                epgRevision = favoriteTimelineEpgRevision
+            )
+        }
+    }
+
+    private fun publishFavoriteTimelineIfCurrent(
+        generation: Long,
+        state: FavoriteTimelineState
+    ): Boolean = synchronized(favoriteTimelineLock) {
+        if (generation != favoriteTimelineGeneration) {
+            false
+        } else {
+            _favoriteTimelineState.value = state
+            true
+        }
+    }
+
+    fun prepareFavoriteTimeline(referenceTimestamp: Long = System.currentTimeMillis() / 1000) {
+        val (windowStart, windowEnd) = favoriteTimelineWindow(referenceTimestamp)
+        val favoritesSnapshot: List<MediaSource>
+        val generation: Long
+        val epgRevision: Long
+
+        synchronized(favoriteTimelineLock) {
+            favoriteTimelineGeneration++
+            generation = favoriteTimelineGeneration
+            epgRevision = favoriteTimelineEpgRevision
+            favoriteTimelinePreparationJob?.cancel()
+            favoritesSnapshot = _favorites.value
+        }
+
+        val preparationJob = viewModelScope.launch(Dispatchers.Default) {
+            var cacheKey: FavoriteTimelineCacheKey? = null
+            try {
+                val orderedFavorites = favoritesSnapshot
+                    .filter { it.type == MediaType.LIVE }
+                    .sortedBy { it.favoriteDate }
+                cacheKey = FavoriteTimelineCacheKey(
+                    orderedFavoriteChannelIds = orderedFavorites.map { it.id },
+                    windowStartTimestamp = windowStart,
+                    windowEndTimestamp = windowEnd,
+                    epgRevision = epgRevision
+                )
+                val hasWarmSnapshot = synchronized(favoriteTimelineLock) {
+                    generation == favoriteTimelineGeneration &&
+                        _favoriteTimelineState.value.cacheKey == cacheKey &&
+                        (_favoriteTimelineState.value.status == FavoriteTimelineStatus.READY ||
+                            _favoriteTimelineState.value.status == FavoriteTimelineStatus.EMPTY)
+                }
+                if (hasWarmSnapshot) return@launch
+
+                if (!publishFavoriteTimelineIfCurrent(
+                        generation,
+                        FavoriteTimelineState(
+                            status = FavoriteTimelineStatus.LOADING,
+                            windowStartTimestamp = windowStart,
+                            windowEndTimestamp = windowEnd,
+                            epgRevision = epgRevision,
+                            cacheKey = cacheKey
+                        )
+                    )
+                ) return@launch
+
+                if (orderedFavorites.isEmpty()) {
+                    publishFavoriteTimelineIfCurrent(
+                        generation,
+                        FavoriteTimelineState(
+                            status = FavoriteTimelineStatus.EMPTY,
+                            windowStartTimestamp = windowStart,
+                            windowEndTimestamp = windowEnd,
+                            epgRevision = epgRevision,
+                            cacheKey = cacheKey
+                        )
+                    )
+                    return@launch
+                }
+
+                currentCoroutineContext().ensureActive()
+                val epgIdsByChannel = orderedFavorites.associate { channel ->
+                    channel.id to (
+                        channelToEpgMap[channel.id]?.takeIf { it.isNotBlank() }
+                            ?: channel.epgId?.takeIf { it.isNotBlank() }
+                            ?: "stream:${channel.id}"
+                    )
+                }
+                val epgById = _repository.getEpgForChannels(
+                    epgIds = epgIdsByChannel.values,
+                    windowStartTimestamp = windowStart,
+                    windowEndTimestamp = windowEnd
+                )
+                currentCoroutineContext().ensureActive()
+
+                val rows = orderedFavorites.map { channel ->
+                    currentCoroutineContext().ensureActive()
+                    val epgId = epgIdsByChannel.getValue(channel.id)
+                    FavoriteTimelineRow(
+                        channel = channel,
+                        epgId = epgId,
+                        programs = epgById[epgId].orEmpty().toList()
+                    )
+                }.toList()
+
+                currentCoroutineContext().ensureActive()
+                publishFavoriteTimelineIfCurrent(
+                    generation,
+                    FavoriteTimelineState(
+                        status = FavoriteTimelineStatus.READY,
+                        rows = rows,
+                        windowStartTimestamp = windowStart,
+                        windowEndTimestamp = windowEnd,
+                        epgRevision = epgRevision,
+                        cacheKey = cacheKey
+                    )
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                publishFavoriteTimelineIfCurrent(
+                    generation,
+                    FavoriteTimelineState(
+                        status = FavoriteTimelineStatus.ERROR,
+                        windowStartTimestamp = windowStart,
+                        windowEndTimestamp = windowEnd,
+                        epgRevision = epgRevision,
+                        cacheKey = cacheKey,
+                        errorMessage = e.message ?: "Kunde inte läsa in favoriternas TV-tablå"
+                    )
+                )
+            }
+        }
+
+        synchronized(favoriteTimelineLock) {
+            if (generation == favoriteTimelineGeneration) {
+                favoriteTimelinePreparationJob = preparationJob
+            } else {
+                preparationJob.cancel()
+            }
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -366,7 +601,7 @@ class MediaViewModel(
         
         viewModelScope.launch(Dispatchers.IO) {
             val favs = mediaDao.getFavorites()
-            _favorites.value = favs.filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
+            updateFavorites(favs.filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() })
         }
         
         viewModelScope.launch(Dispatchers.IO) {
@@ -448,6 +683,8 @@ class MediaViewModel(
         showSyncSelection = false
         syncCategoryOptions = emptyMap()
         uiState = MediaUiState()
+        invalidateFavoriteTimeline(epgChanged = true)
+        updateFavorites(emptyList())
         fullEpgData.clear()
         channelToEpgMap.clear()
         preparedEpgCategoryIds.clear()
@@ -533,7 +770,7 @@ class MediaViewModel(
         lastMovieCategoryIndex = restoredIndex(oldState.movieCategories, lastMovieCategoryIndex, movies)
         lastSeriesCategoryIndex = restoredIndex(oldState.seriesCategories, lastSeriesCategoryIndex, series)
         lastPpvCategoryIndex = restoredIndex(oldState.ppvCategories, lastPpvCategoryIndex, ppv)
-        _favorites.value = allFavs.filter { it.categoryId in selection.getValue(it.type) }.map { it.toMediaSource() }
+        updateFavorites(allFavs.filter { it.categoryId in selection.getValue(it.type) }.map { it.toMediaSource() })
     }
 
     private suspend fun loadStartupItems(reload: Boolean = false) {
@@ -634,7 +871,9 @@ class MediaViewModel(
                 }
 
                 val iconsChanged = _repository.extractPiconsIfNeeded(rematchExisting = false)
+                invalidateFavoriteTimeline()
                 _repository.fetchAndStoreEpg(user, pass, forceRefresh)
+                invalidateFavoriteTimeline(epgChanged = true)
                 if (needsLibrarySync) _repository.resolveLiveIcons()
 
                 fullEpgData.clear()
@@ -785,7 +1024,7 @@ class MediaViewModel(
 
                 // Uppdatera favorites Flow för att trigga andra lyssnare (t.ex. sökning)
                 val updatedFavs = mediaDao.getFavorites().filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
-                _favorites.value = updatedFavs
+                updateFavorites(updatedFavs)
             }
         }
     }
@@ -1033,7 +1272,9 @@ class MediaViewModel(
 
                 withContext(Dispatchers.IO) {
                     _repository.syncLiveChannels(creds.second, creds.third)
+                    invalidateFavoriteTimeline()
                     _repository.fetchAndStoreEpg(creds.second, creds.third)
+                    invalidateFavoriteTimeline(epgChanged = true)
                     _repository.resolveLiveIcons()
                     withContext(Dispatchers.Main) {
                         fullEpgData.clear()
@@ -1124,7 +1365,9 @@ class MediaViewModel(
                 val creds = sessionManager.getLogin() ?: return@launch
                 isUpdatingBackground = true
                 showStatusMessage("Uppdaterar tablåer...")
+                invalidateFavoriteTimeline()
                 _repository.fetchAndStoreEpg(creds.second, creds.third, forceRefresh = true)
+                invalidateFavoriteTimeline(epgChanged = true)
                 fullEpgData.clear()
                 preparedEpgCategoryIds.clear()
                 loadedFullEpgIds.clear()
@@ -1183,6 +1426,7 @@ class MediaViewModel(
                         else group.copy(items = group.items.map { it.copy(isFavorite = false) })
                     }
                 )
+                updateFavorites(emptyList())
                 // Uppdatera även selectedMedia om det är en favorit
                 selectedMedia?.let {
                     if (it.isFavorite) {

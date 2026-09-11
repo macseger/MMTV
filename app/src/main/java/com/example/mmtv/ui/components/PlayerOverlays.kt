@@ -924,6 +924,7 @@ fun SideOverlay(
     SideEffect { OverlayDiagnostics.sideOverlayRecomposed() }
 
     var focusedChannel by remember { mutableStateOf(initialFocusedChannel) }
+    var focusedCategoryIndex by remember { mutableIntStateOf(viewModel.lastLiveCategoryIndex) }
     val updateFocusedChannel: (MediaSource) -> Unit = remember {
         { channel ->
             if (focusedChannel?.id != channel.id || focusedChannel?.type != channel.type) {
@@ -954,6 +955,7 @@ fun SideOverlay(
             // Restore the channel that opened the overlay without exposing focus
             // state to the parent PlayerScreen.
             focusedChannel = initialFocusedChannel
+            focusedCategoryIndex = viewModel.lastLiveCategoryIndex
             viewModel.prefetchEpgForCategory(viewModel.lastLiveCategoryIndex)
             while (true) {
                 delay(1000)
@@ -964,6 +966,15 @@ fun SideOverlay(
 
     // Positionera och fokusera först när rätt lista är synlig. Då försöker inte
     // både listan och en enskild rad flytta fokus samtidigt.
+    // Keep category focus local while the user moves through the list. Only a
+    // settled focus updates the player playlist and starts category/EPG work.
+    LaunchedEffect(isVisible, focusedCategoryIndex) {
+        if (isVisible && focusedCategoryIndex != viewModel.lastLiveCategoryIndex) {
+            delay(200)
+            measuredCategorySelected(focusedCategoryIndex)
+        }
+    }
+
     val selectedChannelId = viewModel.selectedMedia?.id
     val panelSlideProgress by animateFloatAsState(
         targetValue = if (isVisible) 0f else -1f,
@@ -1030,7 +1041,7 @@ fun SideOverlay(
                         ) { index, category ->
                             // Använd debounced index för visuell feedback om det behövs, 
                             // men lastLiveCategoryIndex är det "bekräftade" valet.
-                            val isSelected = categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title == category.title
+                            val isSelected = focusedCategoryIndex == index
                             CategoryListItem(
                                 title = category.title ?: "",
                                 isSelected = isSelected,
@@ -1040,7 +1051,7 @@ fun SideOverlay(
                                     .onFocusChanged {
                                         if (it.isFocused) {
                                             OverlayDiagnostics.focusEvent("category", index)
-                                            measuredCategorySelected(index)
+                                            focusedCategoryIndex = index
                                         }
                                     }
                                     .onKeyEvent {

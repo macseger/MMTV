@@ -13,6 +13,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.database.MediaEntity
@@ -151,6 +154,7 @@ class MediaViewModel(
 
                 val favIndex = uiState.liveCategories.indexOfFirst { it.categoryId == "FAVORITES" }
                 if (favIndex >= 0) {
+                    preparedEpgCategoryIds.remove("FAVORITES")
                     prefetchEpgForCategory(favIndex)
                 }
 
@@ -218,7 +222,9 @@ class MediaViewModel(
     private val fetchingEpgIds = ConcurrentHashMap.newKeySet<Int>()
     private val fetchingFullEpgIds = ConcurrentHashMap.newKeySet<String>()
     private val prefetchingCategoryIds = ConcurrentHashMap.newKeySet<String>()
+    private val preparedEpgCategoryIds = ConcurrentHashMap.newKeySet<String>()
     private val loadedFullEpgIds = ConcurrentHashMap.newKeySet<String>()
+    private val categoryLoadJobs = mutableMapOf<MediaType, Job>()
     
     // Cache för nuvarande program och ikoner
     private val currentEpgCache = mutableMapOf<String, EpgListing?>()
@@ -407,6 +413,7 @@ class MediaViewModel(
         uiState = MediaUiState()
         fullEpgData.clear()
         channelToEpgMap.clear()
+        preparedEpgCategoryIds.clear()
         loadedFullEpgIds.clear()
         _dbSearchResults.value = emptyList()
     }
@@ -589,6 +596,7 @@ class MediaViewModel(
                 if (needsLibrarySync) _repository.resolveLiveIcons()
 
                 fullEpgData.clear()
+                preparedEpgCategoryIds.clear()
                 loadedFullEpgIds.clear()
                 currentEpgCache.clear()
                 if (needsLibrarySync || iconsChanged) {
@@ -636,7 +644,10 @@ class MediaViewModel(
     }
 
     fun loadItemsForCategory(type: MediaType, categoryId: String?) {
-        viewModelScope.launch { loadCategoryItems(type, categoryId) }
+        categoryLoadJobs[type]?.cancel()
+        categoryLoadJobs[type] = viewModelScope.launch {
+            loadCategoryItems(type, categoryId)
+        }
     }
 
     private suspend fun loadCategoryItems(
@@ -660,12 +671,17 @@ class MediaViewModel(
         }
         }
         StartupDiagnostics.event("category_items_loaded", "type=$type count=${items.size}")
+        currentCoroutineContext().ensureActive()
 
         // Mappa kanal-ID till EPG-ID direkt (Optimering: använd batch-uppdatering)
         if (type == MediaType.LIVE) {
-            val newMappings = mutableMapOf<Int, String>()
-            items.forEach { item ->
-                item.epgId?.let { epgId -> newMappings[item.id] = epgId }
+            preparedEpgCategoryIds.remove(categoryId)
+            val newMappings = withContext(Dispatchers.Default) {
+                HashMap<Int, String>(items.size).apply {
+                    items.forEach { item ->
+                        item.epgId?.let { epgId -> put(item.id, epgId) }
+                    }
+                }
             }
             if (newMappings.isNotEmpty()) {
                 channelToEpgMap.putAll(newMappings)
@@ -720,6 +736,9 @@ class MediaViewModel(
                     movieCategories = uiState.movieCategories.updateFavoriteInCategory(media.id, newFavStatus, MediaType.MOVIE),
                     seriesCategories = uiState.seriesCategories.updateFavoriteInCategory(media.id, newFavStatus, MediaType.SERIES)
                 )
+                if (media.type == MediaType.LIVE) {
+                    preparedEpgCategoryIds.remove("FAVORITES")
+                }
 
                 // Uppdatera favorites Flow för att trigga andra lyssnare (t.ex. sökning)
                 val updatedFavs = mediaDao.getFavorites().filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
@@ -757,50 +776,56 @@ class MediaViewModel(
     fun prefetchEpgForCategory(categoryIndex: Int) {
         val category = uiState.liveStreamsGrouped.getOrNull(categoryIndex) ?: return
         val categoryKey = category.categoryId ?: "category_$categoryIndex"
-
-        // Populera channelToEpgMap direkt för alla kanaler i kategorin
         val itemsToPrefetch = category.items
-        var mapWrites = 0
-        itemsToPrefetch.forEach { item ->
-            val epgId = item.epgId?.takeIf { it.isNotBlank() } ?: "stream:${item.id}"
-            if (channelToEpgMap[item.id] != epgId) {
-                channelToEpgMap[item.id] = epgId
-                mapWrites++
+
+        if (itemsToPrefetch.isEmpty() || preparedEpgCategoryIds.contains(categoryKey)) return
+        if (!prefetchingCategoryIds.add(categoryKey)) return
+
+        viewModelScope.launch(Dispatchers.Default) {
+            val mappings = HashMap<Int, String>(itemsToPrefetch.size)
+            val epgIds = LinkedHashSet<String>(itemsToPrefetch.size)
+            itemsToPrefetch.forEach { item ->
+                val epgId = item.epgId?.takeIf { it.isNotBlank() } ?: "stream:${item.id}"
+                mappings[item.id] = epgId
+                epgIds.add(epgId)
             }
-        }
-        val diagnosticStart = OverlayDiagnostics.prefetchStart(categoryIndex, category.categoryId, itemsToPrefetch.size, mapWrites)
-        if (!prefetchingCategoryIds.add(categoryKey)) {
-            OverlayDiagnostics.prefetchEnd(categoryIndex, diagnosticStart, 0, 0)
-            return
-        }
-
-        val epgIds = itemsToPrefetch.mapNotNull { channelToEpgMap[it.id] }.distinct()
-        val missingEpgIds = epgIds.filterNot { loadedFullEpgIds.contains(it) }
-
-        if (missingEpgIds.isEmpty()) {
-            prefetchingCategoryIds.remove(categoryKey)
-            OverlayDiagnostics.prefetchEnd(categoryIndex, diagnosticStart, 0, 0)
-            return
-        }
-
-        viewModelScope.launch(Dispatchers.IO) {
+            val missingEpgIds = epgIds.filterNot { loadedFullEpgIds.contains(it) }
+            val diagnosticStart = OverlayDiagnostics.prefetchStart(
+                categoryIndex,
+                category.categoryId,
+                itemsToPrefetch.size,
+                mappings.size
+            )
             var putAllEntries = 0
+
             try {
+                withContext(Dispatchers.Main) {
+                    channelToEpgMap.putAll(mappings)
+                }
+
+                if (missingEpgIds.isEmpty()) {
+                    preparedEpgCategoryIds.add(categoryKey)
+                    return@launch
+                }
+
                 val epgByChannel = _repository.getEpgForChannels(missingEpgIds)
                 putAllEntries = epgByChannel.size
                 withContext(Dispatchers.Main) {
                     fullEpgData.putAll(epgByChannel)
                     loadedFullEpgIds.addAll(missingEpgIds)
                 }
+                preparedEpgCategoryIds.add(categoryKey)
             } finally {
-                OverlayDiagnostics.prefetchEnd(categoryIndex, diagnosticStart, missingEpgIds.size, putAllEntries)
-                withContext(Dispatchers.Main) {
-                    prefetchingCategoryIds.remove(categoryKey)
-                }
+                OverlayDiagnostics.prefetchEnd(
+                    categoryIndex,
+                    diagnosticStart,
+                    missingEpgIds.size,
+                    putAllEntries
+                )
+                prefetchingCategoryIds.remove(categoryKey)
             }
         }
     }
-
     /** Läsning utan sidoeffekter; säker att anropa från en Composable. */
     fun getCachedFullEpgForId(id: Int): List<EpgListing> {
         val epgId = channelToEpgMap[id] ?: return emptyList()
@@ -969,6 +994,7 @@ class MediaViewModel(
                     _repository.resolveLiveIcons()
                     withContext(Dispatchers.Main) {
                         fullEpgData.clear()
+                        preparedEpgCategoryIds.clear()
                         loadedFullEpgIds.clear()
                         currentEpgCache.clear()
                     }
@@ -1057,6 +1083,7 @@ class MediaViewModel(
                 showStatusMessage("Uppdaterar tablåer...")
                 _repository.fetchAndStoreEpg(creds.second, creds.third, forceRefresh = true)
                 fullEpgData.clear()
+                preparedEpgCategoryIds.clear()
                 loadedFullEpgIds.clear()
                 showStatusMessage("TV-Tablån är uppdaterad")
             } catch (e: kotlinx.coroutines.CancellationException) {

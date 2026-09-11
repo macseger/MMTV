@@ -433,6 +433,18 @@ class MediaViewModel(
         }
     }
 
+    private suspend fun loadSelectedRoomCatalog(): Map<MediaType, List<GroupedMedia>> =
+        withContext(Dispatchers.IO) {
+            MediaType.entries.associateWith { type ->
+                val selected = sessionManager.getSyncCategories(type)
+                StartupDiagnostics.timed("room_categories", "type=$type") {
+                    mediaDao.getCategoriesByType(type)
+                }.filter { it.categoryId in selected }
+                    .distinctBy { it.categoryId }
+                    .map { GroupedMedia(it.categoryName, emptyList(), it.categoryId) }
+            }
+        }
+
     private suspend fun publishStartupCatalog(catalog: Map<MediaType, List<GroupedMedia>>) {
         val selection = MediaType.entries.associateWith(sessionManager::getSyncCategories)
         val allFavs = withContext(Dispatchers.IO) { mediaDao.getFavorites() }
@@ -478,7 +490,7 @@ class MediaViewModel(
             .takeIf { it >= 0 } ?: if (live.size > 2) 2 else 0
         uiState = oldState.copy(
             liveCategories = live, movieCategories = movies, seriesCategories = series,
-            ppvCategories = ppv, isLoading = false
+            ppvCategories = ppv
         )
         lastLiveCategoryIndex = restoredIndex(oldState.liveCategories, lastLiveCategoryIndex, live, liveDefault)
         lastMovieCategoryIndex = restoredIndex(oldState.movieCategories, lastMovieCategoryIndex, movies)
@@ -540,22 +552,11 @@ class MediaViewModel(
                 StartupDiagnostics.rows(mediaDao, "startup_before")
                 // Returning users can browse Room content before any catalog/network work.
                 if (sessionManager.hasSyncSelection()) {
-                    val localCatalog = withContext(Dispatchers.IO) {
-                        MediaType.entries.associateWith { type ->
-                            val selected = sessionManager.getSyncCategories(type)
-                            StartupDiagnostics.timed("room_categories", "type=$type") {
-                                mediaDao.getCategoriesByType(type)
-                            }.filter { it.categoryId in selected }
-                                .distinctBy { it.categoryId }.map {
-                                GroupedMedia(it.categoryName, emptyList(), it.categoryId)
-                            }
-                        }
-                    }
+                    val localCatalog = loadSelectedRoomCatalog()
                     if (localCatalog.values.any { it.isNotEmpty() }) {
                         publishStartupCatalog(localCatalog)
                         loadStartupItems()
                         contentAvailable = true
-                        reportReady(true)
                     }
                 }
 
@@ -577,16 +578,20 @@ class MediaViewModel(
                 }
 
                 // Empty/failed sections retain their local categories and loaded items.
-                publishStartupCatalog(syncCategoryOptions)
+                var displayCatalog = syncCategoryOptions
+                publishStartupCatalog(displayCatalog)
                 loadStartupItems()
                 contentAvailable = true
-                reportReady(true)
 
                 val needsLibrarySync = forceRefresh || sessionManager.isSyncSelectionPending()
                 StartupDiagnostics.event("library_decision", "sync=$needsLibrarySync force=$forceRefresh pending=${sessionManager.isSyncSelectionPending()}")
                 if (needsLibrarySync) {
                     showStatusMessage("Synkar valda kategorier...")
                     _repository.syncLibrary(user, pass)
+                    // Room is authoritative after the import. Publish its category
+                    // snapshot before loading items so first-login UI sees every group.
+                    displayCatalog = loadSelectedRoomCatalog()
+                    publishStartupCatalog(displayCatalog)
                     // Newly synchronized channels become usable before picons and EPG finish.
                     loadStartupItems(reload = true)
                 }
@@ -606,7 +611,7 @@ class MediaViewModel(
                     for (id in loadedLiveIds) {
                         loadCategoryItems(MediaType.LIVE, id, prefetchEpg = false)
                     }
-                    publishStartupCatalog(syncCategoryOptions)
+                    publishStartupCatalog(displayCatalog)
                     val selected = MediaType.entries.associateWith(sessionManager::getSyncCategories)
                     _recentlyAdded.value = withContext(Dispatchers.IO) {
                         mediaDao.getRecentlyAdded().filter { it.categoryId in selected.getValue(it.type) }
@@ -617,6 +622,7 @@ class MediaViewModel(
                 showStatusMessage(if (syncCategoryOptions.values.all { it.isEmpty() }) {
                     "Visar sparade kategorier. Kategorierna kunde inte uppdateras."
                 } else "Innehållet är uppdaterat")
+                reportReady(true)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 diagnosticOutcome = "cancelled"
                 throw e

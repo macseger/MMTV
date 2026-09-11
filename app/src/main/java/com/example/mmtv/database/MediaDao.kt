@@ -11,6 +11,14 @@ interface MediaDao {
     @Query("SELECT * FROM media_items WHERE LOWER(title) LIKE LOWER(:query)")
     suspend fun searchMedia(query: String): List<MediaEntity>
 
+    @Query("SELECT * FROM media_items WHERE type = :type AND categoryId IN (:categoryIds) AND LOWER(title) LIKE LOWER(:query) LIMIT :limit")
+    suspend fun searchMediaByType(
+        query: String,
+        type: com.example.mmtv.model.MediaType,
+        categoryIds: List<String>,
+        limit: Int
+    ): List<MediaEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<MediaEntity>)
 

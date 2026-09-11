@@ -121,7 +121,7 @@ fun SearchScreen(
                     )
                 }
                 
-                items(dbSearchResults) { media ->
+                items(dbSearchResults, key = { media -> "${media.type}:${media.id}" }) { media ->
                     SearchMediaCard(
                         media = media,
                         viewModel = viewModel,

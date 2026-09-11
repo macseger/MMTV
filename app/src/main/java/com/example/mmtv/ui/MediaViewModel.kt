@@ -56,6 +56,10 @@ class MediaViewModel(
     private val context: android.content.Context
 ) : ViewModel() {
 
+    private companion object {
+        const val SEARCH_RESULTS_PER_TYPE = 100
+    }
+
     private val playerFactory = MmtvPlayer(context)
     var exoPlayer: ExoPlayer? = null
         private set
@@ -314,14 +318,47 @@ class MediaViewModel(
     init {
         viewModelScope.launch {
             snapshotFlow { searchQuery }.collectLatest { query ->
-                if (query.length >= 2) {
-                    try {
-                        val entities = mediaDao.searchMedia("%$query%")
-                        _dbSearchResults.value = entities.filter { it.categoryId in sessionManager.getSyncCategories(it.type) }.map { it.toMediaSource() }
-                    } catch (e: Exception) {
-                        _dbSearchResults.value = emptyList()
+                if (query.length < 2) {
+                    _dbSearchResults.value = emptyList()
+                    return@collectLatest
+                }
+
+                try {
+                    delay(250)
+                    val queryPattern = "%$query%"
+                    val entities = withContext(Dispatchers.IO) {
+                        val selectedCategories = MediaType.entries.associateWith { type ->
+                            sessionManager.getSyncCategories(type).toList()
+                        }
+                        buildList {
+                            for (type in MediaType.entries) {
+                                currentCoroutineContext().ensureActive()
+                                val categoryIds = selectedCategories.getValue(type)
+                                if (categoryIds.isNotEmpty()) {
+                                    addAll(
+                                        mediaDao.searchMediaByType(
+                                            query = queryPattern,
+                                            type = type,
+                                            categoryIds = categoryIds,
+                                            limit = SEARCH_RESULTS_PER_TYPE
+                                        )
+                                    )
+                                }
+                            }
+                        }
                     }
-                } else {
+                    val results = withContext(Dispatchers.Default) {
+                        val searchContext = currentCoroutineContext()
+                        entities.map { entity ->
+                            searchContext.ensureActive()
+                            entity.toMediaSource()
+                        }
+                    }
+                    currentCoroutineContext().ensureActive()
+                    _dbSearchResults.value = results
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
                     _dbSearchResults.value = emptyList()
                 }
             }

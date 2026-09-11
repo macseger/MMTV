@@ -199,23 +199,73 @@ fun PlayerScreen(
     val isSeries = media?.type == MediaType.SERIES
     val favorites by viewModel.favorites.collectAsState()
 
-    val currentEpisodeLabel = remember(media, viewModel.selectedSeriesInfo, viewModel.playingEpisode) {
-        val episode = viewModel.playingEpisode
-        if (!isSeries || episode == null) null else {
-            val seasonEntry = viewModel.selectedSeriesInfo?.episodes?.entries?.firstOrNull { entry ->
-                episode.id != null && entry.value.any { it.id == episode.id }
+    fun String?.nonBlankValue(): String? = this?.takeIf { it.isNotBlank() }
+
+    val currentMediaId = media?.id
+    val matchingMovieInfo = viewModel.selectedMovieInfo?.takeIf { details ->
+        media?.type == MediaType.MOVIE && details.movieData?.streamId == currentMediaId
+    }
+    val matchingSeriesInfo = viewModel.selectedSeriesInfo?.takeIf { details ->
+        isSeries && details.info?.seriesId == currentMediaId
+    }
+    val currentEpisode = viewModel.playingEpisode.takeIf { isSeries }
+
+    val currentEpisodeLabel = remember(media, matchingSeriesInfo, currentEpisode) {
+        if (!isSeries || currentEpisode == null) null else {
+            val seasonEntry = matchingSeriesInfo?.episodes?.entries?.firstOrNull { entry ->
+                currentEpisode.id != null && entry.value.any { it.id == currentEpisode.id }
             }
-            val episodeIndex = seasonEntry?.value?.indexOfFirst { it.id == episode.id } ?: -1
-            val episodeNumber = episode.episodeNumber?.takeIf { it > 0 }
+            val episodeIndex = seasonEntry?.value?.indexOfFirst { it.id == currentEpisode.id } ?: -1
+            val episodeNumber = currentEpisode.episodeNumber?.takeIf { it > 0 }
                 ?: (episodeIndex + 1).takeIf { episodeIndex >= 0 }
-            val seasonNumber = episode.seasonNumber ?: seasonEntry?.key?.toIntOrNull()
-            if (episodeNumber != null && seasonNumber != null) {
-                "Du tittar just nu på avsnitt $episodeNumber · Säsong $seasonNumber"
-            } else if (episodeNumber != null) {
-                "Du tittar just nu på avsnitt $episodeNumber"
-            } else episode.title?.takeIf { it.isNotBlank() }
+            val seasonNumber = currentEpisode.seasonNumber ?: seasonEntry?.key?.toIntOrNull()
+            val episodeTitle = currentEpisode.title.nonBlankValue()
+            buildList {
+                if (seasonNumber != null) add("Säsong $seasonNumber")
+                if (episodeNumber != null) add("Avsnitt $episodeNumber")
+                if (episodeTitle != null) add(episodeTitle)
+            }.joinToString(" · ").takeIf { it.isNotBlank() }
         }
     }
+
+    val movieDetails = matchingMovieInfo?.info
+    val seriesDetails = matchingSeriesInfo?.info
+    val presentationTitle = if (isSeries) {
+        seriesDetails?.name.nonBlankValue() ?: media?.title.nonBlankValue()
+    } else {
+        matchingMovieInfo?.movieData?.name.nonBlankValue() ?: media?.title.nonBlankValue()
+    }
+    val presentationPoster = if (isSeries) {
+        currentEpisode?.info?.icon.nonBlankValue()
+            ?: seriesDetails?.cover.nonBlankValue()
+            ?: media?.icon.nonBlankValue()
+    } else {
+        movieDetails?.movieImage.nonBlankValue() ?: media?.icon.nonBlankValue()
+    }
+    val presentationDescription = if (isSeries) {
+        currentEpisode?.info?.plot.nonBlankValue()
+            ?: seriesDetails?.plot.nonBlankValue()
+            ?: media?.plot.nonBlankValue()
+    } else {
+        movieDetails?.plot.nonBlankValue() ?: media?.plot.nonBlankValue()
+    }
+    val presentationGenre = if (isSeries) {
+        seriesDetails?.genre.nonBlankValue() ?: media?.genre.nonBlankValue()
+    } else {
+        movieDetails?.genre.nonBlankValue() ?: media?.genre.nonBlankValue()
+    }
+    val presentationRating = if (isSeries) {
+        seriesDetails?.rating.nonBlankValue() ?: media?.rating.nonBlankValue()
+    } else {
+        movieDetails?.rating.nonBlankValue() ?: media?.rating.nonBlankValue()
+    }
+    val movieReleaseYear = if (isSeries) null else {
+        movieDetails?.releaseDate.nonBlankValue()?.take(4)
+            ?.takeIf { year -> year.length == 4 && year.all(Char::isDigit) }
+    }
+    val presentationMetadata = listOfNotNull(movieReleaseYear, presentationGenre)
+        .joinToString(" · ")
+        .takeIf { it.isNotBlank() }
 
     // --- NEXT EPISODE LOGIC ---
     val nextEpisode = remember(media, viewModel.selectedSeriesInfo, viewModel.playingEpisode) {
@@ -809,7 +859,11 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             VodControlOverlay(
-                media = media,
+                title = presentationTitle,
+                poster = presentationPoster,
+                rating = presentationRating,
+                metadata = presentationMetadata,
+                description = presentationDescription,
                 currentEpisodeLabel = currentEpisodeLabel,
                 isPlaying = isPlaying,
                 currentPosition = currentPosition,
@@ -1053,7 +1107,11 @@ fun PlayerScreen(
 
 @Composable
 fun VodControlOverlay(
-    media: MediaSource?,
+    title: String?,
+    poster: String?,
+    rating: String?,
+    metadata: String?,
+    description: String?,
     isPlaying: Boolean,
     currentPosition: Long,
     duration: Long,
@@ -1099,12 +1157,12 @@ fun VodControlOverlay(
                 ) {
                     Box(modifier = Modifier.fillMaxSize().background(Color.DarkGray), contentAlignment = Alignment.Center) {
                         AsyncImage(
-                            model = media?.icon,
+                            model = poster,
                             contentDescription = null,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
                         )
-                        if (media?.icon == null) {
+                        if (poster == null) {
                             Box(Modifier.fillMaxSize().background(Color.DarkGray))
                         }
                     }
@@ -1114,7 +1172,7 @@ fun VodControlOverlay(
                 
                 Column {
                     Text(
-                        text = media?.title ?: "",
+                        text = title.orEmpty(),
                         style = MaterialTheme.typography.headlineLarge,
                         color = Color.White,
                         fontWeight = FontWeight.Black,
@@ -1122,7 +1180,7 @@ fun VodControlOverlay(
                         overflow = TextOverflow.Ellipsis
                     )
                     
-                    if (media?.type == MediaType.SERIES && currentEpisodeLabel != null) {
+                    if (currentEpisodeLabel != null) {
                         Text(
                             text = currentEpisodeLabel,
                             modifier = Modifier.padding(top = 8.dp),
@@ -1134,17 +1192,16 @@ fun VodControlOverlay(
                     Spacer(modifier = Modifier.height(8.dp))
                     
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        val rating = media?.rating
-                        if (!rating.isNullOrBlank() && rating != "0.0") {
+                        val resolvedRating = rating
+                        if (!resolvedRating.isNullOrBlank() && resolvedRating != "0.0") {
                             Icon(Icons.Default.Star, null, tint = Color(0xFFFFD700), modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = rating, color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                            Text(text = resolvedRating, color = Color.White, style = MaterialTheme.typography.bodyMedium)
                             Spacer(modifier = Modifier.width(16.dp))
                         }
                         
-                        val genre = media?.genre
-                        if (!genre.isNullOrBlank()) {
-                            Text(text = genre, color = Color.LightGray, style = MaterialTheme.typography.bodyMedium)
+                        if (!metadata.isNullOrBlank()) {
+                            Text(text = metadata, color = Color.LightGray, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -1153,7 +1210,7 @@ fun VodControlOverlay(
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(
-                text = media?.plot ?: "Ingen beskrivning tillgänglig.",
+                text = description ?: "Ingen beskrivning tillgänglig.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.White.copy(alpha = 0.8f),
                 maxLines = 3,

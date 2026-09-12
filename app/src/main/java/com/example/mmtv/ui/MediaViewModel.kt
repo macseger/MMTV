@@ -118,6 +118,14 @@ class MediaViewModel(
         return exoPlayer!!
     }
 
+    fun enableVodStereoDownmix(inputChannelCount: Int): Boolean {
+        return playerFactory.enableVodStereoDownmix(inputChannelCount)
+    }
+
+    fun disableVodStereoDownmix() {
+        playerFactory.disableVodStereoDownmix()
+    }
+
     fun stopAndResetPlayer() {
         exoPlayer?.stop()
         exoPlayer?.clearMediaItems()

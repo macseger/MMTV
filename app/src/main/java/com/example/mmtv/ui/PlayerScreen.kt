@@ -50,9 +50,11 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.ui.PlayerView
 import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.GroupedMedia
@@ -446,11 +448,47 @@ fun PlayerScreen(
 
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
+            private var compatibilityRetryAttempted = false
+
+            fun clearCompatibilityRecovery() {
+                viewModel.disableVodStereoDownmix()
+                compatibilityRetryAttempted = false
+            }
+
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                clearCompatibilityRecovery()
+            }
+
             override fun onTracksChanged(tracks: Tracks) {
                 availableSubtitles = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
                 videoFormat = exoPlayer.videoFormat
                 audioFormat = exoPlayer.audioFormat
             }
+
+            override fun onPlayerError(error: PlaybackException) {
+                if (isLiveStream || compatibilityRetryAttempted ||
+                    error.errorCode != PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED
+                ) return
+
+                val sinkError = generateSequence<Throwable>(error) { it.cause }
+                    .filterIsInstance<AudioSink.InitializationException>()
+                    .firstOrNull() ?: return
+                val failedChannelCount = sinkError.format.channelCount
+                if (failedChannelCount <= 2) return
+
+                val mediaItemIndex = exoPlayer.currentMediaItemIndex
+                if (mediaItemIndex == C.INDEX_UNSET) return
+                val position = exoPlayer.currentPosition.coerceAtLeast(0L)
+                val shouldPlay = exoPlayer.playWhenReady
+                if (!viewModel.enableVodStereoDownmix(failedChannelCount)) return
+
+                // Mark the attempt first so a failing stereo output cannot start another retry.
+                compatibilityRetryAttempted = true
+                exoPlayer.seekTo(mediaItemIndex, position)
+                exoPlayer.prepare()
+                exoPlayer.playWhenReady = shouldPlay
+            }
+
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
                 videoFormat = exoPlayer.videoFormat
@@ -476,6 +514,7 @@ fun PlayerScreen(
         }
         exoPlayer.addListener(listener)
         onDispose {
+            listener.clearCompatibilityRecovery()
             exoPlayer.removeListener(listener)
             if (media != null && media.type != MediaType.LIVE) {
                 val currentPos = exoPlayer.currentPosition

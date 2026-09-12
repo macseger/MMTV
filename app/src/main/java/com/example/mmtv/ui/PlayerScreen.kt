@@ -1,5 +1,6 @@
 package com.example.mmtv.ui
 
+import android.net.Uri
 import com.example.mmtv.ui.theme.FocusBorderColor
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -90,6 +91,7 @@ fun PlayerScreen(
     val focusManager = LocalFocusManager.current
     val sessionManager = remember { SessionManager(context) }
     val isLiveStream = media?.type == MediaType.LIVE
+    val isActualLiveRoute = Uri.parse(url).pathSegments.any { it.equals("live", ignoreCase = true) }
     val exoPlayer = remember(isLiveStream) { viewModel.getOrInitializePlayer(isLiveStream) }
 
     val showPlaybackDetails = remember { sessionManager.getShowPlaybackDetails() }
@@ -149,6 +151,11 @@ fun PlayerScreen(
     var isBuffering by remember { mutableStateOf(false) }
     var overlayState by remember { mutableStateOf(OverlayState.NONE) }
     var showSeekFeedback by remember { mutableStateOf(false) }
+    val showVodControls = media != null &&
+        media.type != MediaType.LIVE &&
+        !isActualLiveRoute &&
+        (showSeekFeedback || !isPlaying)
+
     var seekMessage by remember { mutableStateOf("") }
     
     var accumulatedSeekMs by remember { mutableLongStateOf(0L) }
@@ -564,10 +571,10 @@ fun PlayerScreen(
     // --- RENDER ---
     if (viewModel.isInPipMode) {
         AndroidView(
-            factory = { ctx -> 
+            factory = { ctx ->
                 PlayerView(ctx).apply { 
-                    player = exoPlayer
                     useController = false
+                    player = exoPlayer
                     keepScreenOn = true
                     // Anpassa undertexternas utseende och tvinga dem att använda systemets inställningar
                     // vilket ofta löser problem med teckenkodning och saknade glyphs på Android TV.
@@ -836,10 +843,10 @@ fun PlayerScreen(
             .focusable()
     ) {
         AndroidView(
-            factory = { ctx -> 
+            factory = { ctx ->
                 PlayerView(ctx).apply { 
-                    player = exoPlayer
                     useController = false
+                    player = exoPlayer
                     keepScreenOn = true
                     // Anpassa undertexternas utseende och tvinga dem att använda systemets inställningar
                     // vilket ofta löser problem med teckenkodning och saknade glyphs på Android TV.
@@ -899,7 +906,7 @@ fun PlayerScreen(
 
         // --- VOD CONTROL OVERLAY ---
         AnimatedVisibility(
-            visible = (showSeekFeedback || !isPlaying) && media?.type != MediaType.LIVE,
+            visible = showVodControls,
             enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
             exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
             modifier = Modifier.fillMaxSize()

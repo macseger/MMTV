@@ -5,7 +5,16 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-val appVersionName = "5.3"
+val appVersionName = "5.4"
+val releaseSigningEnvironment = mapOf(
+    "MMTV_KEYSTORE_PATH" to System.getenv("MMTV_KEYSTORE_PATH"),
+    "MMTV_KEYSTORE_PASSWORD" to System.getenv("MMTV_KEYSTORE_PASSWORD"),
+    "MMTV_KEY_ALIAS" to System.getenv("MMTV_KEY_ALIAS"),
+    "MMTV_KEY_PASSWORD" to System.getenv("MMTV_KEY_PASSWORD")
+)
+val missingReleaseSigningVariables = releaseSigningEnvironment
+    .filterValues { it.isNullOrBlank() }
+    .keys
 
 android {
     namespace = "com.example.mmtv"
@@ -15,14 +24,26 @@ android {
         applicationId = "com.example.mmtv"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
+        versionCode = 14
         versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            if (missingReleaseSigningVariables.isEmpty()) {
+                storeFile = file(releaseSigningEnvironment.getValue("MMTV_KEYSTORE_PATH")!!)
+                storePassword = releaseSigningEnvironment.getValue("MMTV_KEYSTORE_PASSWORD")
+                keyAlias = releaseSigningEnvironment.getValue("MMTV_KEY_ALIAS")
+                keyPassword = releaseSigningEnvironment.getValue("MMTV_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -48,6 +69,19 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+}
+
+tasks.configureEach {
+    if (name.contains("Release", ignoreCase = true)) {
+        doFirst {
+            if (missingReleaseSigningVariables.isNotEmpty()) {
+                throw GradleException(
+                    "Release signing is not configured. Set: ${missingReleaseSigningVariables.joinToString(", ")}."
+                )
+            }
+        }
     }
 }
 

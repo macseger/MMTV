@@ -744,32 +744,6 @@ fun PlayerScreen(
                 .onKeyEvent { keyEvent ->
                 // ... (Key handling logic)
                 val nativeEvent = keyEvent.nativeKeyEvent
-                if (nativeEvent.action == KeyEvent.ACTION_DOWN) {
-                    when (nativeEvent.keyCode) {
-                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-                        KeyEvent.KEYCODE_MEDIA_PLAY,
-                        KeyEvent.KEYCODE_MEDIA_PAUSE,
-                        KeyEvent.KEYCODE_MEDIA_REWIND,
-                        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
-                        KeyEvent.KEYCODE_CAPTIONS,
-                        KeyEvent.KEYCODE_GUIDE,
-                        KeyEvent.KEYCODE_INFO,
-                        KeyEvent.KEYCODE_MENU,
-                        KeyEvent.KEYCODE_0,
-                        KeyEvent.KEYCODE_1,
-                        KeyEvent.KEYCODE_2,
-                        KeyEvent.KEYCODE_3,
-                        KeyEvent.KEYCODE_4,
-                        KeyEvent.KEYCODE_5,
-                        KeyEvent.KEYCODE_6,
-                        KeyEvent.KEYCODE_7,
-                        KeyEvent.KEYCODE_8,
-                        KeyEvent.KEYCODE_9 -> android.util.Log.d(
-                            "MMTV_REMOTE_TRACE",
-                            "keyCode=${nativeEvent.keyCode} action=DOWN media=${media?.type} overlay=$overlayState repeat=${nativeEvent.repeatCount}"
-                        )
-                    }
-                }
                 if (overlayState == OverlayState.FAVORITE_TIMELINE) {
                     return@onKeyEvent false
                 }

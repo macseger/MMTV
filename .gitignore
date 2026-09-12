@@ -38,6 +38,8 @@ build/
 # Keystore files
 *.jks
 *.keystore
+*.p12
+*.pfx
 # External dependencies
 /node_modules
 /libs

@@ -526,7 +526,11 @@ class MainActivity : AppCompatActivity() {
                                             isContentLoading = sharedViewModel.uiState.isLoading,
                                             isCheckingForAppUpdate = sharedViewModel.isCheckingForAppUpdate,
                                             isAppUpToDate = sharedViewModel.isAppUpToDate,
-                                            appUpdateVersion = sharedViewModel.appUpdateInfo?.versionName,
+                                            appUpdateVersion = sharedViewModel.appUpdateInfo?.let { info ->
+                                                listOfNotNull(info.versionName, info.releaseName?.takeIf { it.isNotBlank() })
+                                                    .joinToString(" – ")
+                                            },
+                                            appUpdateError = sharedViewModel.appUpdateError,
                                             onCheckForUpdate = { sharedViewModel.checkForAppUpdate(context) },
                                             onStartUpdate = { sharedViewModel.startAppUpdate(context) },
                                             onLogout = {

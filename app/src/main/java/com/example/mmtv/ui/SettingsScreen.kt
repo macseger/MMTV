@@ -47,6 +47,7 @@ fun SettingsScreen(
     isCheckingForAppUpdate: Boolean,
     isAppUpToDate: Boolean,
     appUpdateVersion: String?,
+    appUpdateError: String?,
     onCheckForUpdate: () -> Unit,
     onStartUpdate: () -> Unit,
     onLogout: () -> Unit,
@@ -293,11 +294,13 @@ fun SettingsScreen(
                 val title = when {
                     appUpdateVersion != null -> "Uppdatering tillgänglig: $appUpdateVersion"
                     isAppUpToDate -> "Du har senaste versionen"
+                    appUpdateError != null -> appUpdateError
                     else -> "Sök efter uppdatering"
                 }
                 val subtitle = when {
                     appUpdateVersion != null -> "Klicka för att ladda ner och installera"
                     isAppUpToDate -> "Ingen nyare version hittades"
+                    appUpdateError != null -> "Tryck för att försöka igen"
                     else -> "Kontrollera om det finns en ny version av MMTV"
                 }
                 

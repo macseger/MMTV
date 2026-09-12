@@ -4,6 +4,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.mmtv.api.SessionManager
+import com.example.mmtv.BuildConfig
 import com.example.mmtv.model.*
 import com.example.mmtv.repository.MediaRepository
 import com.example.mmtv.util.StartupDiagnostics
@@ -92,8 +93,6 @@ class MediaViewModel(
         const val FAVORITE_TIMELINE_WINDOW_SECONDS = 4 * 60 * 60L
         const val LIVE_CATALOG_FRESHNESS_MS = 60 * 60 * 1000L
 
-        // TEMPORARY STAGE 3 HARDWARE TEST AID: remove after stale-path verification.
-        const val FORCE_STALE_LIVE_TEST = true
     }
 
     private val playerFactory = MmtvPlayer(context)
@@ -959,10 +958,7 @@ class MediaViewModel(
                 }
 
                 val liveRefreshTimestamp = sessionManager.getLastSuccessfulLiveRefresh()
-                val forceStaleLiveTest = FORCE_STALE_LIVE_TEST &&
-                    cachedOwnedCatalog &&
-                    !forceRefresh
-                val liveRefreshStale = forceStaleLiveTest ||
+                val liveRefreshStale =
                     liveRefreshTimestamp <= 0L ||
                     System.currentTimeMillis() - liveRefreshTimestamp >= LIVE_CATALOG_FRESHNESS_MS
                 val needsQuietLiveRefresh = cachedOwnedCatalog &&
@@ -970,11 +966,7 @@ class MediaViewModel(
                     !needsLibrarySync &&
                     liveRefreshStale
                 if (needsQuietLiveRefresh) {
-                    if (forceStaleLiveTest) {
-                        StartupDiagnostics.event("live_catalog_stale_forced_test", "enabled=true")
-                    } else {
-                        StartupDiagnostics.event("live_catalog_stale", "last_successful_ms=$liveRefreshTimestamp")
-                    }
+                    StartupDiagnostics.event("live_catalog_stale", "last_successful_ms=$liveRefreshTimestamp")
                     StartupDiagnostics.event("live_catalog_quiet_sync_start")
                     val liveResult = _repository.syncLiveChannels(user, pass)
                     StartupDiagnostics.event(
@@ -1647,30 +1639,18 @@ class MediaViewModel(
     var isCheckingForAppUpdate by mutableStateOf(false)
     var appUpdateInfo by mutableStateOf<com.example.mmtv.util.UpdateInfo?>(null)
     var isAppUpToDate by mutableStateOf(false)
+    var appUpdateError by mutableStateOf<String?>(null)
 
     fun checkForAppUpdate(context: android.content.Context) {
         viewModelScope.launch {
             isCheckingForAppUpdate = true
             isAppUpToDate = false
+            appUpdateError = null
             val updateManager = com.example.mmtv.util.UpdateManager(context)
-            // Uppdaterings-URL för macseger
-            val info = updateManager.checkForUpdates("https://raw.githubusercontent.com/macseger/MMTV-Update/main/update.json")
-            
-            val currentVersionCode = try {
-                val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                    pInfo.longVersionCode.toInt()
-                } else {
-                    @Suppress("DEPRECATION")
-                    pInfo.versionCode
-                }
-            } catch (e: Exception) { 0 }
-
-            if (info != null && info.versionCode > currentVersionCode) {
-                appUpdateInfo = info
-            } else if (info != null) {
-                isAppUpToDate = true
-            }
+            val result = updateManager.checkForUpdates(BuildConfig.VERSION_NAME)
+            appUpdateInfo = result.updateInfo
+            isAppUpToDate = result.isUpToDate
+            appUpdateError = result.errorMessage
             isCheckingForAppUpdate = false
         }
     }

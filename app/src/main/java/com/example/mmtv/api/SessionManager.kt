@@ -9,6 +9,7 @@ import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.Episode
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import java.security.MessageDigest
 
 class SessionManager(context: Context) {
     private val masterKey = MasterKey.Builder(context)
@@ -63,6 +64,48 @@ class SessionManager(context: Context) {
         return if (host != null && user != null && pass != null) {
             Triple(host, user, pass)
         } else null
+    }
+
+    private fun accountScopedKey(name: String): String? {
+        val (host, user) = getLogin()?.let { it.first to it.second } ?: return null
+        val accountHash = MessageDigest.getInstance("SHA-256")
+            .digest("$host|$user".toByteArray())
+            .take(8)
+            .joinToString("") { "%02x".format(it) }
+        return "account_${accountHash}_$name"
+    }
+
+    private fun getAccountScopedLong(name: String): Long =
+        accountScopedKey(name)?.let { prefs.getLong(it, 0L) } ?: 0L
+
+    private fun setAccountScopedLong(name: String, value: Long) {
+        accountScopedKey(name)?.let { key -> prefs.edit { putLong(key, value) } }
+    }
+
+    fun getLastSuccessfulLiveRefresh(): Long = getAccountScopedLong("last_successful_live_refresh")
+    fun getLastSuccessfulMovieRefresh(): Long = getAccountScopedLong("last_successful_movie_refresh")
+    fun getLastSuccessfulSeriesRefresh(): Long = getAccountScopedLong("last_successful_series_refresh")
+    fun getLastSuccessfulEpgRefresh(): Long = getAccountScopedLong("last_successful_epg_refresh")
+
+    fun markLiveRefreshSuccessful(timestamp: Long = System.currentTimeMillis()) =
+        setAccountScopedLong("last_successful_live_refresh", timestamp)
+
+    fun markMovieRefreshSuccessful(timestamp: Long = System.currentTimeMillis()) =
+        setAccountScopedLong("last_successful_movie_refresh", timestamp)
+
+    fun markSeriesRefreshSuccessful(timestamp: Long = System.currentTimeMillis()) =
+        setAccountScopedLong("last_successful_series_refresh", timestamp)
+
+    fun getEpgScopeFingerprint(): String? =
+        accountScopedKey("epg_scope_fingerprint")?.let { prefs.getString(it, null) }
+
+    fun markEpgRefreshSuccessful(scopeFingerprint: String, timestamp: Long = System.currentTimeMillis()) {
+        val timestampKey = accountScopedKey("last_successful_epg_refresh") ?: return
+        val scopeKey = accountScopedKey("epg_scope_fingerprint") ?: return
+        prefs.edit {
+            putLong(timestampKey, timestamp)
+            putString(scopeKey, scopeFingerprint)
+        }
     }
 
     fun saveSubtitlePreference(streamId: Int, language: String?) {

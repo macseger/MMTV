@@ -37,10 +37,16 @@ class DataSyncWorker(
             StartupDiagnostics.rows(database.mediaDao(), "worker_before")
             Log.d("DataSyncWorker", "Starting background sync...")
             
-            repository.syncLibrary(user, pass)
+            val libraryResult = repository.syncLibrary(user, pass)
 
-            repository.fetchAndStoreEpg(user, pass)
+            val epgResult = repository.fetchAndStoreEpg(user, pass)
             repository.resolveLiveIcons()
+
+            if (!libraryResult.isCompleteSuccess || !epgResult.isCompleteSuccess) {
+                Log.w("DataSyncWorker", "Background sync incomplete: library=${libraryResult.status}, epg=${epgResult.status}")
+                StartupDiagnostics.event("worker_result", "result=retry work_id=$id library=${libraryResult.status} epg=${epgResult.status}")
+                return@withContext Result.retry()
+            }
             
             Log.d("DataSyncWorker", "Background sync completed successfully")
             StartupDiagnostics.event("worker_result", "result=success work_id=$id")

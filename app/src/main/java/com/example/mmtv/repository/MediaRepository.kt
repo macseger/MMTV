@@ -17,6 +17,22 @@ import java.io.File
 import java.util.zip.GZIPInputStream
 import com.example.mmtv.api.EpgParser
 
+enum class RefreshStatus {
+    SUCCESS,
+    PARTIAL,
+    FAILURE
+}
+
+data class RefreshResult(
+    val status: RefreshStatus,
+    val successfulUnits: Int = 0,
+    val failedUnits: Int = 0,
+    val refreshed: Boolean = true,
+    val detail: String? = null
+) {
+    val isCompleteSuccess: Boolean get() = status == RefreshStatus.SUCCESS
+}
+
 class MediaRepository(
     val api: XCodesApi,
     private val mediaDao: MediaDao,
@@ -328,16 +344,25 @@ class MediaRepository(
         }
     }
 
-    suspend fun syncLiveChannels(user: String, pass: String) = withContext(Dispatchers.IO) {
+    suspend fun syncLiveChannels(user: String, pass: String): RefreshResult = withContext(Dispatchers.IO) {
         StartupDiagnostics.timed("sync_live_including_mutex_wait") {
         liveSyncMutex.withLock {
             try {
-                val liveCats = try { api.getLiveCategories(user, pass) } catch (e: Exception) { emptyList() }
-                if (liveCats.isEmpty() || !session.hasSyncSelection()) return@withContext
+                if (!session.hasSyncSelection()) return@withContext RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "No sync selection")
+                val liveCats = try {
+                    api.getLiveCategories(user, pass)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    return@withContext RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "Live categories failed")
+                }
+                if (liveCats.isEmpty()) return@withContext RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "Live categories empty")
                 val selected = session.getSyncCategories(MediaType.LIVE)
 
                 val liveEntities = mutableListOf<MediaEntity>()
                 var itemIndex = 0
+                var successfulCategories = 0
+                var failedCategories = selected.count { selectedId -> liveCats.none { it.categoryId == selectedId } }
 
                 for (category in liveCats.filter { it.categoryId in selected }) {
                     try {
@@ -360,16 +385,31 @@ class MediaRepository(
                                 )
                             )
                         }
+                        successfulCategories++
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
+                        failedCategories++
                         android.util.Log.e("MediaRepository", "Kunde inte hämta live kanaler för kategori ${category.categoryId}: ${e.message}")
                     }
                 }
 
+                if (failedCategories > 0) {
+                    val status = if (successfulCategories > 0) RefreshStatus.PARTIAL else RefreshStatus.FAILURE
+                    return@withContext RefreshResult(status, successfulCategories, failedCategories, detail = "Selected live categories incomplete")
+                }
                 if (selected == session.getSyncCategories(MediaType.LIVE)) {
                     mediaDao.replaceTypePreservingFavorites(MediaType.LIVE, liveEntities)
+                    session.markLiveRefreshSuccessful()
+                    RefreshResult(RefreshStatus.SUCCESS, successfulCategories)
+                } else {
+                    RefreshResult(RefreshStatus.PARTIAL, successfulCategories, 1, detail = "Live selection changed during refresh")
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.printStackTrace()
+                RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "Live import failed")
             }
         }
         }
@@ -391,16 +431,25 @@ class MediaRepository(
         }
     }
 
-    suspend fun syncMovies(user: String, pass: String) = withContext(Dispatchers.IO) {
+    suspend fun syncMovies(user: String, pass: String): RefreshResult = withContext(Dispatchers.IO) {
         StartupDiagnostics.timed("sync_movies_including_mutex_wait") {
         movieSyncMutex.withLock {
             try {
-                val movieCats = try { api.getMovieCategories(user, pass) } catch (e: Exception) { emptyList() }
-                if (movieCats.isEmpty() || !session.hasSyncSelection()) return@withContext
+                if (!session.hasSyncSelection()) return@withContext RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "No sync selection")
+                val movieCats = try {
+                    api.getMovieCategories(user, pass)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    return@withContext RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "Movie categories failed")
+                }
+                if (movieCats.isEmpty()) return@withContext RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "Movie categories empty")
                 val selected = session.getSyncCategories(MediaType.MOVIE)
 
                 val movieEntities = mutableListOf<MediaEntity>()
                 var itemIndex = 0
+                var successfulCategories = 0
+                var failedCategories = selected.count { selectedId -> movieCats.none { it.categoryId == selectedId } }
 
                 for (category in movieCats.filter { it.categoryId in selected }) {
                     try {
@@ -422,31 +471,55 @@ class MediaRepository(
                                 )
                             )
                         }
+                        successfulCategories++
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
+                        failedCategories++
                         android.util.Log.e("MediaRepository", "Kunde inte hämta filmer för kategori ${category.categoryId}: ${e.message}")
                     }
                 }
 
+                if (failedCategories > 0) {
+                    val status = if (successfulCategories > 0) RefreshStatus.PARTIAL else RefreshStatus.FAILURE
+                    return@withContext RefreshResult(status, successfulCategories, failedCategories, detail = "Selected movie categories incomplete")
+                }
                 if (selected == session.getSyncCategories(MediaType.MOVIE)) {
                     mediaDao.replaceTypePreservingFavorites(MediaType.MOVIE, movieEntities)
+                    session.markMovieRefreshSuccessful()
+                    RefreshResult(RefreshStatus.SUCCESS, successfulCategories)
+                } else {
+                    RefreshResult(RefreshStatus.PARTIAL, successfulCategories, 1, detail = "Movie selection changed during refresh")
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.printStackTrace()
+                RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "Movie import failed")
             }
         }
         }
     }
 
-    suspend fun syncSeries(user: String, pass: String) = withContext(Dispatchers.IO) {
+    suspend fun syncSeries(user: String, pass: String): RefreshResult = withContext(Dispatchers.IO) {
         StartupDiagnostics.timed("sync_series_including_mutex_wait") {
         seriesSyncMutex.withLock {
             try {
-                val seriesCats = try { api.getSeriesCategories(user, pass) } catch (e: Exception) { emptyList() }
-                if (seriesCats.isEmpty() || !session.hasSyncSelection()) return@withContext
+                if (!session.hasSyncSelection()) return@withContext RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "No sync selection")
+                val seriesCats = try {
+                    api.getSeriesCategories(user, pass)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    return@withContext RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "Series categories failed")
+                }
+                if (seriesCats.isEmpty()) return@withContext RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "Series categories empty")
                 val selected = session.getSyncCategories(MediaType.SERIES)
 
                 val seriesEntities = mutableListOf<MediaEntity>()
                 var itemIndex = 0
+                var successfulCategories = 0
+                var failedCategories = selected.count { selectedId -> seriesCats.none { it.categoryId == selectedId } }
 
                 for (category in seriesCats.filter { it.categoryId in selected }) {
                     try {
@@ -467,44 +540,75 @@ class MediaRepository(
                                 )
                             )
                         }
+                        successfulCategories++
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
+                        failedCategories++
                         android.util.Log.e("MediaRepository", "Kunde inte hämta serier för kategori ${category.categoryId}: ${e.message}")
                     }
                 }
 
+                if (failedCategories > 0) {
+                    val status = if (successfulCategories > 0) RefreshStatus.PARTIAL else RefreshStatus.FAILURE
+                    return@withContext RefreshResult(status, successfulCategories, failedCategories, detail = "Selected series categories incomplete")
+                }
                 if (selected == session.getSyncCategories(MediaType.SERIES)) {
                     mediaDao.replaceTypePreservingFavorites(MediaType.SERIES, seriesEntities)
+                    session.markSeriesRefreshSuccessful()
+                    RefreshResult(RefreshStatus.SUCCESS, successfulCategories)
+                } else {
+                    RefreshResult(RefreshStatus.PARTIAL, successfulCategories, 1, detail = "Series selection changed during refresh")
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.printStackTrace()
+                RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "Series import failed")
             }
         }
         }
     }
 
-    suspend fun syncVodLibrary(user: String, pass: String) = coroutineScope {
-        val movieJob = async { try { syncMovies(user, pass) } catch (e: Exception) { e.printStackTrace() } }
-        val seriesJob = async { try { syncSeries(user, pass) } catch (e: Exception) { e.printStackTrace() } }
-        movieJob.await()
-        seriesJob.await()
+    private fun aggregateRefreshResults(results: List<RefreshResult>, detail: String): RefreshResult {
+        val status = when {
+            results.all { it.status == RefreshStatus.SUCCESS } -> RefreshStatus.SUCCESS
+            results.all { it.status == RefreshStatus.FAILURE } -> RefreshStatus.FAILURE
+            else -> RefreshStatus.PARTIAL
+        }
+        return RefreshResult(
+            status = status,
+            successfulUnits = results.sumOf { it.successfulUnits },
+            failedUnits = results.sumOf { it.failedUnits },
+            refreshed = results.any { it.refreshed },
+            detail = detail
+        )
     }
 
-    suspend fun syncLibrary(user: String, pass: String) = coroutineScope {
+    suspend fun syncVodLibrary(user: String, pass: String): RefreshResult = coroutineScope {
+        val movieJob = async { syncMovies(user, pass) }
+        val seriesJob = async { syncSeries(user, pass) }
+        aggregateRefreshResults(listOf(movieJob.await(), seriesJob.await()), "VOD library refresh")
+    }
+
+    suspend fun syncLibrary(user: String, pass: String): RefreshResult = coroutineScope {
         StartupDiagnostics.timed("sync_library") {
         StartupDiagnostics.event("sync_library_state", "pending=${session.isSyncSelectionPending()}")
         StartupDiagnostics.rows(mediaDao, "library_before")
         val selection = MediaType.entries.associateWith(session::getSyncCategories)
-        val liveJob = async { try { syncLiveChannels(user, pass) } catch (e: Exception) { e.printStackTrace() } }
-        val vodJob = async { try { syncVodLibrary(user, pass) } catch (e: Exception) { e.printStackTrace() } }
-        liveJob.await()
-        vodJob.await()
-        if (selection == MediaType.entries.associateWith(session::getSyncCategories)) session.markSyncSelectionComplete()
+        val liveJob = async { syncLiveChannels(user, pass) }
+        val vodJob = async { syncVodLibrary(user, pass) }
+        val result = aggregateRefreshResults(listOf(liveJob.await(), vodJob.await()), "Full library refresh")
+        if (result.isCompleteSuccess && selection == MediaType.entries.associateWith(session::getSyncCategories)) {
+            session.markSyncSelectionComplete()
+        }
         StartupDiagnostics.event("sync_library_state_end", "pending=${session.isSyncSelectionPending()}")
         StartupDiagnostics.rows(mediaDao, "library_after")
+        result
         }
     }
 
-    suspend fun fetchAndStoreEpg(user: String, pass: String, forceRefresh: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun fetchAndStoreEpg(user: String, pass: String, forceRefresh: Boolean = false): RefreshResult = withContext(Dispatchers.IO) {
         StartupDiagnostics.timed("epg_refresh_including_mutex_wait") {
         epgSyncMutex.withLock {
             StartupDiagnostics.event("epg_lock_acquired", "force=$forceRefresh pending=${session.isSyncSelectionPending()}")
@@ -512,19 +616,19 @@ class MediaRepository(
             try {
                 if (!session.hasSyncSelection()) {
                     StartupDiagnostics.event("epg_skip", "reason=no_selection")
-                    return@withContext
+                    return@withContext RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "No sync selection")
                 }
                 val selectedCategories = session.getSyncCategories(MediaType.LIVE).toList()
                 val scopeRows = StartupDiagnostics.timed("epg_scope_query", "selected_categories=${selectedCategories.size}") {
                     mediaDao.getEpgScopeRows(MediaType.LIVE, selectedCategories)
                 }
                 val scope = scopeRows.map { "${it.id}:${it.epgId}" }.sorted().joinToString("|") + session.getUseExternalSwedishEpg()
-                val scopeFile = File(cacheDir, "${accountCacheKey()}_epg_scope")
-                val scopeChanged = !scopeFile.exists() || scopeFile.readText() != scope
+                val lastSuccessfulRefresh = session.getLastSuccessfulEpgRefresh()
+                val scopeChanged = session.getEpgScopeFingerprint() != scope
                 val refreshInterval = 3 * 60 * 60 * 1000L
-                if (!forceRefresh && !scopeChanged && System.currentTimeMillis() - scopeFile.lastModified() < refreshInterval) {
-                    StartupDiagnostics.event("epg_skip", "reason=fresh_scope age_ms=${System.currentTimeMillis() - scopeFile.lastModified()}")
-                    return@withContext
+                if (!forceRefresh && !scopeChanged && System.currentTimeMillis() - lastSuccessfulRefresh < refreshInterval) {
+                    StartupDiagnostics.event("epg_skip", "reason=fresh_scope age_ms=${System.currentTimeMillis() - lastSuccessfulRefresh}")
+                    return@withContext RefreshResult(RefreshStatus.SUCCESS, refreshed = false, detail = "EPG already fresh")
                 }
                 StartupDiagnostics.event("epg_refresh", "reason=${if (forceRefresh) "forced" else if (scopeChanged) "scope_changed_or_missing" else "scope_expired"} selected_live=${scopeRows.size}")
                 if (scopeChanged || forceRefresh) {
@@ -534,26 +638,32 @@ class MediaRepository(
                 epgCache.clear()
                 if (scopeRows.isEmpty()) {
                     StartupDiagnostics.event("epg_skip", "reason=no_selected_live")
-                    scopeFile.writeText(scope)
-                    return@withContext
+                    session.markEpgRefreshSuccessful(scope)
+                    return@withContext RefreshResult(RefreshStatus.SUCCESS, detail = "No selected live channels")
                 }
 
                 // Bounded requests: only the selected stream IDs, with account-scoped disk caching.
                 val selectedLive = mediaDao.getMediaByType(MediaType.LIVE)
                     .filter { it.isFavorite || it.categoryId in selectedCategories }
-                val channelApiWorked = try { fetchSelectedChannelEpg(user, pass, selectedLive, forceRefresh) } catch (e: Exception) { false }
-                StartupDiagnostics.event("epg_channel_api", "usable=$channelApiWorked")
-                if (!channelApiWorked) {
+                val channelResult = fetchSelectedChannelEpg(user, pass, selectedLive, forceRefresh)
+                StartupDiagnostics.event("epg_channel_api", "usable=${channelResult.hasListings} successes=${channelResult.successfulRequests} failures=${channelResult.failedRequests}")
+                var fallbackSucceeded = false
+                if (!channelResult.hasListings || channelResult.failedRequests > 0) {
                     try {
                         val xmlFile = File(cacheDir, "${accountCacheKey()}_full_epg.xml")
                         val stale = !xmlFile.exists() || System.currentTimeMillis() - xmlFile.lastModified() > 24 * 60 * 60 * 1000L
                         if (forceRefresh || stale) downloadEpgFile(xmlFile) { api.getFullEpg(user, pass) }
-                        parseAndStore(xmlFile, true)
+                        val importedProgrammes = parseAndStore(xmlFile, true)
+                        fallbackSucceeded = importedProgrammes > 0
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         android.util.Log.e("MediaRepository", "Kunde inte ladda full EPG: ${e.message}")
                     }
                 }
-                if (session.getUseExternalSwedishEpg()) {
+                val externalEnabled = session.getUseExternalSwedishEpg()
+                var externalSucceeded = !externalEnabled
+                if (externalEnabled) {
                     try {
                         val xmlFile = File(cacheDir, "swedish_epg.xml")
                         val stale = !xmlFile.exists() || System.currentTimeMillis() - xmlFile.lastModified() > 24 * 60 * 60 * 1000L
@@ -568,9 +678,13 @@ class MediaRepository(
                             epgId !in existingEpgIds
                         }
 
-                        if (channelsNeedingEpg.isNotEmpty()) {
-                            parseAndStoreExternalEpg(xmlFile, channelsNeedingEpg)
+                        externalSucceeded = if (channelsNeedingEpg.isEmpty()) {
+                            true
+                        } else {
+                            parseAndStoreExternalEpg(xmlFile, channelsNeedingEpg) > 0
                         }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         android.util.Log.e("MediaRepository", "Kunde inte ladda extern SE EPG: ${e.message}")
                     }
@@ -578,11 +692,32 @@ class MediaRepository(
                 StartupDiagnostics.timed("delete_old_epg", "trigger=epg_refresh") {
                     mediaDao.deleteOldEpg(System.currentTimeMillis() / 1000)
                 }
-                scopeFile.writeText(scope)
+                val primarySucceeded = fallbackSucceeded ||
+                    (channelResult.hasListings && channelResult.failedRequests == 0)
+                val status = when {
+                    primarySucceeded && externalSucceeded -> RefreshStatus.SUCCESS
+                    channelResult.successfulRequests > 0 || fallbackSucceeded || (externalEnabled && externalSucceeded) -> RefreshStatus.PARTIAL
+                    else -> RefreshStatus.FAILURE
+                }
+                val result = RefreshResult(
+                    status = status,
+                    successfulUnits = channelResult.successfulRequests +
+                        (if (fallbackSucceeded) 1 else 0) +
+                        (if (externalEnabled && externalSucceeded) 1 else 0),
+                    failedUnits = channelResult.failedRequests +
+                        (if (!primarySucceeded) 1 else 0) +
+                        (if (!externalSucceeded) 1 else 0),
+                    detail = "EPG refresh"
+                )
+                if (result.isCompleteSuccess) session.markEpgRefreshSuccessful(scope)
                 epgCache.clear()
                 syncPiconsFromGithub(forceRefresh)
+                result
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 android.util.Log.e("MediaRepository", "EPG-synk fel: ${e.message}")
+                RefreshResult(RefreshStatus.FAILURE, failedUnits = 1, detail = "EPG refresh failed")
             } finally {
                 StartupDiagnostics.rows(mediaDao, "epg_after")
             }
@@ -590,8 +725,16 @@ class MediaRepository(
         }
     }
 
-    private suspend fun fetchSelectedChannelEpg(user: String, pass: String, channels: List<MediaEntity>, forceRefresh: Boolean): Boolean {
+    private data class ChannelEpgResult(
+        val successfulRequests: Int,
+        val failedRequests: Int,
+        val hasListings: Boolean
+    )
+
+    private suspend fun fetchSelectedChannelEpg(user: String, pass: String, channels: List<MediaEntity>, forceRefresh: Boolean): ChannelEpgResult {
         var hasListings = false
+        var successfulRequests = 0
+        var failedRequests = 0
         for (chunk in channels.distinctBy { it.epgId?.takeIf(String::isNotBlank) ?: "stream:${it.id}" }.chunked(4)) {
             val results = coroutineScope {
                 chunk.map { channel -> async {
@@ -616,12 +759,14 @@ class MediaRepository(
                     catch (e: Exception) { null }
                 } }.map { it.await() }
             }
-            if (results.any { it == null }) return false
+            successfulRequests += results.count { it != null }
+            failedRequests += results.count { it == null }
+            if (failedRequests > 0) return ChannelEpgResult(successfulRequests, failedRequests, hasListings)
             hasListings = hasListings || results.any { it == true }
             // Unsupported servers should not incur hundreds of failing requests.
-            if (!hasListings) return false
+            if (!hasListings) return ChannelEpgResult(successfulRequests, failedRequests, false)
         }
-        return hasListings
+        return ChannelEpgResult(successfulRequests, failedRequests, hasListings)
     }
 
     private suspend fun downloadEpgFile(file: File, fetch: suspend () -> okhttp3.ResponseBody) {
@@ -685,10 +830,11 @@ class MediaRepository(
         }
     }
 
-    private suspend fun parseAndStore(file: File, isClearFirst: Boolean) = withContext(Dispatchers.IO) {
+    private suspend fun parseAndStore(file: File, isClearFirst: Boolean): Int = withContext(Dispatchers.IO) {
         val batch = mutableListOf<EpgEntity>()
         val channels = mutableListOf<ChannelEntity>()
         val channelNamesMap = mutableMapOf<String, String>()
+        var importedProgrammes = 0
         var isFirstBatch = true
         val selectedChannels = mediaDao.getMediaByType(MediaType.LIVE)
             .filter { it.categoryId in session.getSyncCategories(MediaType.LIVE) }
@@ -723,6 +869,7 @@ class MediaRepository(
                             stopTimestamp = it.stopTimestamp ?: 0L,
                             icon = it.icon
                         ))
+                        importedProgrammes++
 
                         if (batch.size >= 500) {
                             if (isFirstBatch && isClearFirst) {
@@ -743,10 +890,11 @@ class MediaRepository(
             if (isFirstBatch && isClearFirst) mediaDao.clearEpg()
             mediaDao.insertEpg(batch)
         }
+        importedProgrammes
     }
 
-    private suspend fun parseAndStoreExternalEpg(file: File, targetChannels: List<MediaEntity>) = withContext(Dispatchers.IO) {
-        if (targetChannels.isEmpty() || !file.exists()) return@withContext
+    private suspend fun parseAndStoreExternalEpg(file: File, targetChannels: List<MediaEntity>): Int = withContext(Dispatchers.IO) {
+        if (targetChannels.isEmpty() || !file.exists()) return@withContext 0
 
         // Bygg variant-mappning för kanaler som saknar EPG
         val variantToChannelMap = mutableMapOf<String, MediaEntity>()
@@ -769,6 +917,7 @@ class MediaRepository(
 
         val xmlChannelToMediaMap = mutableMapOf<String, MediaEntity>()
         val batch = mutableListOf<EpgEntity>()
+        var importedProgrammes = 0
         val now = System.currentTimeMillis() / 1000
         val endLimit = now + 7 * 24 * 60 * 60
 
@@ -800,6 +949,7 @@ class MediaRepository(
                             stopTimestamp = it.stopTimestamp ?: 0L,
                             icon = it.icon
                         ))
+                        importedProgrammes++
 
                         if (batch.size >= 500) {
                             mediaDao.insertEpg(ArrayList(batch))
@@ -813,6 +963,7 @@ class MediaRepository(
         if (batch.isNotEmpty()) {
             mediaDao.insertEpg(batch)
         }
+        importedProgrammes
     }
 
     suspend fun getEpgForChannel(epgId: String?, channelName: String? = null): List<EpgListing> = withContext(Dispatchers.IO) {

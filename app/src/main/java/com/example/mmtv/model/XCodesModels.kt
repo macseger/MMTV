@@ -144,6 +144,7 @@ data class MediaSource(
     val director: String? = null,
     val genre: String? = null,
     val cast: String? = null,
+    val serverChannelNumber: Int? = null,
     val isFavorite: Boolean = false,
     val favoriteDate: Long = 0L,
     val addedDate: Long = 0L

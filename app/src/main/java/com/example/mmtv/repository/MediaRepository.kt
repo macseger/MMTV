@@ -151,7 +151,8 @@ class MediaRepository(
                         title = it.name,
                         icon = it.streamIcon,
                         type = MediaType.LIVE,
-                        epgId = it.epgId
+                        epgId = it.epgId,
+                        serverChannelNumber = it.num
                     )
                 }
             )
@@ -252,6 +253,7 @@ class MediaRepository(
         genre = genre,
         cast = cast,
         epgId = epgId,
+        serverChannelNumber = serverChannelNumber,
         isFavorite = isFavorite,
         favoriteDate = favoriteDate,
         addedDate = addedDate
@@ -397,6 +399,7 @@ class MediaRepository(
                                     categoryName = catName,
                                     icon = stream.streamIcon,
                                     epgId = stream.epgId,
+                                    serverChannelNumber = stream.num,
                                     itemOrder = itemIndex++,
                                     addedDate = 0L
                                 )

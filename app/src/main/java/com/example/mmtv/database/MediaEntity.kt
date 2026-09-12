@@ -28,6 +28,7 @@ data class MediaEntity(
     val genre: String? = null,
     val cast: String? = null,
     val epgId: String? = null,
+    val serverChannelNumber: Int? = null,
     val categoryOrder: Int = 0,
     val itemOrder: Int = 0,
     val isFavorite: Boolean = false,

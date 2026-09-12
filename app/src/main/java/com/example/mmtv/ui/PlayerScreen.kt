@@ -151,6 +151,9 @@ fun PlayerScreen(
     var isBuffering by remember { mutableStateOf(false) }
     var overlayState by remember { mutableStateOf(OverlayState.NONE) }
     var showSeekFeedback by remember { mutableStateOf(false) }
+    var channelNumberBuffer by remember { mutableStateOf("") }
+    var channelNumberJob by remember { mutableStateOf<Job?>(null) }
+    var channelNumberFeedback by remember { mutableStateOf(false) }
     val showVodControls = media != null &&
         media.type != MediaType.LIVE &&
         !isActualLiveRoute &&
@@ -163,6 +166,40 @@ fun PlayerScreen(
     val scope = rememberCoroutineScope()
     var seekJob by remember { mutableStateOf<Job?>(null) }
     var infoJob by remember { mutableStateOf<Job?>(null) }
+
+    val commitChannelNumber = {
+        val number = channelNumberBuffer.toIntOrNull()
+        val target = number?.takeIf { it > 0 }?.let(viewModel::getCachedLiveChannelByNumber)
+        val targetCategoryId = target?.categoryId
+        val targetPlaylist = targetCategoryId?.let(viewModel::getCachedLiveCategoryPlaylist).orEmpty()
+        if (target?.type == MediaType.LIVE && !targetCategoryId.isNullOrBlank() && targetPlaylist.isNotEmpty()) {
+            val targetCategoryIndex = categories.indexOfFirst { it.categoryId == targetCategoryId }
+            if (targetCategoryIndex >= 0) onCategorySelected(targetCategoryIndex)
+            viewModel.currentPlaylist = targetPlaylist
+            onMediaSelected(target)
+        } else {
+            channelNumberFeedback = true
+            scope.launch {
+                delay(900)
+                channelNumberFeedback = false
+            }
+        }
+        channelNumberBuffer = ""
+        channelNumberJob?.cancel()
+        channelNumberJob = null
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { channelNumberJob?.cancel() }
+    }
+
+    LaunchedEffect(media?.id, media?.type, overlayState) {
+        if (overlayState != OverlayState.NONE) {
+            channelNumberJob?.cancel()
+            channelNumberJob = null
+            channelNumberBuffer = ""
+        }
+    }
 
     // --- TIMERS ---
     val resetAutoHideTimer = {
@@ -349,6 +386,31 @@ fun PlayerScreen(
                 accumulatedSeekMs = 0
             }
         }
+    }
+
+    fun setPlayback(playing: Boolean) {
+        if (playing) {
+            exoPlayer.play()
+            isPlaying = true
+        } else {
+            exoPlayer.pause()
+            isPlaying = false
+        }
+        showSeekFeedback = true
+        seekJob?.cancel()
+        if (playing) {
+            seekJob = scope.launch { delay(3000); if (isPlaying) showSeekFeedback = false }
+        }
+    }
+
+    fun performMediaSeek(offsetMs: Long) {
+        performSeek(offsetMs, true)
+        seekJob?.cancel()
+        seekJob = scope.launch { delay(2500); showSeekFeedback = false }
+    }
+
+    fun togglePlayback() {
+        setPlayback(!exoPlayer.isPlaying)
     }
 
     fun formatTime(ms: Long): String {
@@ -682,6 +744,32 @@ fun PlayerScreen(
                 .onKeyEvent { keyEvent ->
                 // ... (Key handling logic)
                 val nativeEvent = keyEvent.nativeKeyEvent
+                if (nativeEvent.action == KeyEvent.ACTION_DOWN) {
+                    when (nativeEvent.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                        KeyEvent.KEYCODE_MEDIA_PLAY,
+                        KeyEvent.KEYCODE_MEDIA_PAUSE,
+                        KeyEvent.KEYCODE_MEDIA_REWIND,
+                        KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+                        KeyEvent.KEYCODE_CAPTIONS,
+                        KeyEvent.KEYCODE_GUIDE,
+                        KeyEvent.KEYCODE_INFO,
+                        KeyEvent.KEYCODE_MENU,
+                        KeyEvent.KEYCODE_0,
+                        KeyEvent.KEYCODE_1,
+                        KeyEvent.KEYCODE_2,
+                        KeyEvent.KEYCODE_3,
+                        KeyEvent.KEYCODE_4,
+                        KeyEvent.KEYCODE_5,
+                        KeyEvent.KEYCODE_6,
+                        KeyEvent.KEYCODE_7,
+                        KeyEvent.KEYCODE_8,
+                        KeyEvent.KEYCODE_9 -> android.util.Log.d(
+                            "MMTV_REMOTE_TRACE",
+                            "keyCode=${nativeEvent.keyCode} action=DOWN media=${media?.type} overlay=$overlayState repeat=${nativeEvent.repeatCount}"
+                        )
+                    }
+                }
                 if (overlayState == OverlayState.FAVORITE_TIMELINE) {
                     return@onKeyEvent false
                 }
@@ -692,6 +780,58 @@ fun PlayerScreen(
                         if (isRepeat) isLongPressSeeking = true
 
                         when (nativeEvent.keyCode) {
+                            in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> {
+                                if (media?.type == MediaType.LIVE && overlayState == OverlayState.NONE) {
+                                    val digit = (nativeEvent.keyCode - KeyEvent.KEYCODE_0).toString()
+                                    channelNumberBuffer += digit
+                                    channelNumberJob?.cancel()
+                                    channelNumberJob = scope.launch {
+                                        delay(1300)
+                                        commitChannelNumber()
+                                    }
+                                    true
+                                } else false
+                            }
+                            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                                togglePlayback()
+                                true
+                            }
+                            KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                                setPlayback(true)
+                                true
+                            }
+                            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                                setPlayback(false)
+                                true
+                            }
+                            KeyEvent.KEYCODE_MEDIA_REWIND -> {
+                                val canSeek = media != null && media.type != MediaType.LIVE
+                                if (canSeek) performMediaSeek(-10000L)
+                                canSeek
+                            }
+                            KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
+                                val canSeek = media != null && media.type != MediaType.LIVE
+                                if (canSeek) performMediaSeek(10000L)
+                                canSeek
+                            }
+                            KeyEvent.KEYCODE_CAPTIONS -> {
+                                overlayState = OverlayState.SUBTITLES
+                                true
+                            }
+                            KeyEvent.KEYCODE_GUIDE -> {
+                                overlayState = OverlayState.EPG_INFO
+                                true
+                            }
+                            KeyEvent.KEYCODE_INFO -> {
+                                overlayState = OverlayState.QUICK_INFO
+                                true
+                            }
+                            KeyEvent.KEYCODE_MENU -> {
+                                if (media?.type == MediaType.LIVE) {
+                                    overlayState = OverlayState.CHANNELS
+                                    true
+                                } else false
+                            }
                             KeyEvent.KEYCODE_DPAD_UP -> {
                             when (overlayState) {
                                 OverlayState.NONE -> {
@@ -760,7 +900,10 @@ fun PlayerScreen(
                                 } else false
                             }
                             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                                if (showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE) {
+                                if (channelNumberBuffer.isNotEmpty() && media?.type == MediaType.LIVE && overlayState == OverlayState.NONE) {
+                                    commitChannelNumber()
+                                    true
+                                } else if (showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE) {
                                     onPlayNextEpisode(nextEpisode)
                                     true
                                 } else if (overlayState == OverlayState.NONE) {
@@ -773,18 +916,7 @@ fun PlayerScreen(
                                         }
                                         lastCenterClickTime = currentTime
                                     } else {
-                                        if (exoPlayer.isPlaying) {
-                                            exoPlayer.pause()
-                                            isPlaying = false
-                                        } else {
-                                            exoPlayer.play()
-                                            isPlaying = true
-                                        }
-                                        showSeekFeedback = true
-                                        seekJob?.cancel()
-                                        if (isPlaying) {
-                                            seekJob = scope.launch { delay(3000); if (isPlaying) showSeekFeedback = false }
-                                        }
+                                        togglePlayback()
                                     }
                                     true
                                 } else false
@@ -800,13 +932,18 @@ fun PlayerScreen(
                                 }
                                 true
                             }
-                            KeyEvent.KEYCODE_GUIDE, KeyEvent.KEYCODE_M -> {
+                            KeyEvent.KEYCODE_M -> {
                                 overlayState = OverlayState.EPG_INFO
                                 true
                             }
                             KeyEvent.KEYCODE_BACK -> {
-                                when (overlayState) {
-                                    OverlayState.NONE -> onBackPressed()
+                                when {
+                                    channelNumberBuffer.isNotEmpty() && overlayState == OverlayState.NONE -> {
+                                        channelNumberJob?.cancel()
+                                        channelNumberJob = null
+                                        channelNumberBuffer = ""
+                                    }
+                                    overlayState == OverlayState.NONE -> onBackPressed()
                                     else -> overlayState = OverlayState.NONE
                                 }
                                 true
@@ -937,6 +1074,27 @@ fun PlayerScreen(
         if (isBuffering) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = viewModel.currentThemeColor, modifier = Modifier.size(64.dp), strokeWidth = 6.dp)
+            }
+        }
+
+        AnimatedVisibility(
+            visible = channelNumberBuffer.isNotEmpty() || channelNumberFeedback,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp)
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.78f),
+                shape = RoundedCornerShape(10.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
+            ) {
+                Text(
+                    text = if (channelNumberFeedback) "Kanal ej tillgänglig" else channelNumberBuffer,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+                    color = Color.White,
+                    fontSize = if (channelNumberFeedback) 16.sp else 30.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
 

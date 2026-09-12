@@ -101,6 +101,12 @@ class MediaViewModel(
         private set
     private var playerUsesLiveProfile: Boolean? = null
 
+    // Stage B foundation: populated from cached Room data after catalog publication.
+    // The number map excludes missing, non-positive, and duplicate provider numbers.
+    private val cachedLiveChannelsByNumber = ConcurrentHashMap<Int, MediaSource>()
+    private val cachedLiveCategoryPlaylists = ConcurrentHashMap<String, List<MediaSource>>()
+    private var cachedLiveLookupJob: Job? = null
+
     var isInPipMode by mutableStateOf(false)
     var isTvMode by mutableStateOf(sessionManager.getTvMode())
 
@@ -656,6 +662,7 @@ class MediaViewModel(
         genre = genre,
         cast = cast,
         epgId = epgId,
+        serverChannelNumber = serverChannelNumber,
         isFavorite = isFavorite,
         favoriteDate = favoriteDate,
         addedDate = addedDate
@@ -798,6 +805,39 @@ class MediaViewModel(
         updateFavorites(allFavs.filter { it.categoryId in selection.getValue(it.type) }.map { it.toMediaSource() })
     }
 
+    private fun scheduleCachedLiveLookupRebuild() {
+        cachedLiveLookupJob?.cancel()
+        cachedLiveLookupJob = viewModelScope.launch(Dispatchers.IO) {
+            val selected = sessionManager.getSyncCategories(MediaType.LIVE)
+            val sources = mediaDao.getMediaByType(MediaType.LIVE)
+                .filter { it.categoryId in selected }
+                .map { it.toMediaSource() }
+
+            val byNumber = sources
+                .filter { it.serverChannelNumber != null && it.serverChannelNumber > 0 }
+                .groupBy { it.serverChannelNumber!! }
+                .filterValues { it.size == 1 }
+                .mapValues { it.value.single() }
+            val byCategory = sources
+                .filter { !it.categoryId.isNullOrBlank() }
+                .groupBy { it.categoryId!! }
+
+            currentCoroutineContext().ensureActive()
+            cachedLiveChannelsByNumber.clear()
+            cachedLiveChannelsByNumber.putAll(byNumber)
+            cachedLiveCategoryPlaylists.clear()
+            cachedLiveCategoryPlaylists.putAll(byCategory)
+        }
+    }
+
+    /** Cached-only lookup foundation for future global numeric channel entry. */
+    fun getCachedLiveChannelByNumber(number: Int): MediaSource? =
+        cachedLiveChannelsByNumber[number]
+
+    /** Cached category playlist context for future global numeric channel jumps. */
+    fun getCachedLiveCategoryPlaylist(categoryId: String): List<MediaSource> =
+        cachedLiveCategoryPlaylists[categoryId].orEmpty()
+
     private suspend fun loadStartupItems(reload: Boolean = false) {
         StartupDiagnostics.timed("startup_items", "reload=$reload") {
         val initialRequests = listOf(
@@ -872,6 +912,7 @@ class MediaViewModel(
                         uiState = uiState.copy(isLoading = false)
                         StartupDiagnostics.event("startup_ready_cached", "span=${diagnosticSpan.id}")
                         reportReady(true)
+                        scheduleCachedLiveLookupRebuild()
                     }
                 }
 
@@ -907,13 +948,14 @@ class MediaViewModel(
                 StartupDiagnostics.event("library_decision", "sync=$needsLibrarySync force=$forceRefresh pending=${sessionManager.isSyncSelectionPending()}")
                 if (needsLibrarySync) {
                     showStatusMessage("Synkar valda kategorier...")
-                    _repository.syncLibrary(user, pass)
+                    val libraryResult = _repository.syncLibrary(user, pass)
                     // Room is authoritative after the import. Publish its category
                     // snapshot before loading items so first-login UI sees every group.
                     displayCatalog = loadSelectedRoomCatalog()
                     publishStartupCatalog(displayCatalog)
                     // Newly synchronized channels become usable before picons and EPG finish.
                     loadStartupItems(reload = true)
+                    if (libraryResult.isCompleteSuccess) scheduleCachedLiveLookupRebuild()
                 }
 
                 val liveRefreshTimestamp = sessionManager.getLastSuccessfulLiveRefresh()
@@ -945,6 +987,7 @@ class MediaViewModel(
                         publishStartupCatalog(displayCatalog)
                         loadStartupItems(reload = true)
                         StartupDiagnostics.event("live_catalog_room_published", "status=SUCCESS")
+                        scheduleCachedLiveLookupRebuild()
                     }
                 }
 
@@ -980,6 +1023,7 @@ class MediaViewModel(
                     "Visar sparade kategorier. Kategorierna kunde inte uppdateras."
                 } else "Innehållet är uppdaterat")
                 reportReady(true)
+                scheduleCachedLiveLookupRebuild()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 diagnosticOutcome = "cancelled"
                 throw e
@@ -1352,7 +1396,7 @@ class MediaViewModel(
                 showStatusMessage("Uppdaterar TV-kanaler...")
 
                 withContext(Dispatchers.IO) {
-                    _repository.syncLiveChannels(creds.second, creds.third)
+                    val liveResult = _repository.syncLiveChannels(creds.second, creds.third)
                     invalidateFavoriteTimeline()
                     _repository.fetchAndStoreEpg(creds.second, creds.third)
                     invalidateFavoriteTimeline(epgChanged = true)
@@ -1376,6 +1420,7 @@ class MediaViewModel(
                         )
                         loadItemsForCategory(MediaType.LIVE, liveData.firstOrNull()?.categoryId)
                     }
+                    if (liveResult.isCompleteSuccess) scheduleCachedLiveLookupRebuild()
                 }
 
                 showStatusMessage("Spellista för TV-Kanaler uppdaterades")

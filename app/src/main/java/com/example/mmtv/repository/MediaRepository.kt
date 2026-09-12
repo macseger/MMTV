@@ -601,6 +601,7 @@ class MediaRepository(
         val result = aggregateRefreshResults(listOf(liveJob.await(), vodJob.await()), "Full library refresh")
         if (result.isCompleteSuccess && selection == MediaType.entries.associateWith(session::getSyncCategories)) {
             session.markSyncSelectionComplete()
+            session.markCatalogOwnedByCurrentAccount()
         }
         StartupDiagnostics.event("sync_library_state_end", "pending=${session.isSyncSelectionPending()}")
         StartupDiagnostics.rows(mediaDao, "library_after")

@@ -66,12 +66,16 @@ class SessionManager(context: Context) {
         } else null
     }
 
-    private fun accountScopedKey(name: String): String? {
+    private fun currentAccountFingerprint(): String? {
         val (host, user) = getLogin()?.let { it.first to it.second } ?: return null
-        val accountHash = MessageDigest.getInstance("SHA-256")
+        return MessageDigest.getInstance("SHA-256")
             .digest("$host|$user".toByteArray())
             .take(8)
             .joinToString("") { "%02x".format(it) }
+    }
+
+    private fun accountScopedKey(name: String): String? {
+        val accountHash = currentAccountFingerprint() ?: return null
         return "account_${accountHash}_$name"
     }
 
@@ -95,6 +99,15 @@ class SessionManager(context: Context) {
 
     fun markSeriesRefreshSuccessful(timestamp: Long = System.currentTimeMillis()) =
         setAccountScopedLong("last_successful_series_refresh", timestamp)
+
+    fun isCatalogOwnedByCurrentAccount(): Boolean =
+        currentAccountFingerprint()?.let { it == prefs.getString("catalog_owner_fingerprint", null) } == true
+
+    fun markCatalogOwnedByCurrentAccount() {
+        currentAccountFingerprint()?.let { fingerprint ->
+            prefs.edit { putString("catalog_owner_fingerprint", fingerprint) }
+        }
+    }
 
     fun getEpgScopeFingerprint(): String? =
         accountScopedKey("epg_scope_fingerprint")?.let { prefs.getString(it, null) }

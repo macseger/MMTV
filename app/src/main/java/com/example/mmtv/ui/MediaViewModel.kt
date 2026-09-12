@@ -835,10 +835,20 @@ class MediaViewModel(
                 // Returning users can browse Room content before any catalog/network work.
                 if (sessionManager.hasSyncSelection()) {
                     val localCatalog = loadSelectedRoomCatalog()
-                    if (localCatalog.values.any { it.isNotEmpty() }) {
+                    if (localCatalog.values.any { it.isNotEmpty() } &&
+                        sessionManager.isCatalogOwnedByCurrentAccount()
+                    ) {
                         publishStartupCatalog(localCatalog)
                         loadStartupItems()
                         contentAvailable = true
+                        if (!forceRefresh) {
+                            // Cached returning users are ready once the Room-backed catalog and
+                            // initial visible items are published. Network and maintenance work
+                            // below remains owned by this ViewModel coroutine.
+                            uiState = uiState.copy(isLoading = false)
+                            StartupDiagnostics.event("startup_ready_cached", "span=${diagnosticSpan.id}")
+                            reportReady(true)
+                        }
                     }
                 }
 

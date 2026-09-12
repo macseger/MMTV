@@ -35,6 +35,7 @@ fun SettingsScreen(
     username: String,
     host: String,
     autoPlayEnabled: Boolean,
+    useLocalPicons: Boolean,
     useExternalEpg: Boolean,
     useTunneling: Boolean,
     showPlaybackDetails: Boolean,
@@ -54,7 +55,7 @@ fun SettingsScreen(
     onOpenTvFavorites: () -> Unit = {},
     onRefreshTv: () -> Unit,
     onRefreshEpg: () -> Unit,
-    onExtractPicons: () -> Unit,
+    onToggleLocalPicons: (Boolean) -> Unit,
     onOptimizeLibrary: () -> Unit,
     onClearFavorites: () -> Unit,
     onClearHistory: () -> Unit,
@@ -194,10 +195,11 @@ fun SettingsScreen(
             item {
                 SettingsAction(
                     title = "Använd lokala picons",
-                    subtitle = "Extrahera ikoner från picons.zip i assets",
+                    subtitle = "Prefer matching icons from picons.zip in assets",
                     icon = Icons.Default.Image,
                     isLoading = isUpdating,
-                    onClick = onExtractPicons
+                    value = if (useLocalPicons) stringResource(R.string.on) else stringResource(R.string.off),
+                    onClick = { onToggleLocalPicons(!useLocalPicons) }
                 )
             }
 

@@ -12,6 +12,7 @@ import com.google.gson.reflect.TypeToken
 import java.security.MessageDigest
 
 class SessionManager(context: Context) {
+    private val appContext = context.applicationContext
     private val masterKey = MasterKey.Builder(context)
         .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
         .build()
@@ -28,6 +29,14 @@ class SessionManager(context: Context) {
 
     init {
         migrateLegacyPrefs()
+        migrateLocalPiconPreference()
+    }
+
+    private fun migrateLocalPiconPreference() {
+        if (prefs.contains("use_local_picons")) return
+        val piconsDir = java.io.File(appContext.filesDir, "picons")
+        val extracted = piconsDir.isDirectory && java.io.File(piconsDir, ".last_extracted").isFile
+        prefs.edit { putBoolean("use_local_picons", extracted) }
     }
 
     private fun migrateLegacyPrefs() {
@@ -199,6 +208,12 @@ class SessionManager(context: Context) {
         return prefs.getBoolean("use_tunneling", false)
     }
 
+    fun setUseLocalPicons(enabled: Boolean) {
+        prefs.edit { putBoolean("use_local_picons", enabled) }
+    }
+
+    fun getUseLocalPicons(): Boolean = prefs.getBoolean("use_local_picons", false)
+
     fun hasSyncSelection(): Boolean = prefs.getBoolean("sync_selection_configured", false)
 
     fun getSyncCategories(type: com.example.mmtv.model.MediaType): Set<String> =
@@ -274,6 +289,10 @@ class SessionManager(context: Context) {
     }
 
     fun logout() {
-        prefs.edit(commit = true) { clear() }
+        val useLocalPicons = prefs.getBoolean("use_local_picons", false)
+        prefs.edit(commit = true) {
+            clear()
+            putBoolean("use_local_picons", useLocalPicons)
+        }
     }
 }

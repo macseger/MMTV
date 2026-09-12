@@ -90,6 +90,10 @@ class MediaViewModel(
         const val SEARCH_RESULTS_PER_TYPE = 100
         const val FAVORITE_TIMELINE_BUCKET_SECONDS = 30 * 60L
         const val FAVORITE_TIMELINE_WINDOW_SECONDS = 4 * 60 * 60L
+        const val LIVE_CATALOG_FRESHNESS_MS = 60 * 60 * 1000L
+
+        // TEMPORARY STAGE 3 HARDWARE TEST AID: remove after stale-path verification.
+        const val FORCE_STALE_LIVE_TEST = true
     }
 
     private val playerFactory = MmtvPlayer(context)
@@ -229,8 +233,16 @@ class MediaViewModel(
         }
     }
 
-    private suspend fun loadSyncCategoryOptions(user: String, pass: String, forceRefresh: Boolean): Map<MediaType, List<GroupedMedia>> =
-        loadCategoryCatalog { type -> _repository.getJustCategories(type, user, pass, forceRefresh, true) }
+    private suspend fun loadSyncCategoryOptions(
+        user: String,
+        pass: String,
+        forceRefresh: Boolean,
+        skipLive: Boolean = false
+    ): Map<MediaType, List<GroupedMedia>> =
+        loadCategoryCatalog { type ->
+            if (skipLive && type == MediaType.LIVE) emptyList()
+            else _repository.getJustCategories(type, user, pass, forceRefresh, true)
+        }
 
     fun dismissStartupError() { startupError = null }
 
@@ -625,11 +637,15 @@ class MediaViewModel(
         }
     }
 
-    private fun MediaEntity.toMediaSource() = MediaSource(
+    private fun MediaEntity.toMediaSource(): MediaSource {
+        val displayResolvedIcon = resolvedIcon.takeUnless {
+            !sessionManager.getUseLocalPicons() && it?.startsWith("file://") == true
+        }
+        return MediaSource(
         id = id,
         title = title,
-        icon = resolvedIcon ?: icon,
-        resolvedIcon = resolvedIcon,
+        icon = displayResolvedIcon ?: icon,
+        resolvedIcon = displayResolvedIcon,
         type = type,
         categoryId = categoryId,
         categoryName = categoryName,
@@ -643,7 +659,8 @@ class MediaViewModel(
         isFavorite = isFavorite,
         favoriteDate = favoriteDate,
         addedDate = addedDate
-    )
+        )
+    }
 
     fun updateRepository(newRepository: MediaRepository) {
         this._repository = newRepository
@@ -821,6 +838,7 @@ class MediaViewModel(
             val diagnosticSpan = StartupDiagnostics.start("foreground_startup", "force=$forceRefresh pending=${sessionManager.isSyncSelectionPending()}")
             var diagnosticOutcome = "returned"
             var contentAvailable = false
+            var cachedOwnedCatalog = false
             var completionReported = false
             fun reportReady(success: Boolean) {
                 if (!completionReported) {
@@ -833,28 +851,38 @@ class MediaViewModel(
             try {
                 StartupDiagnostics.rows(mediaDao, "startup_before")
                 // Returning users can browse Room content before any catalog/network work.
-                if (sessionManager.hasSyncSelection()) {
-                    val localCatalog = loadSelectedRoomCatalog()
-                    if (localCatalog.values.any { it.isNotEmpty() } &&
-                        sessionManager.isCatalogOwnedByCurrentAccount()
-                    ) {
-                        publishStartupCatalog(localCatalog)
-                        loadStartupItems()
-                        contentAvailable = true
-                        if (!forceRefresh) {
-                            // Cached returning users are ready once the Room-backed catalog and
-                            // initial visible items are published. Network and maintenance work
-                            // below remains owned by this ViewModel coroutine.
-                            uiState = uiState.copy(isLoading = false)
-                            StartupDiagnostics.event("startup_ready_cached", "span=${diagnosticSpan.id}")
-                            reportReady(true)
-                        }
+                val hasSyncSelection = sessionManager.hasSyncSelection()
+                val localCatalog = if (hasSyncSelection) loadSelectedRoomCatalog() else emptyMap()
+                val roomCatalogUsable = localCatalog.values.any { it.isNotEmpty() }
+                val catalogOwnerMatches = hasSyncSelection && sessionManager.isCatalogOwnedByCurrentAccount()
+                StartupDiagnostics.event(
+                    "cached_ready_gate",
+                    "syncSelection=$hasSyncSelection roomUsable=$roomCatalogUsable " +
+                        "ownerMatch=$catalogOwnerMatches force=$forceRefresh"
+                )
+                if (hasSyncSelection && roomCatalogUsable && catalogOwnerMatches) {
+                    publishStartupCatalog(localCatalog)
+                    loadStartupItems()
+                    contentAvailable = true
+                    cachedOwnedCatalog = true
+                    if (!forceRefresh) {
+                        // Cached returning users are ready once the Room-backed catalog and
+                        // initial visible items are published. Network and maintenance work
+                        // below remains owned by this ViewModel coroutine.
+                        uiState = uiState.copy(isLoading = false)
+                        StartupDiagnostics.event("startup_ready_cached", "span=${diagnosticSpan.id}")
+                        reportReady(true)
                     }
                 }
 
                 showStatusMessage("Hämtar kategorier...")
                 syncCategoryOptions = StartupDiagnostics.timed("category_catalog", "force=$forceRefresh") {
-                    loadSyncCategoryOptions(user, pass, forceRefresh)
+                    loadSyncCategoryOptions(
+                        user,
+                        pass,
+                        forceRefresh,
+                        skipLive = cachedOwnedCatalog && !forceRefresh
+                    )
                 }
                 if (syncCategoryOptions.values.all { it.isEmpty() } && !contentAvailable) {
                     startupError = "Kunde inte hämta några kategorier från servern. Kontrollera server-URL och anslutningen."
@@ -888,7 +916,42 @@ class MediaViewModel(
                     loadStartupItems(reload = true)
                 }
 
-                val iconsChanged = _repository.extractPiconsIfNeeded(rematchExisting = false)
+                val liveRefreshTimestamp = sessionManager.getLastSuccessfulLiveRefresh()
+                val forceStaleLiveTest = FORCE_STALE_LIVE_TEST &&
+                    cachedOwnedCatalog &&
+                    !forceRefresh
+                val liveRefreshStale = forceStaleLiveTest ||
+                    liveRefreshTimestamp <= 0L ||
+                    System.currentTimeMillis() - liveRefreshTimestamp >= LIVE_CATALOG_FRESHNESS_MS
+                val needsQuietLiveRefresh = cachedOwnedCatalog &&
+                    !forceRefresh &&
+                    !needsLibrarySync &&
+                    liveRefreshStale
+                if (needsQuietLiveRefresh) {
+                    if (forceStaleLiveTest) {
+                        StartupDiagnostics.event("live_catalog_stale_forced_test", "enabled=true")
+                    } else {
+                        StartupDiagnostics.event("live_catalog_stale", "last_successful_ms=$liveRefreshTimestamp")
+                    }
+                    StartupDiagnostics.event("live_catalog_quiet_sync_start")
+                    val liveResult = _repository.syncLiveChannels(user, pass)
+                    StartupDiagnostics.event(
+                        "live_catalog_quiet_sync_result",
+                        "status=${liveResult.status} successful=${liveResult.successfulUnits} failed=${liveResult.failedUnits}"
+                    )
+                    if (liveResult.isCompleteSuccess) {
+                        // Room is authoritative only after a complete Live replacement.
+                        displayCatalog = loadSelectedRoomCatalog()
+                        publishStartupCatalog(displayCatalog)
+                        loadStartupItems(reload = true)
+                        StartupDiagnostics.event("live_catalog_room_published", "status=SUCCESS")
+                    }
+                }
+
+                // Local picons are prepared only after cached READY; this keeps the fast path unchanged.
+                val iconsChanged = _repository.extractPiconsIfNeeded(
+                    rematchExisting = sessionManager.getUseLocalPicons()
+                )
                 invalidateFavoriteTimeline()
                 _repository.fetchAndStoreEpg(user, pass, forceRefresh)
                 invalidateFavoriteTimeline(epgChanged = true)
@@ -1414,13 +1477,22 @@ class MediaViewModel(
         }
     }
 
-    fun extractPicons() {
-        viewModelScope.launch(Dispatchers.IO) {
+    fun setUseLocalPicons(enabled: Boolean) {
+        sessionManager.setUseLocalPicons(enabled)
+        piconCache.clear()
+        _repository.invalidatePiconCaches()
+        viewModelScope.launch {
             isUpdatingBackground = true
-            showStatusMessage("Extraherar lokala ikoner...")
-            _repository.extractPiconsIfNeeded()
+            showStatusMessage(if (enabled) "Lokala ikoner aktiveras..." else "Lokala ikoner avaktiveras...")
+            if (enabled) {
+                withContext(Dispatchers.IO) {
+                    _repository.prepareLocalPiconsAfterLiveReplacement()
+                }
+            }
+            publishStartupCatalog(loadSelectedRoomCatalog())
+            loadStartupItems(reload = true)
             withContext(Dispatchers.Main) {
-                showStatusMessage("Lokala ikoner extraherades")
+                showStatusMessage(if (enabled) "Lokala ikoner aktiverade" else "Lokala ikoner avaktiverade")
                 isUpdatingBackground = false
             }
         }

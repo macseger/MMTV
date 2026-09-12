@@ -58,6 +58,7 @@ class MediaRepository(
 
     private fun getPiconFileMap(): Map<String, String> {
         synchronized(piconMapLock) {
+            if (!session.getUseLocalPicons()) return emptyMap()
             val cache = piconFileMap
             if (cache != null) return cache
             
@@ -232,11 +233,15 @@ class MediaRepository(
         }
     }
 
-    private fun MediaEntity.toMediaSource() = MediaSource(
+    private fun MediaEntity.toMediaSource(): MediaSource {
+        val displayResolvedIcon = resolvedIcon.takeUnless {
+            !session.getUseLocalPicons() && it?.startsWith("file://") == true
+        }
+        return MediaSource(
         id = id,
         title = title,
-        icon = resolvedIcon ?: icon,
-        resolvedIcon = resolvedIcon,
+        icon = displayResolvedIcon ?: icon,
+        resolvedIcon = displayResolvedIcon,
         type = type,
         categoryId = categoryId,
         categoryName = categoryName,
@@ -250,7 +255,8 @@ class MediaRepository(
         isFavorite = isFavorite,
         favoriteDate = favoriteDate,
         addedDate = addedDate
-    )
+        )
+    }
 
     // Database methods
     suspend fun getAllMediaByType(type: MediaType): List<MediaEntity> = withContext(Dispatchers.IO) {
@@ -294,6 +300,7 @@ class MediaRepository(
         val zipFileInAssets = "picons.zip"
         
         try {
+            if (!session.getUseLocalPicons()) return@withContext false
             // Kontrollera om vi har filen i assets
             val assets = context.assets.list("") ?: emptyArray()
             if (!assets.contains(zipFileInAssets)) {
@@ -331,7 +338,7 @@ class MediaRepository(
                     }
                     android.util.Log.d("Picons", "Extraherade $count ikoner.")
                     lastExtractionFile.createNewFile() // Markera att vi är klara
-                    piconFileMap = null // Rensa cachen så den läses om nästa gång
+                    invalidatePiconCaches() // Rensa cacharna så de läses om nästa gång
                     resolveAndStoreLiveIcons()
                 }
             }
@@ -342,6 +349,16 @@ class MediaRepository(
             false
         }
         }
+    }
+
+    suspend fun prepareLocalPiconsAfterLiveReplacement(): Boolean {
+        if (!session.getUseLocalPicons()) return false
+        return extractPiconsIfNeeded(rematchExisting = true)
+    }
+
+    fun invalidatePiconCaches() {
+        synchronized(piconMapLock) { piconFileMap = null }
+        iconCache.clear()
     }
 
     suspend fun syncLiveChannels(user: String, pass: String): RefreshResult = withContext(Dispatchers.IO) {
@@ -400,6 +417,7 @@ class MediaRepository(
                 }
                 if (selected == session.getSyncCategories(MediaType.LIVE)) {
                     mediaDao.replaceTypePreservingFavorites(MediaType.LIVE, liveEntities)
+                    prepareLocalPiconsAfterLiveReplacement()
                     session.markLiveRefreshSuccessful()
                     RefreshResult(RefreshStatus.SUCCESS, successfulCategories)
                 } else {
@@ -423,7 +441,13 @@ class MediaRepository(
         iconCache.clear()
         mediaDao.getMediaByType(MediaType.LIVE).forEach { channel ->
             val resolved = getIconForChannel(channel.epgId, channel.title)
-            val icon = resolved ?: channel.icon
+            val existingLocal = channel.resolvedIcon
+                ?.takeIf { it.startsWith("file://") }
+                ?.removePrefix("file://")
+                ?.let(::File)
+                ?.takeIf { it.exists() }
+                ?.let { "file://${it.absolutePath}" }
+            val icon = resolved ?: existingLocal ?: channel.icon
             if (icon != channel.resolvedIcon) {
                 mediaDao.updateResolvedIcon(channel.id, MediaType.LIVE, icon)
             }
@@ -1045,7 +1069,7 @@ class MediaRepository(
         var result: String? = null
 
         // 1. Kolla lokalt via kanalnamn med alla sökkombinationer
-        if (channelName != null) {
+        if (session.getUseLocalPicons() && channelName != null) {
             val variants = getSearchVariants(channelName)
             for (variant in variants) {
                 result = findLocalPath(variant)
@@ -1054,7 +1078,7 @@ class MediaRepository(
         }
 
         // 2. Kolla lokalt via EPG-ID (t.ex. "SVT1.se" -> "svt1", "svt1se")
-        if (result == null && epgId != null) {
+        if (session.getUseLocalPicons() && result == null && epgId != null) {
             val cleanEpgId = epgId.lowercase().substringBefore(".").replace(Regex("[^a-z0-9]"), "")
             if (cleanEpgId.isNotEmpty()) {
                 val epgVariants = listOf(cleanEpgId, "${cleanEpgId}se", "${cleanEpgId}sweden")

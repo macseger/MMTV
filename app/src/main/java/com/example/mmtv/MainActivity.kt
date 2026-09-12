@@ -503,6 +503,7 @@ class MainActivity : AppCompatActivity() {
                                     composable("settings") {
                                         val loginInfo = sessionManager.getLogin()
                                         var autoPlayEnabled by remember { mutableStateOf(sessionManager.getAutoPlayNext()) }
+                                        var useLocalPicons by remember { mutableStateOf(sessionManager.getUseLocalPicons()) }
                                         var useExternalEpg by remember { mutableStateOf(sessionManager.getUseExternalSwedishEpg()) }
                                         var showPlaybackDetails by remember { mutableStateOf(sessionManager.getShowPlaybackDetails()) }
                                         var useTunneling by remember { mutableStateOf(sessionManager.getUseTunneling()) }
@@ -511,6 +512,7 @@ class MainActivity : AppCompatActivity() {
                                             username = loginInfo?.second ?: "Okänd",
                                             host = loginInfo?.first ?: "",
                                             autoPlayEnabled = autoPlayEnabled,
+                                            useLocalPicons = useLocalPicons,
                                             useExternalEpg = useExternalEpg,
                                             useTunneling = useTunneling,
                                             showPlaybackDetails = showPlaybackDetails,
@@ -538,7 +540,10 @@ class MainActivity : AppCompatActivity() {
                                             onRefreshLibrary = { sharedViewModel.refreshVodLibrary() },
                                             onRefreshTv = { sharedViewModel.refreshTvChannels() },
                                             onRefreshEpg = { sharedViewModel.refreshEpgOnly() },
-                                            onExtractPicons = { sharedViewModel.extractPicons() },
+                                            onToggleLocalPicons = { enabled ->
+                                                useLocalPicons = enabled
+                                                sharedViewModel.setUseLocalPicons(enabled)
+                                            },
                                             onOptimizeLibrary = { sharedViewModel.performOptimization() },
                                             onClearFavorites = { sharedViewModel.clearAllFavorites() },
                                             onClearHistory = { sharedViewModel.clearHistory() },

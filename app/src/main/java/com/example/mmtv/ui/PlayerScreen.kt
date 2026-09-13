@@ -110,16 +110,19 @@ private fun AudioTrackOption.displayName(position: Int): String {
 @OptIn(UnstableApi::class)
 private enum class VideoResizeMode(
     val playerViewResizeMode: Int,
-    val label: String
+    val label: String,
+    val forcedAspectRatio: Float? = null
 ) {
     FIT(AspectRatioFrameLayout.RESIZE_MODE_FIT, "FIT"),
     ZOOM(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, "ZOOM"),
-    STRETCH(AspectRatioFrameLayout.RESIZE_MODE_FILL, "STRETCH");
+    STRETCH(AspectRatioFrameLayout.RESIZE_MODE_FILL, "STRETCH"),
+    CINEMA(AspectRatioFrameLayout.RESIZE_MODE_FILL, "CINEMA", 2.39f);
 
     fun next(): VideoResizeMode = when (this) {
         FIT -> ZOOM
         ZOOM -> STRETCH
-        STRETCH -> FIT
+        STRETCH -> CINEMA
+        CINEMA -> FIT
     }
 }
 
@@ -1200,6 +1203,8 @@ fun PlayerScreen(
             .focusRequester(mainFocusRequester)
             .focusable()
     ) {
+        val forcedVideoAspectRatio = videoResizeMode.forcedAspectRatio
+            .takeIf { media != null && media.type != MediaType.LIVE && !isActualLiveRoute }
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply { 
@@ -1229,7 +1234,12 @@ fun PlayerScreen(
                 if (view.resizeMode != resizeMode) view.resizeMode = resizeMode
                 view.onResume()
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = forcedVideoAspectRatio?.let { aspectRatio ->
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(aspectRatio)
+                    .align(Alignment.Center)
+            } ?: Modifier.fillMaxSize()
         )
 
         if (detailsVisible) {

@@ -1,5 +1,6 @@
 package com.example.mmtv.ui
 
+import android.content.res.Configuration
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -24,6 +25,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -65,6 +67,9 @@ fun SettingsScreen(
     onToggleTunneling: (Boolean) -> Unit,
     onToggleTvMode: (Boolean) -> Unit
 ) {
+    val configuration = LocalConfiguration.current
+    val isTelevisionDevice =
+        (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
     val firstButtonFocusRequester = remember { FocusRequester() }
     val categoryFocusRequester = remember { FocusRequester() }
     val settingsListState = rememberLazyListState()
@@ -77,7 +82,7 @@ fun SettingsScreen(
             restoringCategoryFocus = true
             settingsListState.scrollToItem(0)
             withFrameNanos { }
-            if (isTvMode) categoryFocusRequester.requestFocus()
+            if (isTvMode && isTelevisionDevice) categoryFocusRequester.requestFocus()
             // Consume trailing/repeated remote events while the dialog window closes.
             delay(350)
             needsCategoryFocus = false
@@ -98,7 +103,7 @@ fun SettingsScreen(
     }
 
     LaunchedEffect(Unit) {
-        if (isTvMode) {
+        if (isTvMode && isTelevisionDevice) {
             firstButtonFocusRequester.requestFocus()
         }
     }

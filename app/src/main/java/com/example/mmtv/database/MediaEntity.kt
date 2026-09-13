@@ -33,5 +33,7 @@ data class MediaEntity(
     val itemOrder: Int = 0,
     val isFavorite: Boolean = false,
     val favoriteDate: Long = 0,
-    val addedDate: Long = System.currentTimeMillis()
+    val addedDate: Long = System.currentTimeMillis(),
+    val tvArchive: Boolean? = null,
+    val tvArchiveDuration: Int? = null
 )

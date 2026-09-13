@@ -65,7 +65,8 @@ data class EpgUiItem(
     val stopText: String,
     val isCurrent: Boolean,
     val startTimestamp: Long,
-    val stopTimestamp: Long
+    val stopTimestamp: Long,
+    val source: EpgListing
 )
 
 @Composable
@@ -378,6 +379,15 @@ fun ChannelListItem(
                 )
                 
                 ChannelProgramStatus(item.id, viewModel, hasFocus, isVisible)
+            }
+
+            if (item.tvArchive == true) {
+                Icon(
+                    imageVector = Icons.Default.History,
+                    contentDescription = "Archive",
+                    tint = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
     }
@@ -1312,11 +1322,15 @@ fun EpgModal(
     viewModel: MediaViewModel,
     epgListState: LazyListState,
     epgFocusRequester: FocusRequester,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onPlayArchive: (EpgListing) -> Unit = {}
 ) {
     BackHandler { onClose() }
     
-    val fullEpg = viewModel.getCachedFullEpgForId(media.id)
+    LaunchedEffect(media.id, media.tvArchive) { viewModel.loadArchiveEpg(media) }
+    val fullEpg = (viewModel.getCachedFullEpgForId(media.id) + viewModel.getCachedArchiveEpgForId(media.id))
+        .distinctBy { "${it.id}_${it.startTimestamp}" }
+    val archiveEpgLoading = viewModel.isArchiveEpgLoading(media.id)
     val timeFormatter = remember { DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()) }
     val piconUrl = media.icon
 
@@ -1331,7 +1345,9 @@ fun EpgModal(
 
     // För-beräkna och formatera EPG-data för att undvika tungt jobb i listan
     val formattedEpg = remember(fullEpg, nowTs) {
-        fullEpg.filter { (it.stopTimestamp ?: 0) > nowTs }.map { epg ->
+        fullEpg.filter { (it.startTimestamp ?: 0) > 0 && (it.stopTimestamp ?: 0) > (it.startTimestamp ?: 0) }
+            .sortedBy { it.startTimestamp }
+            .map { epg ->
             val startTs = epg.startTimestamp ?: 0L
             val stopTs = epg.stopTimestamp ?: 0L
             EpgUiItem(
@@ -1342,14 +1358,21 @@ fun EpgModal(
                 stopText = timeFormatter.format(Instant.ofEpochSecond(stopTs)),
                 isCurrent = startTs <= nowTs && stopTs > nowTs,
                 startTimestamp = startTs,
-                stopTimestamp = stopTs
+                stopTimestamp = stopTs,
+                source = epg
             )
         }
     }
 
-    LaunchedEffect(fullEpg) {
-        if (fullEpg.isNotEmpty()) {
-            delay(100)
+    val initialFocusIndex = formattedEpg.indexOfFirst { it.isCurrent }
+        .takeIf { it >= 0 }
+        ?: formattedEpg.indexOfFirst { it.startTimestamp >= nowTs }.takeIf { it >= 0 }
+        ?: formattedEpg.lastIndex.coerceAtLeast(0)
+
+    LaunchedEffect(media.id, formattedEpg.map { it.id }) {
+        if (formattedEpg.isNotEmpty()) {
+            epgListState.scrollToItem(initialFocusIndex)
+            delay(60)
             runCatching { epgFocusRequester.requestFocus() }
         }
     }
@@ -1391,7 +1414,7 @@ fun EpgModal(
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text(text = media.title ?: "Programguide", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, color = Color.White)
-                        Text(text = "Kommande program", style = MaterialTheme.typography.bodyMedium, color = viewModel.currentThemeColor)
+                        Text(text = "Programtablå", style = MaterialTheme.typography.bodyMedium, color = viewModel.currentThemeColor)
                     }
                     Spacer(modifier = Modifier.weight(1f))
                     IconButton(onClick = onClose) { 
@@ -1400,6 +1423,17 @@ fun EpgModal(
                 }
                 
                 Spacer(modifier = Modifier.height(24.dp))
+
+                if (archiveEpgLoading) {
+                    Row(
+                        modifier = Modifier.padding(bottom = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Hämtar tidigare program…", color = Color.LightGray)
+                    }
+                }
                 
                 if (fullEpg.isEmpty()) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { 
@@ -1417,13 +1451,16 @@ fun EpgModal(
                             contentType = { _, _ -> "epg_item" }
                         ) { index, epg ->
                             var isItemFocused by remember { mutableStateOf(false) }
-                            
+                            val canPlayArchive = media.tvArchive == true && epg.stopTimestamp <= nowTs
+
                             Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .then(if (index == 0) Modifier.focusRequester(epgFocusRequester) else Modifier)
+                                    .then(if (index == initialFocusIndex) Modifier.focusRequester(epgFocusRequester) else Modifier)
                                     .onFocusChanged { isItemFocused = it.isFocused }
-                                    .clickable { /* Focusable */ }
+                                    .clickable {
+                                        if (canPlayArchive) onPlayArchive(epg.source)
+                                    }
                                     .padding(vertical = 4.dp),
                                 color = if (isItemFocused) viewModel.currentThemeColor.copy(alpha = 0.25f)
                                         else if (epg.isCurrent) Color.White.copy(alpha = 0.05f)
@@ -1451,6 +1488,19 @@ fun EpgModal(
                                                 maxLines = if (isItemFocused) 10 else 2,
                                                 overflow = TextOverflow.Ellipsis
                                             )
+                                        }
+                                        if (canPlayArchive) {
+                                            Surface(
+                                                color = viewModel.currentThemeColor.copy(alpha = if (isItemFocused) 0.9f else 0.65f),
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "SPELA FRÅN BÖRJAN",
+                                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                                    color = Color.White,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
                                     }
                                 }

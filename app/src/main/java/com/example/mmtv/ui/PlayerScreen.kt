@@ -1,6 +1,7 @@
 package com.example.mmtv.ui
 
 import android.net.Uri
+import android.util.Log
 import com.example.mmtv.ui.theme.FocusBorderColor
 import androidx.activity.ComponentActivity
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
@@ -55,6 +56,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
+import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -64,6 +66,7 @@ import com.example.mmtv.model.GroupedMedia
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.Episode
+import com.example.mmtv.model.EpgListing
 import com.example.mmtv.ui.components.*
 import com.example.mmtv.ui.components.EpgGrid
 import kotlinx.coroutines.Job
@@ -132,6 +135,8 @@ fun PlayerScreen(
     onBackPressed: () -> Unit = {},
     onBackgrounded: () -> Unit = {},
     onPlayNextEpisode: (Episode) -> Unit = {},
+    onArchiveSelected: (EpgListing) -> Unit = {},
+    onReturnToLive: () -> Unit = {},
     viewModel: MediaViewModel
 ) {
     val context = LocalContext.current
@@ -139,7 +144,10 @@ fun PlayerScreen(
     val focusManager = LocalFocusManager.current
     val sessionManager = remember { SessionManager(context) }
     val isLiveStream = media?.type == MediaType.LIVE
-    val isActualLiveRoute = Uri.parse(url).pathSegments.any { it.equals("live", ignoreCase = true) }
+    val playbackPathSegments = remember(url) { Uri.parse(Uri.decode(url)).pathSegments }
+    val isActualLiveRoute = playbackPathSegments.any { it.equals("live", ignoreCase = true) }
+    val isCatchupPlayback = isLiveStream && playbackPathSegments.any { it.equals("timeshift", ignoreCase = true) }
+    val isTimelinePlayback = media != null && (media.type != MediaType.LIVE || isCatchupPlayback)
     val exoPlayer = remember(isLiveStream) { viewModel.getOrInitializePlayer(isLiveStream) }
 
     val showPlaybackDetails = remember { sessionManager.getShowPlaybackDetails() }
@@ -204,9 +212,11 @@ fun PlayerScreen(
     var channelNumberFeedback by remember { mutableStateOf(false) }
     var videoResizeMode by remember(url) { mutableStateOf(VideoResizeMode.FIT) }
     var vodControlsDismissed by remember(url) { mutableStateOf(false) }
+    var isCurrentMediaSeekable by remember(url) { mutableStateOf(false) }
     val showVodControls = media != null &&
-        media.type != MediaType.LIVE &&
+        isTimelinePlayback &&
         !isActualLiveRoute &&
+        (!isCatchupPlayback || isCurrentMediaSeekable) &&
         (showSeekFeedback || !isPlaying) &&
         !vodControlsDismissed
 
@@ -562,11 +572,15 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(exoPlayer) {
+    LaunchedEffect(exoPlayer, url) {
         var counter = 0
         while (true) {
             currentPosition = exoPlayer.currentPosition
             duration = exoPlayer.duration
+            if (isCatchupPlayback) {
+                isCurrentMediaSeekable = exoPlayer.isCurrentMediaItemSeekable &&
+                    exoPlayer.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+            }
             if (media?.type != MediaType.LIVE && isPlaying) {
                 counter++
                 if (counter >= 30) {
@@ -579,6 +593,7 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(url) {
+        isCurrentMediaSeekable = false
         availableSubtitles = emptyList()
         availableAudioTracks = emptyList()
         focusManager.clearFocus()
@@ -607,9 +622,53 @@ fun PlayerScreen(
         exoPlayer.play()
     }
 
-    DisposableEffect(exoPlayer) {
+    DisposableEffect(exoPlayer, url) {
         val listener = object : Player.Listener {
             private var compatibilityRetryAttempted = false
+
+            fun logSeekCapabilities(event: String) {
+                if (!isLiveStream) return
+
+                val timeline = exoPlayer.currentTimeline
+                val mediaItemIndex = exoPlayer.currentMediaItemIndex
+                val window = if (
+                    !timeline.isEmpty &&
+                    mediaItemIndex != C.INDEX_UNSET &&
+                    mediaItemIndex < timeline.windowCount
+                ) {
+                    timeline.getWindow(mediaItemIndex, Timeline.Window())
+                } else {
+                    null
+                }
+
+                Log.i(
+                    "MMTV_SEEK_DIAG",
+                    buildString {
+                        append("event=").append(event)
+                        append(" mediaType=").append(media?.type)
+                        append(" isCatalogLive=").append(isLiveStream)
+                        append(" mediaId=").append(media?.id)
+                        append(" urlHash=").append(Integer.toHexString(url.hashCode()))
+                        append(" playerIsLive=").append(exoPlayer.isCurrentMediaItemLive)
+                        append(" playerIsSeekable=").append(exoPlayer.isCurrentMediaItemSeekable)
+                        append(" seekCommandAvailable=").append(
+                            exoPlayer.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                        )
+                        append(" duration=").append(exoPlayer.duration)
+                        append(" currentPosition=").append(exoPlayer.currentPosition)
+                        append(" currentLiveOffset=").append(exoPlayer.currentLiveOffset)
+                        append(" timelineIsEmpty=").append(timeline.isEmpty)
+                        if (window != null) {
+                            append(" windowIsLive=").append(window.isLive)
+                            append(" windowIsSeekable=").append(window.isSeekable)
+                            append(" windowIsDynamic=").append(window.isDynamic)
+                            append(" windowDurationMs=").append(window.durationMs)
+                            append(" windowDefaultPositionMs=").append(window.defaultPositionMs)
+                            append(" windowStartTimeMs=").append(window.windowStartTimeMs)
+                        }
+                    }
+                )
+            }
 
             fun clearCompatibilityRecovery() {
                 viewModel.disableVodStereoDownmix()
@@ -642,6 +701,18 @@ fun PlayerScreen(
                 audioFormat = exoPlayer.audioFormat
             }
 
+            override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                isCurrentMediaSeekable = exoPlayer.isCurrentMediaItemSeekable &&
+                    exoPlayer.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                logSeekCapabilities("onTimelineChanged(reason=$reason)")
+            }
+
+            override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+                isCurrentMediaSeekable = exoPlayer.isCurrentMediaItemSeekable &&
+                    availableCommands.contains(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                logSeekCapabilities("onAvailableCommandsChanged")
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 if (isLiveStream || compatibilityRetryAttempted ||
                     error.errorCode != PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED
@@ -672,6 +743,9 @@ fun PlayerScreen(
                 audioFormat = exoPlayer.audioFormat
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
+                isCurrentMediaSeekable = exoPlayer.isCurrentMediaItemSeekable &&
+                    exoPlayer.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                logSeekCapabilities("onPlaybackStateChanged(state=$playbackState)")
                 isBuffering = playbackState == Player.STATE_BUFFERING
                 videoFormat = exoPlayer.videoFormat
                 audioFormat = exoPlayer.audioFormat
@@ -903,12 +977,12 @@ fun PlayerScreen(
                                 true
                             }
                             KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                                val canSeek = media != null && media.type != MediaType.LIVE
+                                val canSeek = isTimelinePlayback && isCurrentMediaSeekable
                                 if (canSeek) performMediaSeek(-10000L)
                                 canSeek
                             }
                             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                                val canSeek = media != null && media.type != MediaType.LIVE
+                                val canSeek = isTimelinePlayback && isCurrentMediaSeekable
                                 if (canSeek) performMediaSeek(10000L)
                                 canSeek
                             }
@@ -938,7 +1012,7 @@ fun PlayerScreen(
                                     if (showNextEpisodeButton) {
                                         nextEpisodeButtonFocusRequester.safeFocus()
                                         true
-                                    } else if (media?.type == MediaType.LIVE) {
+                                    } else if (isActualLiveRoute) {
                                         // Den kompakta tablåvyn är trygg på TV:ns begränsade CPU.
                                         overlayState = OverlayState.EPG_INFO
                                         true
@@ -963,7 +1037,7 @@ fun PlayerScreen(
                                 if (overlayState == OverlayState.QUICK_INFO) {
                                     true
                                 } else if (overlayState == OverlayState.NONE) {
-                                    if (media?.type == MediaType.LIVE) {
+                                    if (isActualLiveRoute) {
                                         overlayState = OverlayState.EPG_INFO
                                         true
                                     } else {
@@ -973,7 +1047,7 @@ fun PlayerScreen(
                             }
                             KeyEvent.KEYCODE_DPAD_LEFT -> {
                                 if (overlayState == OverlayState.NONE) {
-                                    if (media?.type == MediaType.LIVE) {
+                                    if (isActualLiveRoute) {
                                         // SideOverlay positionerar och fokuserar den aktuella kanalen
                                         // efter att rätt rad faktiskt har komponerats.
                                         overlayState = OverlayState.CHANNELS
@@ -989,7 +1063,7 @@ fun PlayerScreen(
                             }
                             KeyEvent.KEYCODE_DPAD_RIGHT -> {
                                 if (overlayState == OverlayState.NONE) {
-                                    if (media?.type != MediaType.LIVE) {
+                                    if (isTimelinePlayback) {
                                         if (isRepeat) performSeek(10000L, true)
                                         else performSeek(10000L)
                                     } else {
@@ -1013,7 +1087,7 @@ fun PlayerScreen(
                                     onPlayNextEpisode(nextEpisode)
                                     true
                                 } else if (overlayState == OverlayState.NONE) {
-                                    if (media != null && media.type == MediaType.LIVE) {
+                                    if (isActualLiveRoute) {
                                         val currentTime = System.currentTimeMillis()
                                         if (currentTime - lastCenterClickTime < doubleClickTimeout) {
                                             overlayState = OverlayState.EPG_INFO
@@ -1022,14 +1096,17 @@ fun PlayerScreen(
                                             overlayState = OverlayState.QUICK_INFO
                                         }
                                         lastCenterClickTime = currentTime
-                                    } else {
+                                        true
+                                    } else if (isTimelinePlayback) {
+                                        isCurrentMediaSeekable = exoPlayer.isCurrentMediaItemSeekable &&
+                                            exoPlayer.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
                                         togglePlayback()
                                         scope.launch {
                                             delay(60)
-                                            timelineFocusRequester.safeFocus()
+                                            if (isCurrentMediaSeekable) timelineFocusRequester.safeFocus()
                                         }
-                                    }
-                                    true
+                                        true
+                                    } else false
                                 } else false
                             }
                             KeyEvent.KEYCODE_PROG_RED -> {
@@ -1070,7 +1147,7 @@ fun PlayerScreen(
                                 isLongPressSeeking = false
                                 // Vid long-press seekar vi direkt i ACTION_DOWN, så vi nollställer bara här
                                 accumulatedSeekMs = 0
-                            } else if (overlayState == OverlayState.NONE && media?.type != MediaType.LIVE) {
+                            } else if (overlayState == OverlayState.NONE && isTimelinePlayback) {
                                 // För enkla klick, utför sökningen nu när knappen släpps
                                 val dur = exoPlayer.duration
                                 if (dur != C.TIME_UNSET) {
@@ -1188,6 +1265,7 @@ fun PlayerScreen(
                 onPlayNext = if (isSeries && nextEpisode != null) {
                     { onPlayNextEpisode(nextEpisode) }
                 } else null,
+                onReturnToLive = if (isCatchupPlayback) onReturnToLive else null,
                 onCycleVideoResizeMode = { videoResizeMode = videoResizeMode.next() },
                 onSeekBy = { offsetMs ->
                     if (duration > 0 && duration != C.TIME_UNSET) {
@@ -1395,7 +1473,11 @@ fun PlayerScreen(
                 viewModel = viewModel,
                 epgListState = epgListState,
                 epgFocusRequester = epgFocusRequester,
-                onClose = { overlayState = OverlayState.NONE }
+                onClose = { overlayState = OverlayState.NONE },
+                onPlayArchive = { listing ->
+                    overlayState = OverlayState.NONE
+                    onArchiveSelected(listing)
+                }
             )
         }
 
@@ -1557,6 +1639,7 @@ fun VodControlOverlay(
     themeColor: Color = Color(0xFF2196F3),
     currentEpisodeLabel: String? = null,
     onPlayNext: (() -> Unit)? = null,
+    onReturnToLive: (() -> Unit)? = null,
     onCycleVideoResizeMode: () -> Unit,
     onSeekBy: (Long) -> Unit,
     onContinueWatching: () -> Unit,
@@ -1566,6 +1649,7 @@ fun VodControlOverlay(
     val resizeModeFocusRequester = remember { FocusRequester() }
     val continueWatchingFocusRequester = remember { FocusRequester() }
     val nextControlFocusRequester = remember { FocusRequester() }
+    val returnToLiveFocusRequester = remember { FocusRequester() }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1874,7 +1958,10 @@ fun VodControlOverlay(
                                         true
                                     }
                                     KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                        if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) resizeModeFocusRequester.requestFocus()
+                                        if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                            if (onReturnToLive != null) returnToLiveFocusRequester.requestFocus()
+                                            else resizeModeFocusRequester.requestFocus()
+                                        }
                                         true
                                     }
                                     else -> false
@@ -1901,8 +1988,44 @@ fun VodControlOverlay(
                         }
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    var resizeModeFocused by remember { mutableStateOf(false) }
-                    Surface(
+                    if (onReturnToLive != null) {
+                        var returnToLiveFocused by remember { mutableStateOf(false) }
+                        Surface(
+                            onClick = onReturnToLive,
+                            modifier = Modifier
+                                .focusRequester(returnToLiveFocusRequester)
+                                .onFocusChanged { returnToLiveFocused = it.isFocused }
+                                .onPreviewKeyEvent {
+                                    when (it.nativeKeyEvent.keyCode) {
+                                        KeyEvent.KEYCODE_DPAD_UP -> {
+                                            if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) continueWatchingFocusRequester.requestFocus()
+                                            true
+                                        }
+                                        KeyEvent.KEYCODE_DPAD_DOWN -> true
+                                        KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                            if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) audioIconFocusRequester.requestFocus()
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            border = if (returnToLiveFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
+                            color = if (returnToLiveFocused) themeColor else Color.White.copy(alpha = 0.1f),
+                            contentColor = if (returnToLiveFocused) Color.Black else Color.White
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.LiveTv, null, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("TILL LIVE", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold)
+                            }
+                        }
+                    } else {
+                        var resizeModeFocused by remember { mutableStateOf(false) }
+                        Surface(
                         onClick = onCycleVideoResizeMode,
                         modifier = Modifier
                             .focusRequester(resizeModeFocusRequester)
@@ -1931,7 +2054,7 @@ fun VodControlOverlay(
                         border = if (resizeModeFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
                         color = if (resizeModeFocused) themeColor else Color.White.copy(alpha = 0.1f),
                         contentColor = if (resizeModeFocused) Color.Black else Color.White
-                    ) {
+                        ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -1946,8 +2069,9 @@ fun VodControlOverlay(
                                 )
                             )
                         }
+                        }
                     }
-                    if (onPlayNext != null) {
+                    if (onReturnToLive == null && onPlayNext != null) {
                         Spacer(modifier = Modifier.width(12.dp))
                         var nextFocused by remember { mutableStateOf(false) }
                         Surface(

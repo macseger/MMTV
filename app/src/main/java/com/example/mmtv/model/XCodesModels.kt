@@ -1,6 +1,30 @@
 package com.example.mmtv.model
 
+import com.google.gson.*
+import com.google.gson.annotations.JsonAdapter
 import com.google.gson.annotations.SerializedName
+import java.lang.reflect.Type
+
+private class XtreamArchiveFlagAdapter : JsonDeserializer<Boolean?> {
+    override fun deserialize(json: JsonElement?, typeOfT: Type?, context: JsonDeserializationContext?): Boolean? {
+        if (json == null || json.isJsonNull) return null
+        if (json.isJsonPrimitive && json.asJsonPrimitive.isBoolean) return json.asBoolean
+
+        val value = runCatching { json.asString.trim().lowercase() }.getOrNull() ?: return null
+        return when (value) {
+            "true", "yes" -> true
+            "false", "no" -> false
+            else -> value.toDoubleOrNull()?.let { it > 0.0 }
+        }
+    }
+}
+
+private class XtreamArchiveValueAdapter : JsonDeserializer<Int?> {
+    override fun deserialize(json: JsonElement?, typeOfT: Type?, context: JsonDeserializationContext?): Int? {
+        if (json == null || json.isJsonNull) return null
+        return json.asString.trim().toDoubleOrNull()?.toInt()
+    }
+}
 
 data class LoginResponse(
     @SerializedName("user_info") val userInfo: UserInfo?,
@@ -35,7 +59,11 @@ data class LiveStream(
     @SerializedName("stream_id") val streamId: Int,
     @SerializedName("stream_icon") val streamIcon: String?,
     @SerializedName("category_id") val categoryId: String?,
-    @SerializedName("epg_channel_id") val epgId: String? = null
+    @SerializedName("epg_channel_id") val epgId: String? = null,
+    @SerializedName("tv_archive") @JsonAdapter(XtreamArchiveFlagAdapter::class)
+    val tvArchive: Boolean? = null,
+    @SerializedName("tv_archive_duration") @JsonAdapter(XtreamArchiveValueAdapter::class)
+    val tvArchiveDuration: Int? = null
 )
 
 data class Movie(
@@ -147,7 +175,9 @@ data class MediaSource(
     val serverChannelNumber: Int? = null,
     val isFavorite: Boolean = false,
     val favoriteDate: Long = 0L,
-    val addedDate: Long = 0L
+    val addedDate: Long = 0L,
+    val tvArchive: Boolean? = null,
+    val tvArchiveDuration: Int? = null
 )
 
 enum class MediaType {

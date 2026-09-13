@@ -78,6 +78,7 @@ interface XCodesApi {
         @Query("username") user: String,
         @Query("password") pass: String,
         @Query("stream_id") streamId: Int,
+        @Query("limit") limit: Int? = null,
         @Query("action") action: String = "get_simple_data_table"
     ): EpgResponse
 

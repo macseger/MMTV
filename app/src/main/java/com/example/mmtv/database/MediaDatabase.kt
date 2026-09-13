@@ -10,7 +10,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.mmtv.model.MediaType
 
-@Database(entities = [MediaEntity::class, EpgEntity::class, ChannelEntity::class, PiconEntity::class], version = 15, exportSchema = false)
+@Database(entities = [MediaEntity::class, EpgEntity::class, ChannelEntity::class, PiconEntity::class], version = 16, exportSchema = false)
 @TypeConverters(MediaConverters::class)
 abstract class MediaDatabase : RoomDatabase() {
     abstract fun mediaDao(): MediaDao
@@ -26,10 +26,10 @@ abstract class MediaDatabase : RoomDatabase() {
                     MediaDatabase::class.java,
                     "mmtv_database"
                 )
-                .fallbackToDestructiveMigration()
                 .addMigrations(MIGRATION_12_13)
                 .addMigrations(MIGRATION_13_14)
                 .addMigrations(MIGRATION_14_15)
+                .addMigrations(MIGRATION_15_16)
                 .build()
                 INSTANCE = instance
                 instance
@@ -53,6 +53,13 @@ abstract class MediaDatabase : RoomDatabase() {
         private val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE media_items ADD COLUMN serverChannelNumber INTEGER")
+            }
+        }
+
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE media_items ADD COLUMN tvArchive INTEGER")
+                database.execSQL("ALTER TABLE media_items ADD COLUMN tvArchiveDuration INTEGER")
             }
         }
     }

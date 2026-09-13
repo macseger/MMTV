@@ -16,6 +16,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.zip.GZIPInputStream
 import com.example.mmtv.api.EpgParser
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 enum class RefreshStatus {
     SUCCESS,
@@ -31,6 +34,12 @@ data class RefreshResult(
     val detail: String? = null
 ) {
     val isCompleteSuccess: Boolean get() = status == RefreshStatus.SUCCESS
+}
+
+fun buildVerifiedCatchupUrl(host: String, user: String, pass: String, streamId: Int, startTimestamp: Long, durationMinutes: Long): String {
+    val formatter = SimpleDateFormat("yyyy-MM-dd:HH-mm", Locale.US).apply { timeZone = TimeZone.getDefault() }
+    val startText = formatter.format(java.util.Date(startTimestamp * 1000L))
+    return "$host/timeshift/$user/$pass/$durationMinutes/$startText/$streamId.ts"
 }
 
 class MediaRepository(
@@ -55,6 +64,17 @@ class MediaRepository(
     // Interna minnescachar för att undvika SQLite LIKE-sökningar vid skroll
     private val epgCache = java.util.Collections.synchronizedMap(mutableMapOf<String, List<EpgListing>>())
     private val iconCache = java.util.Collections.synchronizedMap(mutableMapOf<String, String?>())
+    suspend fun getFreshArchiveEpg(streamId: Int): List<EpgListing> = withContext(Dispatchers.IO) {
+        val login = session.getLogin() ?: return@withContext emptyList()
+        runCatching {
+            api.getChannelEpg(login.second, login.third, streamId, limit = 200).listings.orEmpty().map { listing ->
+                listing.copy(
+                    title = decodeEpgText(listing.title),
+                    description = decodeEpgText(listing.description)
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
 
     private fun getPiconFileMap(): Map<String, String> {
         synchronized(piconMapLock) {
@@ -152,7 +172,9 @@ class MediaRepository(
                         icon = it.streamIcon,
                         type = MediaType.LIVE,
                         epgId = it.epgId,
-                        serverChannelNumber = it.num
+                        serverChannelNumber = it.num,
+                        tvArchive = it.tvArchive,
+                        tvArchiveDuration = it.tvArchiveDuration
                     )
                 }
             )
@@ -254,6 +276,8 @@ class MediaRepository(
         cast = cast,
         epgId = epgId,
         serverChannelNumber = serverChannelNumber,
+        tvArchive = tvArchive,
+        tvArchiveDuration = tvArchiveDuration,
         isFavorite = isFavorite,
         favoriteDate = favoriteDate,
         addedDate = addedDate
@@ -382,7 +406,6 @@ class MediaRepository(
                 var itemIndex = 0
                 var successfulCategories = 0
                 var failedCategories = selected.count { selectedId -> liveCats.none { it.categoryId == selectedId } }
-
                 for (category in liveCats.filter { it.categoryId in selected }) {
                     try {
                         val streams = api.getLiveStreams(user, pass, categoryId = category.categoryId)
@@ -400,6 +423,8 @@ class MediaRepository(
                                     icon = stream.streamIcon,
                                     epgId = stream.epgId,
                                     serverChannelNumber = stream.num,
+                                    tvArchive = stream.tvArchive,
+                                    tvArchiveDuration = stream.tvArchiveDuration,
                                     itemOrder = itemIndex++,
                                     addedDate = 0L
                                 )

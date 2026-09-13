@@ -38,6 +38,7 @@ import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.repository.MediaRepository
+import com.example.mmtv.repository.buildVerifiedCatchupUrl
 import com.example.mmtv.util.UpdateInstallResult
 import com.example.mmtv.util.UpdateManager
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -744,6 +745,38 @@ class MainActivity : AppCompatActivity() {
                                                     
                                                     navController.navigate("player/$encodedUrl") {
                                                         popUpTo("player/{url}") { inclusive = true }
+                                                    }
+                                                }
+                                            },
+                                            onArchiveSelected = { listing ->
+                                                val selected = sharedViewModel.selectedMedia
+                                                val login = sessionManager.getLogin()
+                                                val start = listing.startTimestamp
+                                                val stop = listing.stopTimestamp
+                                                if (selected?.type == MediaType.LIVE && selected.tvArchive == true &&
+                                                    login != null && start != null && stop != null && stop > start) {
+                                                    val (h, u, p) = login
+                                                    val durationMinutes = ((stop - start) / 60L).coerceAtLeast(1L)
+                                                    val archiveUrl = buildVerifiedCatchupUrl(h, u, p, selected.id, start, durationMinutes)
+                                                    android.util.Log.i("MMTV_CATCHUP", "selected stream_id=${selected.id} start=$start durationMinutes=$durationMinutes")
+                                                    val encodedUrl = URLEncoder.encode(archiveUrl, StandardCharsets.UTF_8.toString())
+                                                    navController.navigate("player/$encodedUrl") {
+                                                        popUpTo(navController.currentDestination?.route ?: "player/{url}") { inclusive = true }
+                                                        launchSingleTop = true
+                                                    }
+                                                }
+                                            },
+                                            onReturnToLive = {
+                                                val selected = sharedViewModel.selectedMedia
+                                                val login = sessionManager.getLogin()
+                                                if (selected?.type == MediaType.LIVE && login != null) {
+                                                    val (h, u, p) = login
+                                                    val liveUrl = "$h/live/$u/$p/${selected.id}.ts"
+                                                    android.util.Log.i("MMTV_CATCHUP", "return_to_live stream_id=${selected.id}")
+                                                    val encodedUrl = URLEncoder.encode(liveUrl, StandardCharsets.UTF_8.toString())
+                                                    navController.navigate("player/$encodedUrl") {
+                                                        popUpTo(navController.currentDestination?.route ?: "player/{url}") { inclusive = true }
+                                                        launchSingleTop = true
                                                     }
                                                 }
                                             },

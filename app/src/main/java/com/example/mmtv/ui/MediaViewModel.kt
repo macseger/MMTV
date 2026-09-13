@@ -280,6 +280,9 @@ class MediaViewModel(
 
     // Caches för Compose-reaktivitet utan suspending-overhead i UI-loopen
     val fullEpgData = mutableStateMapOf<String, List<EpgListing>>()
+    val archiveEpgData = mutableStateMapOf<Int, List<EpgListing>>()
+    private val archiveEpgLoading = mutableStateMapOf<Int, Boolean>()
+    private val fetchingArchiveEpgIds = ConcurrentHashMap.newKeySet<Int>()
     private val fetchingEpgIds = ConcurrentHashMap.newKeySet<Int>()
     private val fetchingFullEpgIds = ConcurrentHashMap.newKeySet<String>()
     private val prefetchingCategoryIds = ConcurrentHashMap.newKeySet<String>()
@@ -662,6 +665,8 @@ class MediaViewModel(
         cast = cast,
         epgId = epgId,
         serverChannelNumber = serverChannelNumber,
+        tvArchive = tvArchive,
+        tvArchiveDuration = tvArchiveDuration,
         isFavorite = isFavorite,
         favoriteDate = favoriteDate,
         addedDate = addedDate
@@ -1229,6 +1234,25 @@ class MediaViewModel(
     fun getCachedFullEpgForId(id: Int): List<EpgListing> {
         val epgId = channelToEpgMap[id] ?: return emptyList()
         return fullEpgData[epgId].orEmpty()
+    }
+
+    fun getCachedArchiveEpgForId(id: Int): List<EpgListing> = archiveEpgData[id].orEmpty()
+
+    fun isArchiveEpgLoading(id: Int): Boolean = archiveEpgLoading[id] == true
+
+    fun loadArchiveEpg(media: MediaSource) {
+        if (media.type != MediaType.LIVE || media.tvArchive != true ||
+            !fetchingArchiveEpgIds.add(media.id)) return
+        archiveEpgLoading[media.id] = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val listings = _repository.getFreshArchiveEpg(media.id)
+                withContext(Dispatchers.Main) { archiveEpgData[media.id] = listings }
+            } finally {
+                fetchingArchiveEpgIds.remove(media.id)
+                withContext(Dispatchers.Main) { archiveEpgLoading[media.id] = false }
+            }
+        }
     }
 
     /** Ren cacheläsning för overlayen; startar aldrig databas eller nätverk. */

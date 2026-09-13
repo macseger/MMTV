@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-val appVersionName = "5.4"
+val appVersionName = "5.5"
 val releaseSigningEnvironment = mapOf(
     "MMTV_KEYSTORE_PATH" to System.getenv("MMTV_KEYSTORE_PATH"),
     "MMTV_KEYSTORE_PASSWORD" to System.getenv("MMTV_KEYSTORE_PASSWORD"),
@@ -24,7 +24,7 @@ android {
         applicationId = "com.example.mmtv"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
+        versionCode = 15
         versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

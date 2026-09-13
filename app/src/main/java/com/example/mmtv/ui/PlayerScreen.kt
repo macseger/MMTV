@@ -73,7 +73,35 @@ import java.util.*
 import kotlin.math.absoluteValue
 
 enum class OverlayState {
-    NONE, CHANNELS, CATEGORIES, SUBTITLES, QUICK_INFO, EPG_INFO, FULL_EPG, FAVORITE_TIMELINE
+    NONE, CHANNELS, CATEGORIES, SUBTITLES, AUDIO_TRACKS, QUICK_INFO, EPG_INFO, FULL_EPG, FAVORITE_TIMELINE
+}
+
+private enum class QuickInfoFocusTarget { TV_TABLE, SUBTITLES, AUDIO_TRACKS }
+
+private data class AudioTrackOption(
+    val group: Tracks.Group,
+    val trackIndex: Int,
+    val format: Format
+)
+
+private fun AudioTrackOption.displayName(position: Int): String {
+    val label = format.label?.trim()?.takeIf { it.isNotEmpty() }
+    val language = format.language
+        ?.takeIf { it.isNotBlank() && !it.equals("und", ignoreCase = true) }
+        ?.let { languageTag ->
+            Locale.forLanguageTag(languageTag).getDisplayLanguage(Locale.getDefault())
+                .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                .takeIf { it.isNotBlank() }
+        }
+    val channelLayout = when (format.channelCount) {
+        1 -> "Mono"
+        2 -> "Stereo"
+        in 6..7 -> "5.1"
+        in 8..Int.MAX_VALUE -> "7.1"
+        else -> null
+    }
+    return listOfNotNull(label ?: language ?: "Ljudspår ${position + 1}", channelLayout)
+        .joinToString(" · ")
 }
 
 @OptIn(UnstableApi::class)
@@ -240,12 +268,16 @@ fun PlayerScreen(
     val categoryListState = rememberLazyListState()
     val subtitleListState = rememberLazyListState()
     val epgListState = rememberLazyListState()
+    val audioTrackListState = rememberLazyListState()
     
     // --- FOCUS REQUESTERS ---
     val mainFocusRequester = remember { FocusRequester() }
     val timelineFocusRequester = remember { FocusRequester() }
     val epgFocusRequester = remember { FocusRequester() }
     val subtitleIconFocusRequester = remember { FocusRequester() }
+    val audioIconFocusRequester = remember { FocusRequester() }
+    val quickInfoSubtitleFocusRequester = remember { FocusRequester() }
+    val quickInfoAudioFocusRequester = remember { FocusRequester() }
     val tvGuideFocusRequester = remember { FocusRequester() }
     val nextEpisodeButtonFocusRequester = remember { FocusRequester() }
     val favoriteButtonFocusRequester = remember { FocusRequester() }
@@ -253,10 +285,14 @@ fun PlayerScreen(
     val channelFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val categoryFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val subtitleFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+    val audioTrackFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val recentChannelsFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
 
     // --- MEDIA STATE ---
     var availableSubtitles by remember { mutableStateOf<List<Tracks.Group>>(emptyList()) }
+    var availableAudioTracks by remember { mutableStateOf<List<AudioTrackOption>>(emptyList()) }
+    var trackModalReturnState by remember { mutableStateOf(OverlayState.NONE) }
+    var quickInfoFocusTarget by remember { mutableStateOf(QuickInfoFocusTarget.TV_TABLE) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var lastCenterClickTime by remember { mutableLongStateOf(0L) }
@@ -452,6 +488,22 @@ fun PlayerScreen(
         }
     }
 
+    fun openTrackModal(state: OverlayState, returnFocus: QuickInfoFocusTarget) {
+        val openedFromQuickInfo = isLiveStream && overlayState == OverlayState.QUICK_INFO
+        trackModalReturnState = if (openedFromQuickInfo) OverlayState.QUICK_INFO else OverlayState.NONE
+        if (openedFromQuickInfo) {
+            quickInfoFocusTarget = returnFocus
+            infoJob?.cancel()
+        }
+        overlayState = state
+    }
+
+    fun closeTrackModal() {
+        val returnState = trackModalReturnState
+        trackModalReturnState = OverlayState.NONE
+        overlayState = returnState
+    }
+
     // --- EFFECTS ---
     LaunchedEffect(viewModel.lastLiveCategoryIndex) {
         val currentCat = categories.getOrNull(viewModel.lastLiveCategoryIndex)
@@ -527,6 +579,8 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(url) {
+        availableSubtitles = emptyList()
+        availableAudioTracks = emptyList()
         focusManager.clearFocus()
         if (media != null) {
             viewModel.addToHistory(media, if (isSeries) viewModel.playingEpisode else null)
@@ -567,7 +621,23 @@ fun PlayerScreen(
             }
 
             override fun onTracksChanged(tracks: Tracks) {
-                availableSubtitles = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
+                availableSubtitles = tracks.groups.filter { group ->
+                    group.type == C.TRACK_TYPE_TEXT &&
+                        (0 until group.length).any { trackIndex -> group.isTrackSupported(trackIndex) }
+                }
+                availableAudioTracks = tracks.groups
+                    .filter { it.type == C.TRACK_TYPE_AUDIO }
+                    .flatMap { group ->
+                        (0 until group.length)
+                            .filter { trackIndex -> group.isTrackSupported(trackIndex) }
+                            .map { trackIndex ->
+                                AudioTrackOption(
+                                    group = group,
+                                    trackIndex = trackIndex,
+                                    format = group.getTrackFormat(trackIndex)
+                                )
+                            }
+                    }
                 videoFormat = exoPlayer.videoFormat
                 audioFormat = exoPlayer.audioFormat
             }
@@ -645,12 +715,26 @@ fun PlayerScreen(
                 resetAutoHideTimer()
                 scope.launch {
                     delay(60)
-                    tvGuideFocusRequester.safeFocus()
+                    when (quickInfoFocusTarget) {
+                        QuickInfoFocusTarget.TV_TABLE -> tvGuideFocusRequester.safeFocus()
+                        QuickInfoFocusTarget.SUBTITLES -> {
+                            if (availableSubtitles.isNotEmpty()) quickInfoSubtitleFocusRequester.safeFocus()
+                            else tvGuideFocusRequester.safeFocus()
+                        }
+                        QuickInfoFocusTarget.AUDIO_TRACKS -> {
+                            if (availableAudioTracks.size > 1) quickInfoAudioFocusRequester.safeFocus()
+                            else tvGuideFocusRequester.safeFocus()
+                        }
+                    }
                 }
             }
             OverlayState.SUBTITLES -> {
                 delay(60)
                 subtitleFocusRequesters[0]?.safeFocus()
+            }
+            OverlayState.AUDIO_TRACKS -> {
+                delay(60)
+                audioTrackFocusRequesters[0]?.safeFocus()
             }
             OverlayState.EPG_INFO -> {
                 // EPG-modalens innehåll läser enbart den redan förberedda cachen.
@@ -711,6 +795,7 @@ fun PlayerScreen(
                                     overlayState = OverlayState.NONE
                                 } else {
                                     if (media?.type == MediaType.LIVE) {
+                                        quickInfoFocusTarget = QuickInfoFocusTarget.TV_TABLE
                                         overlayState = OverlayState.QUICK_INFO
                                     } else {
                                         showSeekFeedback = !showSeekFeedback
@@ -828,7 +913,7 @@ fun PlayerScreen(
                                 canSeek
                             }
                             KeyEvent.KEYCODE_CAPTIONS -> {
-                                overlayState = OverlayState.SUBTITLES
+                                openTrackModal(OverlayState.SUBTITLES, QuickInfoFocusTarget.SUBTITLES)
                                 true
                             }
                             KeyEvent.KEYCODE_GUIDE -> {
@@ -836,6 +921,7 @@ fun PlayerScreen(
                                 true
                             }
                             KeyEvent.KEYCODE_INFO -> {
+                                quickInfoFocusTarget = QuickInfoFocusTarget.TV_TABLE
                                 overlayState = OverlayState.QUICK_INFO
                                 true
                             }
@@ -847,6 +933,7 @@ fun PlayerScreen(
                             }
                             KeyEvent.KEYCODE_DPAD_UP -> {
                             when (overlayState) {
+                                OverlayState.QUICK_INFO -> true
                                 OverlayState.NONE -> {
                                     if (showNextEpisodeButton) {
                                         nextEpisodeButtonFocusRequester.safeFocus()
@@ -873,7 +960,9 @@ fun PlayerScreen(
                             }
                         }
                             KeyEvent.KEYCODE_DPAD_DOWN -> {
-                                if (overlayState == OverlayState.NONE) {
+                                if (overlayState == OverlayState.QUICK_INFO) {
+                                    true
+                                } else if (overlayState == OverlayState.NONE) {
                                     if (media?.type == MediaType.LIVE) {
                                         overlayState = OverlayState.EPG_INFO
                                         true
@@ -929,6 +1018,7 @@ fun PlayerScreen(
                                         if (currentTime - lastCenterClickTime < doubleClickTimeout) {
                                             overlayState = OverlayState.EPG_INFO
                                         } else {
+                                            quickInfoFocusTarget = QuickInfoFocusTarget.TV_TABLE
                                             overlayState = OverlayState.QUICK_INFO
                                         }
                                         lastCenterClickTime = currentTime
@@ -965,6 +1055,7 @@ fun PlayerScreen(
                                         channelNumberBuffer = ""
                                     }
                                     overlayState == OverlayState.NONE -> onBackPressed()
+                                    overlayState == OverlayState.SUBTITLES || overlayState == OverlayState.AUDIO_TRACKS -> closeTrackModal()
                                     else -> overlayState = OverlayState.NONE
                                 }
                                 true
@@ -1090,6 +1181,7 @@ fun PlayerScreen(
                 availableSubtitles = availableSubtitles,
                 timelineFocusRequester = timelineFocusRequester,
                 subtitleIconFocusRequester = subtitleIconFocusRequester,
+                audioIconFocusRequester = audioIconFocusRequester,
                 videoResizeModeLabel = videoResizeMode.label,
                 isTvMode = viewModel.isTvMode,
                 themeColor = viewModel.currentThemeColor,
@@ -1113,7 +1205,12 @@ fun PlayerScreen(
                     showSeekFeedback = false
                     mainFocusRequester.safeFocus()
                 },
-                onToggleSubtitles = { overlayState = OverlayState.SUBTITLES }
+                onToggleSubtitles = {
+                    openTrackModal(OverlayState.SUBTITLES, QuickInfoFocusTarget.SUBTITLES)
+                },
+                onToggleAudioTracks = {
+                    openTrackModal(OverlayState.AUDIO_TRACKS, QuickInfoFocusTarget.AUDIO_TRACKS)
+                }
             )
         }
 
@@ -1230,30 +1327,24 @@ fun PlayerScreen(
         }
 
         // --- OVERLAYS ---
-        AnimatedVisibility(
-            visible = isQuickInfoVisible && media != null,
-            enter = slideInVertically(
-                initialOffsetY = { it },
-                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
-            ) + fadeIn(),
-            exit = slideOutVertically(
-                targetOffsetY = { it },
-                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
-            ) + fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            media?.let { 
+        if (isQuickInfoVisible && media != null) {
+            Box(modifier = Modifier.align(Alignment.BottomCenter)) {
                 QuickInfoOverlay(
-                    media = it,
+                    media = media,
                     viewModel = viewModel,
                     categories = categories,
                     tvGuideFocusRequester = tvGuideFocusRequester,
                     favoriteButtonFocusRequester = favoriteButtonFocusRequester,
+                    subtitleFocusRequester = quickInfoSubtitleFocusRequester,
+                    audioFocusRequester = quickInfoAudioFocusRequester,
                     recentChannelsFocusRequesters = recentChannelsFocusRequesters,
                     videoFormat = videoFormat,
                     audioFormat = audioFormat,
                     favorites = favorites,
+                    showSubtitles = availableSubtitles.isNotEmpty(),
+                    showAudioTracks = availableAudioTracks.size > 1,
                     onTvGuideClick = {
+                        infoJob?.cancel()
                         overlayState = OverlayState.EPG_INFO
                     },
                     onRecentChannelClick = { item ->
@@ -1262,6 +1353,12 @@ fun PlayerScreen(
                     },
                     onCategoryRequest = { overlayState = OverlayState.CATEGORIES },
                     onCloseRequest = { overlayState = OverlayState.NONE },
+                    onSubtitlesClick = {
+                        openTrackModal(OverlayState.SUBTITLES, QuickInfoFocusTarget.SUBTITLES)
+                    },
+                    onAudioTracksClick = {
+                        openTrackModal(OverlayState.AUDIO_TRACKS, QuickInfoFocusTarget.AUDIO_TRACKS)
+                    },
                     onFocusAction = { infoJob?.cancel() },
                     onBlurAction = { resetAutoHideTimer() }
                 )
@@ -1355,22 +1452,81 @@ fun PlayerScreen(
                                     modifier = Modifier.focusRequester(subtitleFocusRequesters.getOrPut(0) { FocusRequester() }),
                                     onClick = {
                                         exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
-                                        overlayState = OverlayState.NONE
+                                        closeTrackModal()
                                     }
                                 )
                             }
                             itemsIndexed(availableSubtitles, key = { index, _ -> index }) { index, group ->
-                                val trackName = group.mediaTrackGroup.getFormat(0).language ?: "Spår ${index + 1}"
+                                val trackIndex = (0 until group.length).first { group.isTrackSupported(it) }
+                                val trackName = group.getTrackFormat(trackIndex).language ?: "Spår ${index + 1}"
                                 SubtitleOptionItem(
                                     label = trackName.uppercase(),
-                                    isSelected = exoPlayer.currentTracks.isTypeSelected(C.TRACK_TYPE_TEXT) && group.isSelected,
+                                    isSelected = exoPlayer.currentTracks.isTypeSelected(C.TRACK_TYPE_TEXT) &&
+                                        group.isTrackSelected(trackIndex),
                                     modifier = Modifier.focusRequester(subtitleFocusRequesters.getOrPut(index + 1) { FocusRequester() }),
                                     onClick = {
-                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, 0)).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build()
-                                        overlayState = OverlayState.NONE
+                                        exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters.buildUpon().setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, trackIndex)).setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build()
+                                        closeTrackModal()
                                     }
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = overlayState == OverlayState.AUDIO_TRACKS,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.Center)
+        ) {
+            Card(
+                modifier = Modifier.width(360.dp).wrapContentHeight(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Ljudspråk", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 16.dp))
+                    LazyColumn(state = audioTrackListState) {
+                        item {
+                            SubtitleOptionItem(
+                                label = "AUTO",
+                                isSelected = exoPlayer.trackSelectionParameters.overrides.keys.none {
+                                    it.type == C.TRACK_TYPE_AUDIO
+                                },
+                                modifier = Modifier.focusRequester(audioTrackFocusRequesters.getOrPut(0) { FocusRequester() }),
+                                onClick = {
+                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                        .buildUpon()
+                                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                                        .build()
+                                    closeTrackModal()
+                                }
+                            )
+                        }
+                        itemsIndexed(
+                            items = availableAudioTracks,
+                            key = { index, option -> "${option.group.mediaTrackGroup.id}_${option.trackIndex}_$index" }
+                        ) { index, option ->
+                            SubtitleOptionItem(
+                                label = option.displayName(index),
+                                isSelected = option.group.isTrackSelected(option.trackIndex),
+                                modifier = Modifier.focusRequester(
+                                    audioTrackFocusRequesters.getOrPut(index + 1) { FocusRequester() }
+                                ),
+                                onClick = {
+                                    exoPlayer.trackSelectionParameters = exoPlayer.trackSelectionParameters
+                                        .buildUpon()
+                                        .setOverrideForType(
+                                            TrackSelectionOverride(option.group.mediaTrackGroup, option.trackIndex)
+                                        )
+                                        .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                                        .build()
+                                    closeTrackModal()
+                                }
+                            )
                         }
                     }
                 }
@@ -1395,6 +1551,7 @@ fun VodControlOverlay(
     availableSubtitles: List<Tracks.Group>,
     timelineFocusRequester: FocusRequester,
     subtitleIconFocusRequester: FocusRequester,
+    audioIconFocusRequester: FocusRequester,
     videoResizeModeLabel: String,
     isTvMode: Boolean = true,
     themeColor: Color = Color(0xFF2196F3),
@@ -1403,7 +1560,8 @@ fun VodControlOverlay(
     onCycleVideoResizeMode: () -> Unit,
     onSeekBy: (Long) -> Unit,
     onContinueWatching: () -> Unit,
-    onToggleSubtitles: () -> Unit
+    onToggleSubtitles: () -> Unit,
+    onToggleAudioTracks: () -> Unit
 ) {
     val resizeModeFocusRequester = remember { FocusRequester() }
     val continueWatchingFocusRequester = remember { FocusRequester() }
@@ -1669,7 +1827,7 @@ fun VodControlOverlay(
                                 }
                                 KeyEvent.KEYCODE_DPAD_DOWN -> true
                                 KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                    if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) resizeModeFocusRequester.requestFocus()
+                                    if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) audioIconFocusRequester.requestFocus()
                                     true
                                 }
                                 else -> false
@@ -1698,6 +1856,51 @@ fun VodControlOverlay(
                     }
                 }
                     Spacer(modifier = Modifier.width(12.dp))
+                    var isAudioFocused by remember { mutableStateOf(false) }
+                    Surface(
+                        onClick = onToggleAudioTracks,
+                        modifier = Modifier
+                            .focusRequester(audioIconFocusRequester)
+                            .onFocusChanged { isAudioFocused = it.isFocused }
+                            .onPreviewKeyEvent {
+                                when (it.nativeKeyEvent.keyCode) {
+                                    KeyEvent.KEYCODE_DPAD_UP -> {
+                                        if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) continueWatchingFocusRequester.requestFocus()
+                                        true
+                                    }
+                                    KeyEvent.KEYCODE_DPAD_DOWN -> true
+                                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                        if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) subtitleIconFocusRequester.requestFocus()
+                                        true
+                                    }
+                                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                        if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) resizeModeFocusRequester.requestFocus()
+                                        true
+                                    }
+                                    else -> false
+                                }
+                            },
+                        shape = RoundedCornerShape(12.dp),
+                        border = if (isAudioFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
+                        color = if (isAudioFocused) themeColor else Color.White.copy(alpha = 0.1f),
+                        contentColor = if (isAudioFocused) Color.Black else Color.White
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.VolumeUp, null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "LJUDSPRÅK",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 1.sp
+                                )
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
                     var resizeModeFocused by remember { mutableStateOf(false) }
                     Surface(
                         onClick = onCycleVideoResizeMode,
@@ -1712,7 +1915,7 @@ fun VodControlOverlay(
                                     }
                                     KeyEvent.KEYCODE_DPAD_DOWN -> true
                                     KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                        if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) subtitleIconFocusRequester.requestFocus()
+                                        if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) audioIconFocusRequester.requestFocus()
                                         true
                                     }
                                     KeyEvent.KEYCODE_DPAD_RIGHT -> {

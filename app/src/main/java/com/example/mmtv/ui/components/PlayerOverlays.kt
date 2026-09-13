@@ -551,14 +551,20 @@ fun QuickInfoOverlay(
     categories: List<GroupedMedia>,
     tvGuideFocusRequester: FocusRequester,
     favoriteButtonFocusRequester: FocusRequester,
+    subtitleFocusRequester: FocusRequester,
+    audioFocusRequester: FocusRequester,
     recentChannelsFocusRequesters: MutableMap<Int, FocusRequester>,
     videoFormat: androidx.media3.common.Format?,
     audioFormat: androidx.media3.common.Format?,
     favorites: List<MediaSource>,
+    showSubtitles: Boolean,
+    showAudioTracks: Boolean,
     onTvGuideClick: () -> Unit,
     onRecentChannelClick: (MediaSource) -> Unit,
     onCategoryRequest: () -> Unit,
     onCloseRequest: () -> Unit,
+    onSubtitlesClick: () -> Unit,
+    onAudioTracksClick: () -> Unit,
     onFocusAction: () -> Unit,
     onBlurAction: () -> Unit
 ) {
@@ -746,11 +752,9 @@ fun QuickInfoOverlay(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp)
-                .onKeyEvent { 
-                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_DOWN && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                        onCloseRequest()
-                        true
-                    } else false
+                .onKeyEvent {
+                    it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                        it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_DOWN
                 },
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -758,15 +762,24 @@ fun QuickInfoOverlay(
             item(contentType = "action") {
                 ActionButton(
                     icon = Icons.Default.Menu,
-                    label = "TV-guide",
+                    label = "TV-TABLÅ",
                     focusRequester = tvGuideFocusRequester,
                     onFocus = onFocusAction,
                     onBlur = onBlurAction,
                     onKeyEvent = {
-                        if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                            onCategoryRequest()
-                            true
-                        } else false
+                        when (it.nativeKeyEvent.keyCode) {
+                            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) onCategoryRequest()
+                                true
+                            }
+                            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                    runCatching { favoriteButtonFocusRequester.requestFocus() }
+                                }
+                                true
+                            }
+                            else -> false
+                        }
                     },
                     onClick = onTvGuideClick
                 )
@@ -776,25 +789,116 @@ fun QuickInfoOverlay(
                 val isFav = favorites.any { it.id == media.id }
                 ActionButton(
                     icon = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    label = "Favorit",
+                    label = "FAVORIT",
                     focusRequester = favoriteButtonFocusRequester,
                     onFocus = onFocusAction,
                     onBlur = onBlurAction,
+                    onKeyEvent = {
+                        when (it.nativeKeyEvent.keyCode) {
+                            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                    runCatching { tvGuideFocusRequester.requestFocus() }
+                                }
+                                true
+                            }
+                            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                    when {
+                                        showSubtitles -> runCatching { subtitleFocusRequester.requestFocus() }
+                                        showAudioTracks -> runCatching { audioFocusRequester.requestFocus() }
+                                    }
+                                }
+                                showSubtitles || showAudioTracks
+                            }
+                            else -> false
+                        }
+                    },
                     onClick = { viewModel.toggleFavorite(media) }
                 )
+            }
+
+            if (showSubtitles) {
+                item(contentType = "action") {
+                    ActionButton(
+                        icon = Icons.Default.Subtitles,
+                        label = "UNDERTEXTER",
+                        focusRequester = subtitleFocusRequester,
+                        onFocus = onFocusAction,
+                        onBlur = onBlurAction,
+                        onKeyEvent = {
+                            when (it.nativeKeyEvent.keyCode) {
+                                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                    if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                        runCatching { favoriteButtonFocusRequester.requestFocus() }
+                                    }
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                    if (showAudioTracks && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                        runCatching { audioFocusRequester.requestFocus() }
+                                    }
+                                    showAudioTracks
+                                }
+                                else -> false
+                            }
+                        },
+                        onClick = onSubtitlesClick
+                    )
+                }
+            }
+
+            if (showAudioTracks) {
+                item(contentType = "action") {
+                    ActionButton(
+                        icon = Icons.Default.VolumeUp,
+                        label = "LJUDSPRÅK",
+                        focusRequester = audioFocusRequester,
+                        onFocus = onFocusAction,
+                        onBlur = onBlurAction,
+                        onKeyEvent = {
+                            when (it.nativeKeyEvent.keyCode) {
+                                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                    if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                        runCatching {
+                                            if (showSubtitles) subtitleFocusRequester.requestFocus()
+                                            else favoriteButtonFocusRequester.requestFocus()
+                                        }
+                                    }
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
+                        onClick = onAudioTracksClick
+                    )
+                }
             }
 
             itemsIndexed(
                 items = history, 
                 key = { _, item -> "history_${item.id}" },
                 contentType = { _, _ -> "recent_channel" }
-            ) { _, historyItem ->
+            ) { index, historyItem ->
                 RecentChannelButton(
                     item = historyItem,
                     viewModel = viewModel,
                     focusRequester = recentChannelsFocusRequesters.getOrPut(historyItem.id) { FocusRequester() },
                     onFocus = onFocusAction,
                     onBlur = onBlurAction,
+                    onKeyEvent = {
+                        if (index == 0 && it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                            if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                runCatching {
+                                    when {
+                                        showAudioTracks -> audioFocusRequester.requestFocus()
+                                        showSubtitles -> subtitleFocusRequester.requestFocus()
+                                        else -> favoriteButtonFocusRequester.requestFocus()
+                                    }
+                                }
+                            }
+                            true
+                        } else false
+                    },
                     onClick = { onRecentChannelClick(historyItem) }
                 )
             }

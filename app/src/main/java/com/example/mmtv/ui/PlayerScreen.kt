@@ -2,6 +2,7 @@ package com.example.mmtv.ui
 
 import android.net.Uri
 import com.example.mmtv.ui.theme.FocusBorderColor
+import androidx.activity.ComponentActivity
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -56,6 +57,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.GroupedMedia
@@ -75,6 +77,22 @@ enum class OverlayState {
 }
 
 @OptIn(UnstableApi::class)
+private enum class VideoResizeMode(
+    val playerViewResizeMode: Int,
+    val label: String
+) {
+    FIT(AspectRatioFrameLayout.RESIZE_MODE_FIT, "FIT"),
+    ZOOM(AspectRatioFrameLayout.RESIZE_MODE_ZOOM, "ZOOM"),
+    STRETCH(AspectRatioFrameLayout.RESIZE_MODE_FILL, "STRETCH");
+
+    fun next(): VideoResizeMode = when (this) {
+        FIT -> ZOOM
+        ZOOM -> STRETCH
+        STRETCH -> FIT
+    }
+}
+
+@OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(
     url: String,
@@ -89,6 +107,7 @@ fun PlayerScreen(
     viewModel: MediaViewModel
 ) {
     val context = LocalContext.current
+    val activity = context as? ComponentActivity
     val focusManager = LocalFocusManager.current
     val sessionManager = remember { SessionManager(context) }
     val isLiveStream = media?.type == MediaType.LIVE
@@ -155,10 +174,13 @@ fun PlayerScreen(
     var channelNumberBuffer by remember { mutableStateOf("") }
     var channelNumberJob by remember { mutableStateOf<Job?>(null) }
     var channelNumberFeedback by remember { mutableStateOf(false) }
+    var videoResizeMode by remember(url) { mutableStateOf(VideoResizeMode.FIT) }
+    var vodControlsDismissed by remember(url) { mutableStateOf(false) }
     val showVodControls = media != null &&
         media.type != MediaType.LIVE &&
         !isActualLiveRoute &&
-        (showSeekFeedback || !isPlaying)
+        (showSeekFeedback || !isPlaying) &&
+        !vodControlsDismissed
 
     var seekMessage by remember { mutableStateOf("") }
     
@@ -221,6 +243,7 @@ fun PlayerScreen(
     
     // --- FOCUS REQUESTERS ---
     val mainFocusRequester = remember { FocusRequester() }
+    val timelineFocusRequester = remember { FocusRequester() }
     val epgFocusRequester = remember { FocusRequester() }
     val subtitleIconFocusRequester = remember { FocusRequester() }
     val tvGuideFocusRequester = remember { FocusRequester() }
@@ -377,6 +400,7 @@ fun PlayerScreen(
             "$sign$seconds s"
         }
         
+        vodControlsDismissed = false
         showSeekFeedback = true
         
         if (isLongPress) {
@@ -390,6 +414,7 @@ fun PlayerScreen(
     }
 
     fun setPlayback(playing: Boolean) {
+        vodControlsDismissed = false
         if (playing) {
             exoPlayer.play()
             isPlaying = true
@@ -453,7 +478,9 @@ fun PlayerScreen(
                     }
                 }
                 Lifecycle.Event.ON_STOP -> {
-                    if (!viewModel.isInPipMode) {
+                    val activityIsBackgrounded =
+                        activity?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.STARTED) == false
+                    if (!viewModel.isInPipMode && activityIsBackgrounded) {
                         if (isLiveStream) {
                             exoPlayer.stop()
                             exoPlayer.clearMediaItems()
@@ -688,6 +715,7 @@ fun PlayerScreen(
                                     } else {
                                         showSeekFeedback = !showSeekFeedback
                                         if (showSeekFeedback) {
+                                            vodControlsDismissed = false
                                             seekJob?.cancel()
                                             seekJob = scope.launch { delay(5000); showSeekFeedback = false }
                                         }
@@ -829,11 +857,15 @@ fun PlayerScreen(
                                         true
                                     } else {
                                         if (!showSeekFeedback) {
+                                            vodControlsDismissed = false
                                             showSeekFeedback = true
                                             seekJob?.cancel()
                                             seekJob = scope.launch { delay(5000); showSeekFeedback = false }
                                         }
-                                        subtitleIconFocusRequester.safeFocus()
+                                        scope.launch {
+                                            delay(60)
+                                            timelineFocusRequester.safeFocus()
+                                        }
                                         true
                                     }
                                 }
@@ -844,10 +876,10 @@ fun PlayerScreen(
                                 if (overlayState == OverlayState.NONE) {
                                     if (media?.type == MediaType.LIVE) {
                                         overlayState = OverlayState.EPG_INFO
+                                        true
                                     } else {
-                                        overlayState = OverlayState.SUBTITLES
+                                        false
                                     }
-                                    true
                                 } else false
                             }
                             KeyEvent.KEYCODE_DPAD_LEFT -> {
@@ -902,6 +934,10 @@ fun PlayerScreen(
                                         lastCenterClickTime = currentTime
                                     } else {
                                         togglePlayback()
+                                        scope.launch {
+                                            delay(60)
+                                            timelineFocusRequester.safeFocus()
+                                        }
                                     }
                                     true
                                 } else false
@@ -985,6 +1021,12 @@ fun PlayerScreen(
             },
             update = { view -> 
                 if (view.player != exoPlayer) view.player = exoPlayer
+                val resizeMode = if (media != null && media.type != MediaType.LIVE && !isActualLiveRoute) {
+                    videoResizeMode.playerViewResizeMode
+                } else {
+                    AspectRatioFrameLayout.RESIZE_MODE_FIT
+                }
+                if (view.resizeMode != resizeMode) view.resizeMode = resizeMode
                 view.onResume()
             },
             modifier = Modifier.fillMaxSize()
@@ -1046,12 +1088,31 @@ fun PlayerScreen(
                 accumulatedSeekMs = accumulatedSeekMs,
                 seekMessage = seekMessage,
                 availableSubtitles = availableSubtitles,
+                timelineFocusRequester = timelineFocusRequester,
                 subtitleIconFocusRequester = subtitleIconFocusRequester,
+                videoResizeModeLabel = videoResizeMode.label,
                 isTvMode = viewModel.isTvMode,
                 themeColor = viewModel.currentThemeColor,
                 onPlayNext = if (isSeries && nextEpisode != null) {
                     { onPlayNextEpisode(nextEpisode) }
                 } else null,
+                onCycleVideoResizeMode = { videoResizeMode = videoResizeMode.next() },
+                onSeekBy = { offsetMs ->
+                    if (duration > 0 && duration != C.TIME_UNSET) {
+                        val target = (currentPosition + offsetMs).coerceIn(0L, duration)
+                        exoPlayer.seekTo(target)
+                        currentPosition = target
+                    }
+                },
+                onContinueWatching = {
+                    if (!exoPlayer.isPlaying) {
+                        exoPlayer.play()
+                    }
+                    isPlaying = true
+                    vodControlsDismissed = true
+                    showSeekFeedback = false
+                    mainFocusRequester.safeFocus()
+                },
                 onToggleSubtitles = { overlayState = OverlayState.SUBTITLES }
             )
         }
@@ -1332,13 +1393,20 @@ fun VodControlOverlay(
     accumulatedSeekMs: Long,
     seekMessage: String,
     availableSubtitles: List<Tracks.Group>,
+    timelineFocusRequester: FocusRequester,
     subtitleIconFocusRequester: FocusRequester,
+    videoResizeModeLabel: String,
     isTvMode: Boolean = true,
     themeColor: Color = Color(0xFF2196F3),
     currentEpisodeLabel: String? = null,
     onPlayNext: (() -> Unit)? = null,
+    onCycleVideoResizeMode: () -> Unit,
+    onSeekBy: (Long) -> Unit,
+    onContinueWatching: () -> Unit,
     onToggleSubtitles: () -> Unit
 ) {
+    val resizeModeFocusRequester = remember { FocusRequester() }
+    val continueWatchingFocusRequester = remember { FocusRequester() }
     val nextControlFocusRequester = remember { FocusRequester() }
     Box(
         modifier = Modifier
@@ -1465,33 +1533,122 @@ fun VodControlOverlay(
                 .fillMaxWidth()
                 .padding(start = 48.dp, end = 48.dp, bottom = 48.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                Column {
-                    fun formatTime(ms: Long): String {
-                        if (ms < 0) return "00:00"
-                        val totalSeconds = (ms / 1000).toInt()
-                        val hours = totalSeconds / 3600
-                        val minutes = (totalSeconds % 3600) / 60
-                        val seconds = totalSeconds % 60
-                        return if (hours > 0) {
-                            String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
-                        } else {
-                            String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
-                        }
-                    }
+            fun formatTimelineTime(ms: Long): String {
+                val totalSeconds = (ms.coerceAtLeast(0L) / 1000).toInt()
+                val hours = totalSeconds / 3600
+                val minutes = (totalSeconds % 3600) / 60
+                val seconds = totalSeconds % 60
+                return String.format(Locale.getDefault(), "%02d:%02d:%02d", hours, minutes, seconds)
+            }
 
+            val progress = if (duration > 0) currentPosition.toFloat() / duration else 0f
+            var timelineFocused by remember { mutableStateOf(false) }
+            Surface(
+                onClick = {},
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(timelineFocusRequester)
+                    .onFocusChanged { timelineFocused = it.isFocused }
+                    .onPreviewKeyEvent {
+                        when (it.nativeKeyEvent.keyCode) {
+                            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) onSeekBy(-10_000L)
+                                true
+                            }
+                            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) onSeekBy(10_000L)
+                                true
+                            }
+                            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) continueWatchingFocusRequester.requestFocus()
+                                true
+                            }
+                            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> true
+                            KeyEvent.KEYCODE_DPAD_UP -> true
+                            else -> false
+                        }
+                    },
+                shape = RoundedCornerShape(12.dp),
+                border = if (timelineFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
+                color = Color.Black.copy(alpha = 0.35f),
+                contentColor = Color.White
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                     Text(
-                        text = "${formatTime(currentPosition)} / ${formatTime(duration)}",
+                        text = "${formatTimelineTime(currentPosition)} / ${formatTimelineTime(duration)}",
                         style = MaterialTheme.typography.titleLarge,
                         color = Color.White,
                         fontWeight = FontWeight.Bold
                     )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.2f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                                .fillMaxHeight()
+                                .background(themeColor)
+                        )
+                    }
                 }
+            }
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            var continueWatchingFocused by remember { mutableStateOf(false) }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                Surface(
+                    onClick = onContinueWatching,
+                    modifier = Modifier
+                        .focusRequester(continueWatchingFocusRequester)
+                        .onFocusChanged { continueWatchingFocused = it.isFocused }
+                        .onPreviewKeyEvent {
+                            when (it.nativeKeyEvent.keyCode) {
+                                KeyEvent.KEYCODE_DPAD_UP -> {
+                                    if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) timelineFocusRequester.requestFocus()
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                    if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) subtitleIconFocusRequester.requestFocus()
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
+                    shape = RoundedCornerShape(12.dp),
+                    border = if (continueWatchingFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
+                    color = if (continueWatchingFocused) themeColor else Color.White.copy(alpha = 0.1f),
+                    contentColor = if (continueWatchingFocused) Color.Black else Color.White
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "FORTSÄTT TITTA",
+                            style = MaterialTheme.typography.labelLarge.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 1.sp
+                            )
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (!isTvMode) {
                         CastButton(modifier = Modifier.size(40.dp).padding(end = 16.dp))
@@ -1505,10 +1662,18 @@ fun VodControlOverlay(
                         .focusRequester(subtitleIconFocusRequester)
                         .onFocusChanged { isSubFocused = it.isFocused }
                         .onPreviewKeyEvent {
-                            if (onPlayNext != null && it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                                if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) nextControlFocusRequester.requestFocus()
-                                true
-                            } else false
+                            when (it.nativeKeyEvent.keyCode) {
+                                KeyEvent.KEYCODE_DPAD_UP -> {
+                                    if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) continueWatchingFocusRequester.requestFocus()
+                                    true
+                                }
+                                KeyEvent.KEYCODE_DPAD_DOWN -> true
+                                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                    if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) resizeModeFocusRequester.requestFocus()
+                                    true
+                                }
+                                else -> false
+                            }
                         },
                     shape = RoundedCornerShape(12.dp),
                     color = if (isSubFocused) themeColor else Color.White.copy(alpha = 0.1f),
@@ -1532,6 +1697,53 @@ fun VodControlOverlay(
                         )
                     }
                 }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    var resizeModeFocused by remember { mutableStateOf(false) }
+                    Surface(
+                        onClick = onCycleVideoResizeMode,
+                        modifier = Modifier
+                            .focusRequester(resizeModeFocusRequester)
+                            .onFocusChanged { resizeModeFocused = it.isFocused }
+                            .onPreviewKeyEvent {
+                                when (it.nativeKeyEvent.keyCode) {
+                                    KeyEvent.KEYCODE_DPAD_UP -> {
+                                        if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) continueWatchingFocusRequester.requestFocus()
+                                        true
+                                    }
+                                    KeyEvent.KEYCODE_DPAD_DOWN -> true
+                                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                        if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) subtitleIconFocusRequester.requestFocus()
+                                        true
+                                    }
+                                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                        if (onPlayNext != null) {
+                                            if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) nextControlFocusRequester.requestFocus()
+                                            true
+                                        } else false
+                                    }
+                                    else -> false
+                                }
+                            },
+                        shape = RoundedCornerShape(12.dp),
+                        border = if (resizeModeFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
+                        color = if (resizeModeFocused) themeColor else Color.White.copy(alpha = 0.1f),
+                        contentColor = if (resizeModeFocused) Color.Black else Color.White
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.AspectRatio, null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = "BILDFORMAT: $videoResizeModeLabel",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = 1.sp
+                                )
+                            )
+                        }
+                    }
                     if (onPlayNext != null) {
                         Spacer(modifier = Modifier.width(12.dp))
                         var nextFocused by remember { mutableStateOf(false) }
@@ -1541,10 +1753,18 @@ fun VodControlOverlay(
                                 .focusRequester(nextControlFocusRequester)
                                 .onFocusChanged { nextFocused = it.isFocused }
                                 .onPreviewKeyEvent {
-                                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
-                                        if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) subtitleIconFocusRequester.requestFocus()
-                                        true
-                                    } else false
+                                    when (it.nativeKeyEvent.keyCode) {
+                                        KeyEvent.KEYCODE_DPAD_UP -> {
+                                            if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) continueWatchingFocusRequester.requestFocus()
+                                            true
+                                        }
+                                        KeyEvent.KEYCODE_DPAD_DOWN -> true
+                                        KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                            if (it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) resizeModeFocusRequester.requestFocus()
+                                            true
+                                        }
+                                        else -> false
+                                    }
                                 },
                             shape = RoundedCornerShape(12.dp),
                             border = if (nextFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
@@ -1562,25 +1782,6 @@ fun VodControlOverlay(
                         }
                     }
             }
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            // Progress Bar
-            val progress = if (duration > 0) currentPosition.toFloat() / duration else 0f
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.2f))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(progress.coerceIn(0f, 1f))
-                        .fillMaxHeight()
-                        .background(themeColor)
-                )
             }
         }
     }

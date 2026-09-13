@@ -58,26 +58,10 @@ import kotlinx.coroutines.launch
 import androidx.work.*
 import com.example.mmtv.repository.DataSyncWorker
 import java.util.concurrent.TimeUnit
-import android.app.PictureInPictureParams
-import android.util.Rational
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var sharedViewModel: MediaViewModel
-
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        if (::sharedViewModel.isInitialized && 
-            sharedViewModel.exoPlayer?.isPlaying == true && 
-            sharedViewModel.selectedMedia?.type == MediaType.LIVE &&
-            !sharedViewModel.isInPipMode) {
-            enterPictureInPictureMode(
-                PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
-                    .build()
-            )
-        }
-    }
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: android.content.res.Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)

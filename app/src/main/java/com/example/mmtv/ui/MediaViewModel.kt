@@ -1640,6 +1640,7 @@ class MediaViewModel(
     var appUpdateInfo by mutableStateOf<com.example.mmtv.util.UpdateInfo?>(null)
     var isAppUpToDate by mutableStateOf(false)
     var appUpdateError by mutableStateOf<String?>(null)
+    var isDownloadingAppUpdate by mutableStateOf(false)
 
     fun checkForAppUpdate(context: android.content.Context) {
         viewModelScope.launch {
@@ -1655,10 +1656,33 @@ class MediaViewModel(
         }
     }
 
-    fun startAppUpdate(context: android.content.Context) {
-        appUpdateInfo?.let { info ->
-            com.example.mmtv.util.UpdateManager(context).downloadAndInstall(info.apkUrl)
-            appUpdateInfo = null
+    fun startAppUpdate(
+        context: android.content.Context,
+        onResult: (com.example.mmtv.util.UpdateInstallResult) -> Unit = {}
+    ) {
+        val info = appUpdateInfo ?: return
+        if (isDownloadingAppUpdate) return
+
+        isDownloadingAppUpdate = true
+        appUpdateError = null
+        com.example.mmtv.util.UpdateManager(context).downloadAndInstall(
+            apkUrl = info.apkUrl,
+            expectedSize = info.assetSize
+        ) { result ->
+            isDownloadingAppUpdate = false
+            when (result) {
+                com.example.mmtv.util.UpdateInstallResult.Started -> {
+                    appUpdateInfo = null
+                    appUpdateError = null
+                }
+                com.example.mmtv.util.UpdateInstallResult.PermissionRequired -> {
+                    appUpdateError = "MMTV behöver tillåtelse att installera appuppdateringar"
+                }
+                is com.example.mmtv.util.UpdateInstallResult.Failed -> {
+                    appUpdateError = result.message
+                }
+            }
+            onResult(result)
         }
     }
 }

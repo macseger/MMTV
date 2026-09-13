@@ -1,7 +1,13 @@
 package com.example.mmtv
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
@@ -10,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +38,8 @@ import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.repository.MediaRepository
+import com.example.mmtv.util.UpdateInstallResult
+import com.example.mmtv.util.UpdateManager
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.example.mmtv.ui.*
 import com.example.mmtv.ui.theme.MMTVTheme
@@ -148,6 +157,46 @@ class MainActivity : AppCompatActivity() {
                         }
 
                         var showExitDialog by remember { mutableStateOf(false) }
+                        var showInstallPermissionDialog by remember { mutableStateOf(false) }
+                        var installPermissionMessage by remember {
+                            mutableStateOf("MMTV behöver tillåtelse att installera appuppdateringar.")
+                        }
+                        var updateErrorDialogMessage by remember { mutableStateOf<String?>(null) }
+                        var waitingForInstallPermission by rememberSaveable { mutableStateOf(false) }
+
+                        fun handleUpdateResult(result: UpdateInstallResult) {
+                            when (result) {
+                                UpdateInstallResult.Started -> {
+                                    showInstallPermissionDialog = false
+                                    updateErrorDialogMessage = null
+                                }
+                                UpdateInstallResult.PermissionRequired -> {
+                                    installPermissionMessage = "MMTV behöver tillåtelse att installera appuppdateringar."
+                                    showInstallPermissionDialog = true
+                                }
+                                is UpdateInstallResult.Failed -> {
+                                    updateErrorDialogMessage = result.message
+                                }
+                            }
+                        }
+
+                        fun startPendingUpdate() {
+                            sharedViewModel.startAppUpdate(context, ::handleUpdateResult)
+                        }
+
+                        val installPermissionLauncher = rememberLauncherForActivityResult(
+                            ActivityResultContracts.StartActivityForResult()
+                        ) {
+                            if (waitingForInstallPermission) {
+                                waitingForInstallPermission = false
+                                if (UpdateManager(context).canRequestPackageInstalls()) {
+                                    startPendingUpdate()
+                                } else {
+                                    installPermissionMessage = "Installationsbehörighet saknas fortfarande. Aktivera den och försök igen."
+                                    showInstallPermissionDialog = true
+                                }
+                            }
+                        }
 
                         if (showExitDialog) {
                             AlertDialog(
@@ -184,6 +233,84 @@ class MainActivity : AppCompatActivity() {
                                         )
                                     ) {
                                         Text("AVBRYT", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            )
+                        }
+
+                        if (showInstallPermissionDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showInstallPermissionDialog = false },
+                                title = {
+                                    Text(
+                                        "TILLÅT APPUPPDATERING",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                },
+                                text = {
+                                    Text(
+                                        installPermissionMessage,
+                                        color = Color.White,
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
+                                },
+                                containerColor = Color(0xFF1A1A1A),
+                                shape = RoundedCornerShape(16.dp),
+                                confirmButton = {
+                                    Button(
+                                        onClick = {
+                                            try {
+                                                waitingForInstallPermission = true
+                                                installPermissionLauncher.launch(
+                                                    Intent(
+                                                        Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                                        Uri.parse("package:${context.packageName}")
+                                                    )
+                                                )
+                                                showInstallPermissionDialog = false
+                                            } catch (e: ActivityNotFoundException) {
+                                                waitingForInstallPermission = false
+                                                installPermissionMessage = "Android kunde inte öppna inställningarna för appinstallationer."
+                                                showInstallPermissionDialog = true
+                                            } catch (e: SecurityException) {
+                                                waitingForInstallPermission = false
+                                                installPermissionMessage = "Android nekade åtkomst till inställningarna för appinstallationer."
+                                                showInstallPermissionDialog = true
+                                            } catch (e: Exception) {
+                                                waitingForInstallPermission = false
+                                                installPermissionMessage = "Android kunde inte öppna inställningarna för appinstallationer."
+                                                showInstallPermissionDialog = true
+                                            }
+                                        }
+                                    ) {
+                                        Text("ÖPPNA INSTÄLLNINGAR", fontWeight = FontWeight.Bold)
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showInstallPermissionDialog = false }) {
+                                        Text("AVBRYT", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            )
+                        }
+
+                        updateErrorDialogMessage?.let { message ->
+                            AlertDialog(
+                                onDismissRequest = { updateErrorDialogMessage = null },
+                                title = {
+                                    Text(
+                                        "UPPDATERING MISSLYCKADES",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Black
+                                    )
+                                },
+                                text = { Text(message, color = Color.White, style = MaterialTheme.typography.bodyLarge) },
+                                containerColor = Color(0xFF1A1A1A),
+                                shape = RoundedCornerShape(16.dp),
+                                confirmButton = {
+                                    Button(onClick = { updateErrorDialogMessage = null }) {
+                                        Text("OK", fontWeight = FontWeight.Bold)
                                     }
                                 }
                             )
@@ -529,7 +656,7 @@ class MainActivity : AppCompatActivity() {
                                             isUpdating = sharedViewModel.isUpdatingBackground,
                                             isSyncCategoryDialogOpen = sharedViewModel.showSyncSelection,
                                             isContentLoading = sharedViewModel.uiState.isLoading,
-                                            isCheckingForAppUpdate = sharedViewModel.isCheckingForAppUpdate,
+                                            isCheckingForAppUpdate = sharedViewModel.isCheckingForAppUpdate || sharedViewModel.isDownloadingAppUpdate,
                                             isAppUpToDate = sharedViewModel.isAppUpToDate,
                                             appUpdateVersion = sharedViewModel.appUpdateInfo?.let { info ->
                                                 listOfNotNull(info.versionName, info.releaseName?.takeIf { it.isNotBlank() })
@@ -537,7 +664,7 @@ class MainActivity : AppCompatActivity() {
                                             },
                                             appUpdateError = sharedViewModel.appUpdateError,
                                             onCheckForUpdate = { sharedViewModel.checkForAppUpdate(context) },
-                                            onStartUpdate = { sharedViewModel.startAppUpdate(context) },
+                                            onStartUpdate = { startPendingUpdate() },
                                             onLogout = {
                                                 sharedViewModel.logout()
                                                 navController.navigate("login") {

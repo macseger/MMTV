@@ -6,9 +6,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.util.Log
 import androidx.core.content.FileProvider
+import androidx.core.content.pm.PackageInfoCompat
 import com.google.gson.Gson
 import com.google.gson.JsonParseException
 import okhttp3.OkHttpClient
@@ -35,6 +37,12 @@ data class UpdateCheckResult(
     val errorMessage: String? = null
 )
 
+sealed class UpdateInstallResult {
+    object Started : UpdateInstallResult()
+    object PermissionRequired : UpdateInstallResult()
+    data class Failed(val message: String) : UpdateInstallResult()
+}
+
 private data class GithubRelease(
     val tag_name: String?,
     val name: String?,
@@ -51,8 +59,11 @@ private data class GithubAsset(
 
 class UpdateManager(private val context: Context) {
 
-    private val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+    private val appContext = context.applicationContext
+    private val downloadManager = appContext.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
     private var downloadId: Long = -1
+    private var completionReceiver: BroadcastReceiver? = null
+    private var receiverRegistered = false
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -147,47 +158,147 @@ class UpdateManager(private val context: Context) {
 
     private fun Version.toVersionString(): String = "$major.$minor.$patch"
 
-    fun downloadAndInstall(apkUrl: String) {
-        val request = DownloadManager.Request(Uri.parse(apkUrl))
-            .setTitle("MMTV Uppdatering")
-            .setDescription("Laddar ner ny version...")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "mmtv_update.apk")
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(true)
+    fun canRequestPackageInstalls(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            appContext.packageManager.canRequestPackageInstalls()
+    }
 
-        // Ta bort gammal fil om den finns
-        val oldFile = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "mmtv_update.apk")
-        if (oldFile.exists()) oldFile.delete()
+    fun downloadAndInstall(
+        apkUrl: String,
+        expectedSize: Long = 0L,
+        onResult: (UpdateInstallResult) -> Unit = {}
+    ) {
+        if (downloadId != -1L) {
+            onResult(UpdateInstallResult.Failed("En uppdatering laddas redan ner"))
+            return
+        }
+        if (!canRequestPackageInstalls()) {
+            onResult(UpdateInstallResult.PermissionRequired)
+            return
+        }
 
-        downloadId = downloadManager.enqueue(request)
+        val updateFile = appContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            ?.resolve("mmtv_update.apk")
+        if (updateFile == null) {
+            onResult(UpdateInstallResult.Failed("MMTV kunde inte hitta lagringsutrymme för uppdateringen"))
+            return
+        }
 
-        val onComplete = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
-                if (id == downloadId) {
-                    installApk()
-                    context.unregisterReceiver(this)
+        try {
+            if (updateFile.exists() && !updateFile.delete()) {
+                onResult(UpdateInstallResult.Failed("Den tidigare uppdateringsfilen kunde inte tas bort"))
+                return
+            }
+
+            val request = DownloadManager.Request(Uri.parse(apkUrl))
+                .setTitle("MMTV Uppdatering")
+                .setDescription("Laddar ner ny version...")
+                .setMimeType(APK_MIME_TYPE)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalFilesDir(appContext, Environment.DIRECTORY_DOWNLOADS, "mmtv_update.apk")
+                .setAllowedOverMetered(true)
+                .setAllowedOverRoaming(true)
+
+            val onComplete = object : BroadcastReceiver() {
+                override fun onReceive(receiverContext: Context, intent: Intent) {
+                    val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1)
+                    if (id != downloadId) return
+
+                    unregisterCompletionReceiver()
+                    val result = completeDownload(id, updateFile, expectedSize)
+                    downloadId = -1L
+                    onResult(result)
                 }
             }
-        }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), Context.RECEIVER_EXPORTED)
-        } else {
-            context.registerReceiver(onComplete, IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE))
+            completionReceiver = onComplete
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                appContext.registerReceiver(
+                    onComplete,
+                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+                    Context.RECEIVER_EXPORTED
+                )
+            } else {
+                appContext.registerReceiver(
+                    onComplete,
+                    IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE)
+                )
+            }
+            receiverRegistered = true
+            downloadId = downloadManager.enqueue(request)
+        } catch (e: Exception) {
+            val failedId = downloadId
+            if (failedId != -1L) downloadManager.remove(failedId)
+            downloadId = -1L
+            unregisterCompletionReceiver()
+            Log.e("UpdateManager", "Could not start APK download", e)
+            onResult(UpdateInstallResult.Failed("Uppdateringen kunde inte startas"))
         }
     }
 
-    private fun installApk() {
-        val file = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "mmtv_update.apk")
-        if (file.exists()) {
-            val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    private fun completeDownload(id: Long, file: File, expectedSize: Long): UpdateInstallResult {
+        try {
+            downloadManager.query(DownloadManager.Query().setFilterById(id)).use { cursor ->
+                if (cursor == null || !cursor.moveToFirst()) {
+                    return UpdateInstallResult.Failed("Nedladdningen kunde inte hittas")
+                }
+                val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+                if (status != DownloadManager.STATUS_SUCCESSFUL) {
+                    val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+                    return UpdateInstallResult.Failed("Nedladdningen misslyckades (kod $reason)")
+                }
+            }
+
+            if (!file.exists() || file.length() <= 0L) {
+                return UpdateInstallResult.Failed("Den nedladdade uppdateringen saknas eller är tom")
+            }
+            if (expectedSize > 0L && file.length() != expectedSize) {
+                return UpdateInstallResult.Failed("Den nedladdade uppdateringen är ofullständig")
+            }
+
+            val archiveInfo = appContext.packageManager.getPackageArchiveInfo(file.absolutePath, 0)
+                ?: return UpdateInstallResult.Failed("Den nedladdade filen är inte en giltig APK")
+            if (archiveInfo.packageName != appContext.packageName) {
+                return UpdateInstallResult.Failed("Uppdateringen tillhör inte MMTV")
+            }
+            val installedInfo = appContext.packageManager.getPackageInfo(appContext.packageName, 0)
+            if (PackageInfoCompat.getLongVersionCode(archiveInfo) <=
+                PackageInfoCompat.getLongVersionCode(installedInfo)
+            ) {
+                return UpdateInstallResult.Failed("Uppdateringen har ingen nyare version")
+            }
+
+            val uri = FileProvider.getUriForFile(
+                appContext,
+                "${appContext.packageName}.fileprovider",
+                file
+            )
             val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
+                setDataAndType(uri, APK_MIME_TYPE)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(intent)
+            appContext.startActivity(intent)
+            return UpdateInstallResult.Started
+        } catch (e: Exception) {
+            Log.e("UpdateManager", "Could not hand APK to installer", e)
+            return UpdateInstallResult.Failed("Android kunde inte öppna installationsprogrammet")
         }
+    }
+
+    private fun unregisterCompletionReceiver() {
+        val receiver = completionReceiver ?: return
+        if (receiverRegistered) {
+            try {
+                appContext.unregisterReceiver(receiver)
+            } catch (e: Exception) {
+                Log.w("UpdateManager", "Could not unregister download receiver", e)
+            }
+        }
+        receiverRegistered = false
+        completionReceiver = null
+    }
+
+    private companion object {
+        const val APK_MIME_TYPE = "application/vnd.android.package-archive"
     }
 }

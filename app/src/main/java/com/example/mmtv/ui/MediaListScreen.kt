@@ -66,6 +66,7 @@ fun MediaListScreen(
     onItemFocused: (Int) -> Unit = {},
     backgroundColor: Color = Color.Black,
     onBackPressed: (() -> Unit)? = null,
+    backNavigatesImmediately: Boolean = false,
     topBarFocusRequester: FocusRequester? = null
 ) {
     var selectedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
@@ -131,7 +132,10 @@ fun MediaListScreen(
         .onKeyEvent { 
             if (it.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_BACK && 
                 it.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
-                if (!isSidebarFocused) {
+                if (backNavigatesImmediately && onBackPressed != null) {
+                    onBackPressed()
+                    true
+                } else if (!isSidebarFocused) {
                     categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
                     true
                 } else {

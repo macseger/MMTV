@@ -37,6 +37,7 @@ import com.example.mmtv.api.SessionManager
 import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.MediaSource
+import com.example.mmtv.model.EpgListing
 import com.example.mmtv.repository.MediaRepository
 import com.example.mmtv.repository.buildVerifiedCatchupUrl
 import com.example.mmtv.util.UpdateInstallResult
@@ -440,6 +441,24 @@ class MainActivity : AppCompatActivity() {
                                             },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester
+                                        )
+                                    }
+
+                                    composable("catchup") {
+                                        CatchUpScreen(
+                                            viewModel = sharedViewModel,
+                                            isTvMode = sharedViewModel.isTvMode,
+                                            onPlayArchive = { media, listing, playlist ->
+                                                playArchiveMedia(
+                                                    navController = navController,
+                                                    media = media,
+                                                    listing = listing,
+                                                    sessionManager = sessionManager,
+                                                    viewModel = sharedViewModel,
+                                                    playlist = playlist
+                                                )
+                                            },
+                                            onBackPressed = { navController.popBackStack() }
                                         )
                                     }
 
@@ -928,6 +947,36 @@ class MainActivity : AppCompatActivity() {
 
         navController.navigate("player/$encodedUrl") {
             // Om vi redan är i spelaren, rensa bort den förra så vi inte staplar kanaler på varandra
+            if (navController.currentDestination?.route?.startsWith("player/") == true) {
+                popUpTo(navController.currentDestination?.route!!) { inclusive = true }
+            }
+            launchSingleTop = true
+        }
+    }
+
+    private fun playArchiveMedia(
+        navController: NavHostController,
+        media: MediaSource,
+        listing: EpgListing,
+        sessionManager: SessionManager,
+        viewModel: MediaViewModel,
+        playlist: List<MediaSource>? = null
+    ) {
+        val login = sessionManager.getLogin()
+        val start = listing.startTimestamp
+        val stop = listing.stopTimestamp
+        if (media.type != MediaType.LIVE || media.tvArchive != true ||
+            login == null || start == null || stop == null || stop <= start) return
+
+        viewModel.selectedMedia = media
+        playlist?.let { viewModel.currentPlaylist = it }
+
+        val (host, user, pass) = login
+        val durationMinutes = ((stop - start) / 60L).coerceAtLeast(1L)
+        val archiveUrl = buildVerifiedCatchupUrl(host, user, pass, media.id, start, durationMinutes)
+        android.util.Log.i("MMTV_CATCHUP", "selected stream_id=${media.id} start=$start durationMinutes=$durationMinutes")
+        val encodedUrl = URLEncoder.encode(archiveUrl, StandardCharsets.UTF_8.toString())
+        navController.navigate("player/$encodedUrl") {
             if (navController.currentDestination?.route?.startsWith("player/") == true) {
                 popUpTo(navController.currentDestination?.route!!) { inclusive = true }
             }

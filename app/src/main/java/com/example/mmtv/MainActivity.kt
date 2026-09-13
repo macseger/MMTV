@@ -159,7 +159,12 @@ class MainActivity : AppCompatActivity() {
                                 confirmButton = {
                                     var isExitFocused by remember { mutableStateOf(false) }
                                     Button(
-                                        onClick = { (context as? android.app.Activity)?.finish() },
+                                        onClick = {
+                                            if (::sharedViewModel.isInitialized) {
+                                                sharedViewModel.stopAndResetPlayer()
+                                            }
+                                            (context as? android.app.Activity)?.finishAffinity()
+                                        },
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (isExitFocused) Color.Red else Color.Gray.copy(alpha = 0.2f),
                                             contentColor = if (isExitFocused) Color.White else Color.LightGray
@@ -608,6 +613,12 @@ class MainActivity : AppCompatActivity() {
                                             },
                                             onBackPressed = {
                                                 navController.popBackStack()
+                                            },
+                                            onBackgrounded = {
+                                                navController.navigate("home") {
+                                                    popUpTo("home") { inclusive = false }
+                                                    launchSingleTop = true
+                                                }
                                             },
                                             onPlayNextEpisode = { ep ->
                                                 sessionManager.getLogin()?.let { login ->

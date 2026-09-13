@@ -84,6 +84,7 @@ fun PlayerScreen(
     onMediaSelected: (MediaSource) -> Unit = {},
     onCategorySelected: (Int) -> Unit = {},
     onBackPressed: () -> Unit = {},
+    onBackgrounded: () -> Unit = {},
     onPlayNextEpisode: (Episode) -> Unit = {},
     viewModel: MediaViewModel
 ) {
@@ -449,6 +450,16 @@ fun PlayerScreen(
                     if (!viewModel.isInPipMode) {
                         exoPlayer.pause()
                         isPlaying = false
+                    }
+                }
+                Lifecycle.Event.ON_STOP -> {
+                    if (!viewModel.isInPipMode) {
+                        if (isLiveStream) {
+                            exoPlayer.stop()
+                            exoPlayer.clearMediaItems()
+                            isPlaying = false
+                        }
+                        onBackgrounded()
                     }
                 }
                 Lifecycle.Event.ON_RESUME -> {

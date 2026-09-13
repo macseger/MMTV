@@ -1080,10 +1080,28 @@ fun PlayerScreen(
                                 } else false
                             }
                             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                                if (channelNumberBuffer.isNotEmpty() && media?.type == MediaType.LIVE && overlayState == OverlayState.NONE) {
+                                val overlayBefore = overlayState
+                                val playerSeekable = exoPlayer.isCurrentMediaItemSeekable
+                                val seekCommandAvailable = exoPlayer.isCommandAvailable(
+                                    Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM
+                                )
+                                val routeClassification = when {
+                                    isCatchupPlayback -> "TIMESHIFT"
+                                    isActualLiveRoute -> "LIVE"
+                                    media?.type == MediaType.MOVIE || media?.type == MediaType.SERIES -> "VOD"
+                                    else -> "UNKNOWN"
+                                }
+                                var overlayDecision = "OTHER"
+                                var centerAction = "none"
+
+                                val consumed = if (channelNumberBuffer.isNotEmpty() && media?.type == MediaType.LIVE && overlayState == OverlayState.NONE) {
+                                    overlayDecision = "OTHER"
+                                    centerAction = "commit_channel_number"
                                     commitChannelNumber()
                                     true
                                 } else if (showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE) {
+                                    overlayDecision = "OTHER"
+                                    centerAction = "play_next_episode"
                                     onPlayNextEpisode(nextEpisode)
                                     true
                                 } else if (overlayState == OverlayState.NONE) {
@@ -1091,15 +1109,19 @@ fun PlayerScreen(
                                         val currentTime = System.currentTimeMillis()
                                         if (currentTime - lastCenterClickTime < doubleClickTimeout) {
                                             overlayState = OverlayState.EPG_INFO
+                                            overlayDecision = "OTHER"
                                         } else {
                                             quickInfoFocusTarget = QuickInfoFocusTarget.TV_TABLE
                                             overlayState = OverlayState.QUICK_INFO
+                                            overlayDecision = "QUICK_INFO"
                                         }
                                         lastCenterClickTime = currentTime
+                                        centerAction = "overlay_only"
                                         true
                                     } else if (isTimelinePlayback) {
-                                        isCurrentMediaSeekable = exoPlayer.isCurrentMediaItemSeekable &&
-                                            exoPlayer.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                                        overlayDecision = if (isCatchupPlayback) "CATCHUP_CONTROLS" else "OTHER"
+                                        centerAction = "toggle_playback"
+                                        isCurrentMediaSeekable = playerSeekable && seekCommandAvailable
                                         togglePlayback()
                                         scope.launch {
                                             delay(60)
@@ -1108,6 +1130,16 @@ fun PlayerScreen(
                                         true
                                     } else false
                                 } else false
+
+                                Log.i(
+                                    "MMTV_CATCHUP_UI",
+                                    "route=$routeClassification isCatchUpRoute=$isCatchupPlayback " +
+                                        "mediaType=${media?.type} seekable=$playerSeekable " +
+                                        "seekCommandAvailable=$seekCommandAvailable durationMs=${exoPlayer.duration} " +
+                                        "decision=$overlayDecision overlayBefore=$overlayBefore " +
+                                        "overlayAfter=$overlayState consumed=$consumed action=$centerAction"
+                                )
+                                consumed
                             }
                             KeyEvent.KEYCODE_PROG_RED -> {
                                 if (media != null) {

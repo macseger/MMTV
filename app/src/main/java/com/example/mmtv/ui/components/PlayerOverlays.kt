@@ -1,6 +1,6 @@
 package com.example.mmtv.ui.components
 
-import com.example.mmtv.ui.theme.FocusBorderColor
+import com.example.mmtv.ui.theme.AccentColor
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -115,18 +116,18 @@ fun ActionButton(
     Surface(
         onClick = onClick,
         modifier = Modifier
-            .width(140.dp)
-            .height(80.dp)
+            .width(132.dp)
+            .height(72.dp)
             .focusRequester(focusRequester)
             .onFocusChanged { 
                 isFocused = it.isFocused
                 if (it.isFocused) onFocus() else onBlur()
             }
             .onKeyEvent(onKeyEvent),
-        color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.5f),
-        contentColor = if (isFocused) Color.Black else Color.White,
+        color = Color(0xFF141414),
+        contentColor = Color.White,
         shape = RoundedCornerShape(8.dp),
-        border = if (isFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+        border = if (isFocused) androidx.compose.foundation.BorderStroke(3.dp, AccentColor) else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -144,6 +145,7 @@ fun ActionButton(
 fun RecentChannelButton(
     item: MediaSource,
     viewModel: MediaViewModel,
+    width: Dp,
     focusRequester: FocusRequester,
     onFocus: () -> Unit,
     onBlur: () -> Unit,
@@ -151,68 +153,47 @@ fun RecentChannelButton(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    
-    val piconUrl = item.icon
-
-    val imageRequest = remember(piconUrl) {
-        ImageRequest.Builder(context)
-            .data(piconUrl)
-            .crossfade(200)
-            .size(120, 120)
-            .build()
-    }
+    val picon = item.resolvedIcon?.takeIf { it.isNotBlank() }
+        ?: item.icon?.takeIf { it.isNotBlank() }
+    var piconLoadFailed by remember(picon) { mutableStateOf(false) }
     
     Surface(
         onClick = onClick,
         modifier = Modifier
-            .width(120.dp)
-            .height(80.dp)
+            .width(width)
+            .height(72.dp)
             .focusRequester(focusRequester)
             .onFocusChanged { 
                 isFocused = it.isFocused
                 if (it.isFocused) onFocus() else onBlur()
             }
             .onKeyEvent(onKeyEvent),
-        color = if (isFocused) Color.White else Color.Black.copy(alpha = 0.5f),
-        contentColor = if (isFocused) Color.Black else Color.White,
+        color = Color(0xFF141414),
+        contentColor = Color.White,
         shape = RoundedCornerShape(8.dp),
-        border = if (isFocused) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+        border = if (isFocused) androidx.compose.foundation.BorderStroke(3.dp, AccentColor) else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            AsyncImage(
-                model = imageRequest,
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = if (isFocused) 0.3f else 0.6f }
-                    .padding(12.dp),
-                contentScale = ContentScale.Fit
-            )
-            
-            if (piconUrl == null) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = if (item.type == MediaType.LIVE) Icons.Default.Tv else Icons.Default.Movie,
-                        contentDescription = null,
-                        tint = if (isFocused) Color.Black.copy(alpha = 0.3f) else Color.White.copy(alpha = 0.3f),
-                        modifier = Modifier.size(40.dp)
-                    )
-                }
-            }
-            
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(4.dp),
-                verticalArrangement = Arrangement.Bottom,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (picon != null && !piconLoadFailed) {
+                AsyncImage(
+                    model = picon,
+                    contentDescription = null,
+                    modifier = Modifier.size(width = 88.dp, height = 56.dp),
+                    contentScale = ContentScale.Fit,
+                    onError = { piconLoadFailed = true }
+                )
+            } else {
                 Text(
-                    text = item.title ?: "",
-                    style = MaterialTheme.typography.labelSmall,
+                    text = item.title?.takeIf { it.isNotBlank() } ?: "Kanal",
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center
                 )
@@ -758,17 +739,29 @@ fun QuickInfoOverlay(
         }
 
         // Action Row
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
-                .onKeyEvent {
-                    it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP ||
-                        it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_DOWN
-                },
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val elementSpacing = 8.dp
+            val actionButtonCount =
+                2 + (if (showSubtitles) 1 else 0) + (if (showAudioTracks) 1 else 0)
+            val controlsWidth = 132.dp * actionButtonCount.toFloat()
+            val interControlSpacing = elementSpacing * (actionButtonCount - 1).toFloat()
+            val widthAfterControls = maxWidth - controlsWidth - interControlSpacing
+            val visibleHistoryCardCount =
+                (widthAfterControls / (112.dp + elementSpacing)).toInt().coerceAtLeast(1)
+            val historyCardWidth =
+                widthAfterControls / visibleHistoryCardCount.toFloat() - elementSpacing
+
+            LazyRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp)
+                    .onKeyEvent {
+                        it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP ||
+                            it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_DOWN
+                    },
+                horizontalArrangement = Arrangement.spacedBy(elementSpacing),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
             item(contentType = "action") {
                 ActionButton(
                     icon = Icons.Default.Menu,
@@ -892,6 +885,7 @@ fun QuickInfoOverlay(
                 RecentChannelButton(
                     item = historyItem,
                     viewModel = viewModel,
+                    width = historyCardWidth,
                     focusRequester = recentChannelsFocusRequesters.getOrPut(historyItem.id) { FocusRequester() },
                     onFocus = onFocusAction,
                     onBlur = onBlurAction,
@@ -911,6 +905,7 @@ fun QuickInfoOverlay(
                     },
                     onClick = { onRecentChannelClick(historyItem) }
                 )
+            }
             }
         }
     }

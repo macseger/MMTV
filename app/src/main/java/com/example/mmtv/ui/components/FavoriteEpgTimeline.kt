@@ -21,10 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -49,6 +46,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -69,7 +67,7 @@ import java.time.format.DateTimeFormatter
 import kotlin.math.max
 import kotlin.math.min
 
-private val TimelineChannelWidth = 240.dp
+private val TimelineChannelWidth = 156.dp
 private val TimelineHeaderHeight = 52.dp
 private val TimelineRowHeight = 72.dp
 private const val TimelineDpPerMinute = 3.5f
@@ -542,7 +540,11 @@ private fun TimelineChannelCell(
     selected: Boolean
 ) {
     val shape = RoundedCornerShape(6.dp)
-    Row(
+    val picon = channel.resolvedIcon?.takeIf { it.isNotBlank() }
+        ?: channel.icon?.takeIf { it.isNotBlank() }
+    var piconLoadFailed by remember(picon) { mutableStateOf(false) }
+
+    Box(
         modifier = Modifier
             .width(TimelineChannelWidth)
             .fillMaxHeight()
@@ -554,43 +556,29 @@ private fun TimelineChannelCell(
                 color = if (selected) AccentColor else Color.Transparent,
                 shape = shape
             )
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 10.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(42.dp)
-                .clip(RoundedCornerShape(5.dp))
-                .background(Color.White.copy(alpha = 0.05f))
-                .padding(4.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            val picon = channel.resolvedIcon?.takeIf { it.isNotBlank() }
-                ?: channel.icon?.takeIf { it.isNotBlank() }
+        if (picon != null && !piconLoadFailed) {
             AsyncImage(
                 model = picon,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit
+                modifier = Modifier.size(58.dp),
+                contentScale = ContentScale.Fit,
+                onError = { piconLoadFailed = true }
             )
-            if (picon == null) {
-                Icon(
-                    imageVector = Icons.Default.Tv,
-                    contentDescription = null,
-                    tint = Color.Gray,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
+        } else {
+            Text(
+                text = channel.title?.takeIf { it.isNotBlank() } ?: "Kanal",
+                modifier = Modifier.fillMaxWidth(),
+                color = Color.White,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
-        Spacer(modifier = Modifier.width(12.dp))
-        Text(
-            text = channel.title?.takeIf { it.isNotBlank() } ?: "Kanal",
-            color = Color.White,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Bold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }
 

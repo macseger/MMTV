@@ -1,5 +1,12 @@
 package com.example.mmtv.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,7 +19,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,87 +46,147 @@ fun SearchScreen(
     onMediaSelected: (MediaSource) -> Unit
 ) {
     val dbSearchResults by viewModel.dbSearchResults.collectAsState()
-    val focusRequester = remember { FocusRequester() }
+    val searchControlFocusRequester = remember { FocusRequester() }
+    val searchFieldFocusRequester = remember { FocusRequester() }
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    var isSearchExpanded by remember { mutableStateOf(true) }
+    var searchControlHasFocus by remember { mutableStateOf(false) }
+    val fieldWidth by animateDpAsState(
+        targetValue = (180 + (viewModel.searchQuery.length - 14).coerceAtLeast(0) * 8)
+            .coerceAtMost(520).dp,
+        animationSpec = tween(durationMillis = 140),
+        label = "searchFieldWidth"
+    )
 
     LaunchedEffect(Unit) {
-        if (viewModel.isTvMode) {
-            focusRequester.requestFocus()
-        }
+        searchFieldFocusRequester.requestFocus()
+        keyboardController?.show()
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .padding(horizontal = 48.dp, vertical = 24.dp)
+            .padding(horizontal = 48.dp, vertical = 12.dp)
     ) {
-        // Search Input Area
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .widthIn(max = 600.dp) // Gör sökfältet mindre
-                .padding(bottom = 24.dp)
+                .fillMaxWidth()
+                .padding(bottom = 10.dp)
         ) {
-            Icon(
-                Icons.Default.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-
-            BasicTextField(
-                value = viewModel.searchQuery,
-                onValueChange = { viewModel.searchQuery = it },
+            val searchControlShape = RoundedCornerShape(8.dp)
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester)
-                    .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
-                    .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                textStyle = MaterialTheme.typography.titleMedium.copy(color = Color.White),
-                singleLine = true,
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    imeAction = androidx.compose.ui.text.input.ImeAction.Search
-                ),
-                keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                    onSearch = {
-                        keyboardController?.hide()
+                    .size(42.dp)
+                    .focusRequester(searchControlFocusRequester)
+                    .onFocusChanged { searchControlHasFocus = it.isFocused }
+                    .background(
+                        color = if (searchControlHasFocus) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                        } else {
+                            Color.White.copy(alpha = 0.06f)
+                        },
+                        shape = searchControlShape
+                    )
+                    .border(
+                        width = 1.dp,
+                        color = if (searchControlHasFocus) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                        },
+                        shape = searchControlShape
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        if (isSearchExpanded) {
+                            searchFieldFocusRequester.requestFocus()
+                        } else {
+                            isSearchExpanded = true
+                        }
                     }
-                ),
-                cursorBrush = Brush.verticalGradient(listOf(Color.White, Color.White)),
-                decorationBox = { innerTextField ->
-                    if (viewModel.searchQuery.isEmpty()) {
-                        Text(
-                            "Skriv för att söka...",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = Color.White.copy(alpha = 0.5f)
-                        )
-                    }
-                    innerTextField()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Aktivera sökning",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(23.dp)
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isSearchExpanded,
+                enter = expandHorizontally(
+                    expandFrom = Alignment.Start,
+                    animationSpec = tween(durationMillis = 160)
+                ) + fadeIn(animationSpec = tween(durationMillis = 120)),
+                exit = shrinkHorizontally(
+                    shrinkTowards = Alignment.Start,
+                    animationSpec = tween(durationMillis = 140)
+                ) + fadeOut(animationSpec = tween(durationMillis = 100))
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    BasicTextField(
+                        value = viewModel.searchQuery,
+                        onValueChange = { viewModel.searchQuery = it },
+                        modifier = Modifier
+                            .width(fieldWidth)
+                            .focusRequester(searchFieldFocusRequester)
+                            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                        ),
+                        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                            onSearch = { keyboardController?.hide() }
+                        ),
+                        cursorBrush = Brush.verticalGradient(listOf(Color.White, Color.White)),
+                        decorationBox = { innerTextField ->
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                if (viewModel.searchQuery.isEmpty()) {
+                                    Text(
+                                        "Skriv för att söka...",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = Color.White.copy(alpha = 0.45f)
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
                 }
-            )
+            }
         }
 
-        // Search Results
-        if (viewModel.searchQuery.isNotEmpty()) {
+        if (viewModel.searchQuery.length >= 2) {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 100.dp), // Lite mindre kort
+                columns = GridCells.Adaptive(minSize = 520.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 48.dp)
+                contentPadding = PaddingValues(bottom = 32.dp)
             ) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
                         "SÖKRESULTAT (${dbSearchResults.size})",
                         style = MaterialTheme.typography.labelMedium,
                         color = Color.Gray,
-                        modifier = Modifier.padding(vertical = 8.dp)
+                        modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
                     )
                 }
-                
+
                 items(dbSearchResults, key = { media -> "${media.type}:${media.id}" }) { media ->
                     SearchMediaCard(
                         media = media,
@@ -130,11 +196,19 @@ fun SearchScreen(
                 }
             }
         } else {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.TopStart
+            ) {
                 Text(
-                    "Sök efter filmer, serier eller kanaler",
+                    if (viewModel.searchQuery.isEmpty()) {
+                        "Sök efter filmer, serier eller kanaler"
+                    } else {
+                        "Skriv minst två tecken för att söka"
+                    },
                     style = MaterialTheme.typography.bodyLarge,
-                    color = Color.Gray
+                    color = Color.Gray,
+                    modifier = Modifier.padding(top = 8.dp)
                 )
             }
         }
@@ -148,32 +222,41 @@ fun SearchMediaCard(
     onClick: () -> Unit
 ) {
     var hasFocus by remember { mutableStateOf(false) }
-    
     val displayIcon = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
-
     val isLive = media.type == MediaType.LIVE
+    val cardShape = RoundedCornerShape(8.dp)
 
-    Column(
+    Row(
         modifier = Modifier
-            .width(100.dp)
+            .fillMaxWidth()
+            .heightIn(min = 92.dp)
             .onFocusChanged { hasFocus = it.isFocused }
-            .scale(if (hasFocus) 1.05f else 1.0f)
+            .scale(if (hasFocus) 1.02f else 1.0f)
+            .background(
+                color = if (hasFocus) Color(0xFF1B2225) else Color(0xFF141414),
+                shape = cardShape
+            )
+            .border(
+                width = 1.dp,
+                color = if (hasFocus) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    Color.White.copy(alpha = 0.08f)
+                },
+                shape = cardShape
+            )
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally
+            )
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Card(
             modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(if (isLive) 1.2f else 0.67f) // Picons är ofta bredare, covers högre
-                .border(
-                    width = if (hasFocus) 2.dp else 0.dp,
-                    color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.Transparent,
-                    shape = RoundedCornerShape(6.dp)
-                ),
+                .width(76.dp)
+                .height(76.dp),
             shape = RoundedCornerShape(6.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))
         ) {
@@ -181,10 +264,12 @@ fun SearchMediaCard(
                 AsyncImage(
                     model = displayIcon,
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize().padding(if (isLive) 8.dp else 0.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(if (isLive) 7.dp else 0.dp),
                     contentScale = if (isLive) ContentScale.Fit else ContentScale.Crop
                 )
-                
+
                 if (displayIcon == null && media.icon == null) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
@@ -196,35 +281,41 @@ fun SearchMediaCard(
                 }
             }
         }
-        
-        Spacer(modifier = Modifier.height(6.dp))
-        
-        Text(
-            text = media.title ?: "",
-            style = MaterialTheme.typography.labelSmall.copy(
-                fontWeight = if (hasFocus) FontWeight.Bold else FontWeight.Normal,
-                fontSize = 10.sp
-            ),
-            color = if (hasFocus) Color.White else Color.LightGray,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
-        )
-        
-        // Kategori - Smart lösning: visa i grått under titeln
-        if (!media.categoryName.isNullOrBlank()) {
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.Start
+        ) {
             Text(
-                text = media.categoryName.uppercase(),
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Light,
-                    letterSpacing = 0.5.sp
+                text = media.title ?: "",
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = if (hasFocus) FontWeight.SemiBold else FontWeight.Medium,
+                    fontSize = 16.sp
                 ),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                maxLines = 1,
+                color = if (hasFocus) Color.White else Color.LightGray,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Start
             )
+
+            if (!media.categoryName.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(5.dp))
+                Text(
+                    text = media.categoryName.uppercase(),
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Normal,
+                        letterSpacing = 0.45.sp
+                    ),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start
+                )
+            }
         }
     }
 }

@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.mmtv.ui.theme.AccentColor
 import com.example.mmtv.ui.theme.FocusBorderColor
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.media3.exoplayer.video.VideoFrameMetadataListener
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -287,6 +288,7 @@ fun PlayerScreen(
     // --- FOCUS REQUESTERS ---
     val mainFocusRequester = remember { FocusRequester() }
     val timelineFocusRequester = remember { FocusRequester() }
+    val continueWatchingFocusRequester = remember { FocusRequester() }
     val epgFocusRequester = remember { FocusRequester() }
     val subtitleIconFocusRequester = remember { FocusRequester() }
     val audioIconFocusRequester = remember { FocusRequester() }
@@ -301,6 +303,8 @@ fun PlayerScreen(
     val subtitleFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val audioTrackFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val recentChannelsFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+    var focusContinueWatchingOnOpen by remember(url) { mutableStateOf(false) }
+    var consumeOverlayOpeningCenterKey by remember(url) { mutableStateOf(false) }
 
     // --- MEDIA STATE ---
     var availableSubtitles by remember { mutableStateOf<List<Tracks.Group>>(emptyList()) }
@@ -432,6 +436,27 @@ fun PlayerScreen(
     // --- HELPER FUNCTIONS ---
     fun FocusRequester.safeFocus() {
         runCatching { this.requestFocus() }
+    }
+
+    fun closeVodControlsAndResume() {
+        if (!exoPlayer.isPlaying) {
+            exoPlayer.play()
+        }
+        isPlaying = true
+        vodControlsDismissed = true
+        showSeekFeedback = false
+        mainFocusRequester.safeFocus()
+    }
+
+    LaunchedEffect(showVodControls, focusContinueWatchingOnOpen) {
+        if (showVodControls && focusContinueWatchingOnOpen) {
+            continueWatchingFocusRequester.safeFocus()
+            focusContinueWatchingOnOpen = false
+        }
+    }
+
+    BackHandler(enabled = showVodControls && overlayState == OverlayState.NONE) {
+        closeVodControlsAndResume()
     }
 
     fun performSeek(offsetMs: Long, isLongPress: Boolean = false) {
@@ -943,6 +968,19 @@ fun PlayerScreen(
                         )
                     }
                 }
+                .onPreviewKeyEvent { keyEvent ->
+                    val nativeEvent = keyEvent.nativeKeyEvent
+                    val isCenterKey = nativeEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                        nativeEvent.keyCode == KeyEvent.KEYCODE_ENTER
+                    if (consumeOverlayOpeningCenterKey && isCenterKey) {
+                        if (nativeEvent.action == KeyEvent.ACTION_UP) {
+                            consumeOverlayOpeningCenterKey = false
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                }
                 .onKeyEvent { keyEvent ->
                 // ... (Key handling logic)
                 val nativeEvent = keyEvent.nativeKeyEvent
@@ -1126,11 +1164,9 @@ fun PlayerScreen(
                                         overlayDecision = if (isCatchupPlayback) "CATCHUP_CONTROLS" else "OTHER"
                                         centerAction = "toggle_playback"
                                         isCurrentMediaSeekable = playerSeekable && seekCommandAvailable
+                                        focusContinueWatchingOnOpen = true
+                                        consumeOverlayOpeningCenterKey = true
                                         togglePlayback()
-                                        scope.launch {
-                                            delay(60)
-                                            if (isCurrentMediaSeekable) timelineFocusRequester.safeFocus()
-                                        }
                                         true
                                     } else false
                                 } else false
@@ -1167,6 +1203,7 @@ fun PlayerScreen(
                                         channelNumberJob = null
                                         channelNumberBuffer = ""
                                     }
+                                    showVodControls && overlayState == OverlayState.NONE -> closeVodControlsAndResume()
                                     overlayState == OverlayState.NONE -> onBackPressed()
                                     overlayState == OverlayState.SUBTITLES || overlayState == OverlayState.AUDIO_TRACKS -> closeTrackModal()
                                     else -> overlayState = OverlayState.NONE
@@ -1300,6 +1337,7 @@ fun PlayerScreen(
                 seekMessage = seekMessage,
                 availableSubtitles = availableSubtitles,
                 timelineFocusRequester = timelineFocusRequester,
+                continueWatchingFocusRequester = continueWatchingFocusRequester,
                 subtitleIconFocusRequester = subtitleIconFocusRequester,
                 audioIconFocusRequester = audioIconFocusRequester,
                 videoResizeModeLabel = videoResizeMode.label,
@@ -1317,15 +1355,7 @@ fun PlayerScreen(
                         currentPosition = target
                     }
                 },
-                onContinueWatching = {
-                    if (!exoPlayer.isPlaying) {
-                        exoPlayer.play()
-                    }
-                    isPlaying = true
-                    vodControlsDismissed = true
-                    showSeekFeedback = false
-                    mainFocusRequester.safeFocus()
-                },
+                onContinueWatching = { closeVodControlsAndResume() },
                 onToggleSubtitles = {
                     openTrackModal(OverlayState.SUBTITLES, QuickInfoFocusTarget.SUBTITLES)
                 },
@@ -1675,6 +1705,7 @@ fun VodControlOverlay(
     seekMessage: String,
     availableSubtitles: List<Tracks.Group>,
     timelineFocusRequester: FocusRequester,
+    continueWatchingFocusRequester: FocusRequester,
     subtitleIconFocusRequester: FocusRequester,
     audioIconFocusRequester: FocusRequester,
     videoResizeModeLabel: String,
@@ -1690,7 +1721,6 @@ fun VodControlOverlay(
     onToggleAudioTracks: () -> Unit
 ) {
     val resizeModeFocusRequester = remember { FocusRequester() }
-    val continueWatchingFocusRequester = remember { FocusRequester() }
     val nextControlFocusRequester = remember { FocusRequester() }
     val returnToLiveFocusRequester = remember { FocusRequester() }
     val controlTextStyle = MaterialTheme.typography.labelLarge.copy(

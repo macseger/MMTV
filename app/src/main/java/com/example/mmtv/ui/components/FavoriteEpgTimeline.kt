@@ -69,7 +69,7 @@ import kotlin.math.min
 
 private val TimelineChannelWidth = 156.dp
 private val TimelineHeaderHeight = 52.dp
-private val TimelineRowHeight = 72.dp
+private val TimelineRowHeight = 68.dp
 private const val TimelineDpPerMinute = 3.5f
 private const val TimelineMarkerSeconds = 30 * 60L
 
@@ -327,7 +327,9 @@ private fun FavoriteTimelineReady(
             )
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(TimelineRowHeight * 7)
             ) {
                 itemsIndexed(
                     items = timelineRows,

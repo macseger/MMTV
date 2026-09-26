@@ -1090,15 +1090,17 @@ fun SideOverlay(
         animationSpec = tween(durationMillis = 650, easing = FastOutSlowInEasing),
         label = "sideOverlaySlide"
     )
-    LaunchedEffect(isVisible, overlayState, playlist, selectedChannelId) {
-        if (!isVisible) return@LaunchedEffect
-
-        if (overlayState == "CATEGORIES" && categories.isNotEmpty()) {
+    LaunchedEffect(isVisible, overlayState, categories.size) {
+        if (isVisible && overlayState == "CATEGORIES" && categories.isNotEmpty()) {
             val categoryIndex = viewModel.lastLiveCategoryIndex.coerceIn(0, categories.lastIndex)
             categoryListState.scrollToItem(categoryIndex)
             withFrameNanos { }
             categoryFocusRequesters[categoryIndex]?.requestFocus()
-        } else if (overlayState == "CHANNELS" && playlist.isNotEmpty()) {
+        }
+    }
+
+    LaunchedEffect(isVisible, overlayState, playlist, selectedChannelId) {
+        if (isVisible && overlayState == "CHANNELS" && playlist.isNotEmpty()) {
             val channelIndex = playlist.indexOfFirst { it.id == selectedChannelId }
                 .takeIf { it >= 0 } ?: 0
             channelListState.scrollToItem(channelIndex)

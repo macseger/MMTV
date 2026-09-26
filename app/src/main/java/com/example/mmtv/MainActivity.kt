@@ -500,6 +500,9 @@ class MainActivity : AppCompatActivity() {
                                             groupedList = movies,
                                             viewModel = sharedViewModel,
                                             initialCategoryIndex = initialIndex,
+                                            initialMediaId = sharedViewModel.selectedMedia
+                                                ?.takeIf { it.type == MediaType.MOVIE }
+                                                ?.id,
                                             isLive = false,
                                             isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index -> 
@@ -557,6 +560,9 @@ class MainActivity : AppCompatActivity() {
                                             groupedList = series,
                                             viewModel = sharedViewModel,
                                             initialCategoryIndex = initialIndex,
+                                            initialMediaId = sharedViewModel.selectedMedia
+                                                ?.takeIf { it.type == MediaType.SERIES }
+                                                ?.id,
                                             isLive = false,
                                             isTvMode = sharedViewModel.isTvMode,
                                             onCategoryChanged = { index -> 

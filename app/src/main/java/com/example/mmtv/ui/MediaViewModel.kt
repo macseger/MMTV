@@ -278,6 +278,8 @@ class MediaViewModel(
     private var isFetching = false
     private var lastLoadedSeriesId: Int? = null
     private var seriesDetailsRequestId = 0
+    private var movieDetailsRequestId = 0
+    private var movieDetailsJob: Job? = null
 
     // Caches för Compose-reaktivitet utan suspending-overhead i UI-loopen
     val fullEpgData = mutableStateMapOf<String, List<EpgListing>>()
@@ -1630,17 +1632,25 @@ class MediaViewModel(
     }
 
     fun loadMovieInfo(movieId: Int) {
+        val requestId = ++movieDetailsRequestId
+        movieDetailsJob?.cancel()
         selectedMovieInfo = null
         isDetailsLoading = true
-        viewModelScope.launch {
+        movieDetailsJob = viewModelScope.launch {
             try {
                 val creds = sessionManager.getLogin() ?: return@launch
                 val info = _repository.api.getMovieInfo(creds.second, creds.third, movieId)
-                selectedMovieInfo = info
+                if (requestId == movieDetailsRequestId) {
+                    selectedMovieInfo = info
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
-                isDetailsLoading = false
+                if (requestId == movieDetailsRequestId) {
+                    isDetailsLoading = false
+                }
             }
         }
     }

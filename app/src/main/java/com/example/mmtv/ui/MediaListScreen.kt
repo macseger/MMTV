@@ -71,6 +71,7 @@ fun MediaListScreen(
 ) {
     var selectedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
     var debouncedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
+    var lastGridCategoryIndex by remember { mutableIntStateOf(debouncedCategoryIndex) }
     
     val selectedCategory = groupedList.getOrNull(debouncedCategoryIndex)
     // Removed heuristic to avoid issues with empty lists
@@ -103,10 +104,14 @@ fun MediaListScreen(
         debouncedCategoryIndex = initialCategoryIndex
 
         if (isTvMode) {
-            if (initialMediaId != null && isLive) {
+            if (initialMediaId != null) {
                 val index = selectedCategory?.items?.indexOfFirst { it.id == initialMediaId } ?: -1
                 if (index != -1) {
-                    listState.scrollToItem(index)
+                    if (isLive) {
+                        listState.scrollToItem(index)
+                    } else if (gridState.layoutInfo.visibleItemsInfo.none { it.index == index }) {
+                        gridState.scrollToItem(index)
+                    }
                     delay(50)
                     channelFocusRequesters[initialMediaId]?.safeFocus()
                 } else {
@@ -120,7 +125,10 @@ fun MediaListScreen(
 
     LaunchedEffect(debouncedCategoryIndex) {
         if (isLive) listState.scrollToItem(0)
-        else gridState.scrollToItem(0)
+        else if (lastGridCategoryIndex != debouncedCategoryIndex) {
+            gridState.scrollToItem(0)
+            lastGridCategoryIndex = debouncedCategoryIndex
+        }
     }
 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current

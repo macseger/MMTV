@@ -679,6 +679,8 @@ class MainActivity : AppCompatActivity() {
                                             useExternalEpg = useExternalEpg,
                                             useTunneling = useTunneling,
                                             showPlaybackDetails = showPlaybackDetails,
+                                            metadataSource = sharedViewModel.metadataSource,
+                                            onMetadataSourceChanged = sharedViewModel::updateMetadataSource,
                                             onTogglePlaybackDetails = { enabled ->
                                                 showPlaybackDetails = enabled
                                                 sessionManager.setShowPlaybackDetails(enabled)

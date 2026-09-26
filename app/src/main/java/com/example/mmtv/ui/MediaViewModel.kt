@@ -287,7 +287,9 @@ class MediaViewModel(
     private var movieDetailsJob: Job? = null
     private var activeTmdbDetailKey: DetailMetadataKey? = null
     private var tmdbDetailsJob: Job? = null
-    private val tmdbEnrichmentCoordinator = TmdbEnrichmentCoordinator()
+    var metadataSource by mutableStateOf(sessionManager.getMetadataSource())
+        private set
+    private val tmdbEnrichmentCoordinator = TmdbEnrichmentCoordinator(metadataSource)
 
     // Caches för Compose-reaktivitet utan suspending-overhead i UI-loopen
     val fullEpgData = mutableStateMapOf<String, List<EpgListing>>()
@@ -1681,12 +1683,16 @@ class MediaViewModel(
     }
 
     fun beginTmdbDetailEnrichment(media: MediaSource) {
+        if (metadataSource != MetadataSource.TMDB) {
+            clearTmdbEnrichmentState()
+            return
+        }
         val key = DetailMetadataKey(media.type, media.id)
         activeTmdbDetailKey = key
         tmdbDetailsJob?.cancel()
         keyedTmdbDetailMetadata = null
         val catalogTitle = media.title?.takeIf { it.isNotBlank() } ?: return
-        launchTmdbLookup(tmdbEnrichmentCoordinator.begin(key, catalogTitle))
+        tmdbEnrichmentCoordinator.begin(key, catalogTitle)?.let(::launchTmdbLookup)
     }
 
     fun tmdbDetailMetadataFor(type: MediaType, mediaId: Int): DetailMetadata? {
@@ -1700,6 +1706,21 @@ class MediaViewModel(
             mediaDao.getMediaById(media.id, MediaType.SERIES)?.toMediaSource()
         }
         return resolveCanonicalSeriesDetailsMedia(media, canonicalMedia)
+    }
+
+    fun updateMetadataSource(source: MetadataSource) {
+        sessionManager.setMetadataSource(source)
+        metadataSource = source
+        tmdbEnrichmentCoordinator.setMetadataSource(source)
+        if (source == MetadataSource.PROVIDER) clearTmdbEnrichmentState()
+    }
+
+    private fun clearTmdbEnrichmentState() {
+        tmdbDetailsJob?.cancel()
+        tmdbDetailsJob = null
+        activeTmdbDetailKey = null
+        keyedTmdbDetailMetadata = null
+        tmdbEnrichmentCoordinator.setMetadataSource(metadataSource)
     }
 
     private fun offerMovieTmdbYear(movieId: Int, info: MovieInfoResponse?) {

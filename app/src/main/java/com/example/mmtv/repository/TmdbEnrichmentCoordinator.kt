@@ -1,6 +1,7 @@
 package com.example.mmtv.repository
 
 import com.example.mmtv.model.DetailMetadataKey
+import com.example.mmtv.model.MetadataSource
 
 enum class TmdbLookupKind {
     INITIAL,
@@ -19,7 +20,9 @@ data class TmdbLookupCompletion(
     val refinedRequest: TmdbLookupRequest? = null
 )
 
-class TmdbEnrichmentCoordinator {
+class TmdbEnrichmentCoordinator(
+    initialMetadataSource: MetadataSource = MetadataSource.PROVIDER
+) {
     private data class Session(
         val key: DetailMetadataKey,
         val catalogTitle: String,
@@ -31,8 +34,15 @@ class TmdbEnrichmentCoordinator {
     )
 
     private var session: Session? = null
+    private var metadataSource = initialMetadataSource
 
-    fun begin(key: DetailMetadataKey, catalogTitle: String): TmdbLookupRequest {
+    fun setMetadataSource(source: MetadataSource) {
+        metadataSource = source
+        if (source == MetadataSource.PROVIDER) session = null
+    }
+
+    fun begin(key: DetailMetadataKey, catalogTitle: String): TmdbLookupRequest? {
+        if (metadataSource != MetadataSource.TMDB) return null
         val initialYear = TmdbTitleMatcher.extractYear(catalogTitle)
         session = Session(key, catalogTitle, initialYear)
         return TmdbLookupRequest(key, catalogTitle, initialYear, TmdbLookupKind.INITIAL)

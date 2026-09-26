@@ -6,6 +6,7 @@ import androidx.core.content.edit
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.example.mmtv.model.MediaSource
+import com.example.mmtv.model.MetadataSource
 import com.example.mmtv.model.Episode
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -213,6 +214,13 @@ class SessionManager(context: Context) {
     }
 
     fun getUseLocalPicons(): Boolean = prefs.getBoolean("use_local_picons", false)
+
+    fun setMetadataSource(source: MetadataSource) {
+        prefs.edit { putString("metadata_source", source.name) }
+    }
+
+    fun getMetadataSource(): MetadataSource =
+        MetadataSource.fromStoredValue(prefs.getString("metadata_source", null))
 
     fun hasSyncSelection(): Boolean = prefs.getBoolean("sync_selection_configured", false)
 

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,6 +32,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.mmtv.R
+import com.example.mmtv.model.MetadataSource
+
+private const val FIRST_SETTINGS_ACTION_ITEM_INDEX = 2
 
 @Composable
 fun SettingsScreen(
@@ -41,6 +45,8 @@ fun SettingsScreen(
     useExternalEpg: Boolean,
     useTunneling: Boolean,
     showPlaybackDetails: Boolean,
+    metadataSource: MetadataSource,
+    onMetadataSourceChanged: (MetadataSource) -> Unit,
     onTogglePlaybackDetails: (Boolean) -> Unit,
     isTvMode: Boolean,
     isUpdating: Boolean,
@@ -70,7 +76,6 @@ fun SettingsScreen(
     val configuration = LocalConfiguration.current
     val isTelevisionDevice =
         (configuration.uiMode and Configuration.UI_MODE_TYPE_MASK) == Configuration.UI_MODE_TYPE_TELEVISION
-    val firstButtonFocusRequester = remember { FocusRequester() }
     val categoryFocusRequester = remember { FocusRequester() }
     val settingsListState = rememberLazyListState()
     var needsCategoryFocus by remember { mutableStateOf(false) }
@@ -102,9 +107,14 @@ fun SettingsScreen(
         showConfirmDialog = true
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(isTvMode, isTelevisionDevice) {
         if (isTvMode && isTelevisionDevice) {
-            firstButtonFocusRequester.requestFocus()
+            snapshotFlow {
+                settingsListState.layoutInfo.visibleItemsInfo.any {
+                    it.index == FIRST_SETTINGS_ACTION_ITEM_INDEX
+                }
+            }.first { it }
+            categoryFocusRequester.requestFocus()
         }
     }
 
@@ -151,6 +161,28 @@ fun SettingsScreen(
                 )
             }
 
+            item { SectionHeader("Metadata för filmer och serier") }
+
+            item {
+                SettingsAction(
+                    title = "TMDB",
+                    subtitle = "Hämtar beskrivning, genre, år och betyg från TMDB. Leverantörens information används om ingen säker match hittas.",
+                    icon = Icons.Default.Language,
+                    value = if (metadataSource == MetadataSource.TMDB) "VALD" else null,
+                    onClick = { onMetadataSourceChanged(MetadataSource.TMDB) }
+                )
+            }
+
+            item {
+                SettingsAction(
+                    title = "Leverantör",
+                    subtitle = "Använder informationen från din IPTV-leverantör.",
+                    icon = Icons.Default.Dns,
+                    value = if (metadataSource == MetadataSource.PROVIDER) "VALD" else null,
+                    onClick = { onMetadataSourceChanged(MetadataSource.PROVIDER) }
+                )
+            }
+
             item {
                 SettingsAction(
                     title = "Skapa TV Favoritlista",
@@ -165,7 +197,6 @@ fun SettingsScreen(
                     title = stringResource(R.string.sync_only_live),
                     subtitle = stringResource(R.string.sync_only_live_sub),
                     icon = Icons.Default.LiveTv,
-                    modifier = Modifier.focusRequester(firstButtonFocusRequester),
                     onClick = onRefreshTv
                 )
             }

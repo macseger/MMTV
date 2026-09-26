@@ -1061,11 +1061,11 @@ class MediaViewModel(
         }
     }
 
-    fun loadItemsForCategory(type: MediaType, categoryId: String?) {
+    fun loadItemsForCategory(type: MediaType, categoryId: String?): Job {
         categoryLoadJobs[type]?.cancel()
-        categoryLoadJobs[type] = viewModelScope.launch {
+        return viewModelScope.launch {
             loadCategoryItems(type, categoryId)
-        }
+        }.also { categoryLoadJobs[type] = it }
     }
 
     private suspend fun loadCategoryItems(

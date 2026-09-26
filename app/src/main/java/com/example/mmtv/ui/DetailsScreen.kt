@@ -21,7 +21,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -41,6 +40,8 @@ import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.mergeDetailMetadata
 import kotlinx.coroutines.launch
+
+private const val TMDB_BACKDROP_BASE_URL = "https://image.tmdb.org/t/p/w1280"
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -135,8 +136,9 @@ fun DetailsScreen(
     val currentReleaseYear = currentMetadata.releaseDate
         ?.take(4)
         ?.takeIf { it.length == 4 && it.all(Char::isDigit) }
-    val currentDirector = if (isSeries) (seriesInfo?.info?.director ?: media.director) else (movieInfo?.info?.director ?: media.director)
-    val currentCast = if (isSeries) (seriesInfo?.info?.cast ?: media.cast) else (movieInfo?.info?.cast ?: media.cast)
+    val detailBackdropUrl = currentMetadata.backdropPath?.takeIf { it.isNotBlank() }?.let {
+        "$TMDB_BACKDROP_BASE_URL/${it.trimStart('/')}"
+    }
 
     var showResumeDialog by remember { mutableStateOf<ResumeData?>(null) }
 
@@ -180,56 +182,58 @@ fun DetailsScreen(
     // every focused item to 30% of the viewport, even when it is already visible.
     val detailsBringIntoViewSpec = remember { object : BringIntoViewSpec {} }
     CompositionLocalProvider(LocalBringIntoViewSpec provides detailsBringIntoViewSpec) {
-        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            // Ikonen har redan matchats och sparats när kanallistan uppdaterades.
-            val bgIcon = media.icon
-
-            AsyncImage(
-                model = bgIcon,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize().alpha(0.2f),
-                contentScale = ContentScale.Crop
-            )
-
-            Box(modifier = Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    colors = listOf(Color.Transparent, MaterialTheme.colorScheme.background),
-                    startY = 0f
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF070A0E))
+        ) {
+            if (detailBackdropUrl != null) {
+                AsyncImage(
+                    model = detailBackdropUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
-            ))
+            }
+            Box(
+                modifier = Modifier.fillMaxSize().background(
+                    Brush.horizontalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Black.copy(alpha = 0.94f),
+                            0.48f to Color.Black.copy(alpha = 0.76f),
+                            0.78f to Color.Black.copy(alpha = 0.22f),
+                            1f to Color.Black.copy(alpha = 0.08f)
+                        )
+                    )
+                )
+            )
+            Box(
+                modifier = Modifier.fillMaxSize().background(
+                    Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0f to Color.Black.copy(alpha = 0.24f),
+                            0.52f to Color.Transparent,
+                            1f to Color.Black.copy(alpha = 0.82f)
+                        )
+                    )
+                )
+            )
 
             LazyColumn(
                 state = detailsListState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(top = 48.dp, bottom = 80.dp, start = 48.dp, end = 48.dp)
+                contentPadding = PaddingValues(top = 72.dp, bottom = 72.dp, start = 64.dp, end = 48.dp)
             ) {
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
-                        // Ytterligare minskning av omslaget för att ge mer plats åt info och listor
-                        Card(
-                            modifier = Modifier.width(180.dp).aspectRatio(0.67f),
-                            elevation = CardDefaults.cardElevation(16.dp),
-                            shape = RoundedCornerShape(12.dp)
+                        Column(
+                            modifier = Modifier.fillMaxWidth(0.58f).widthIn(max = 760.dp)
                         ) {
-                            Box(modifier = Modifier.fillMaxSize().background(Color(0xFF1A1A1A)), contentAlignment = Alignment.Center) {
-                                AsyncImage(
-                                    model = bgIcon,
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Crop
-                                )
-                                if (bgIcon == null) {
-                                    ChannelPlaceholder(media.title ?: "?", Modifier.fillMaxSize(), isMovie = !isSeries)
-                                }
-                            }
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = media.title ?: "Okänd titel",
                                 style = MaterialTheme.typography.headlineLarge.copy(
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 36.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 30.sp,
                                     letterSpacing = (-0.5).sp
                                 ),
                                 color = Color.White,
@@ -237,65 +241,33 @@ fun DetailsScreen(
                                 overflow = TextOverflow.Ellipsis
                             )
 
-                            Row(
-                                modifier = Modifier.padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                if (!currentRating.isNullOrEmpty() && currentRating != "0.0") {
-                                    Surface(
-                                        color = Color(0xFFFFD700),
-                                        shape = RoundedCornerShape(4.dp)
-                                    ) {
-                                        Text(
-                                            text = " ★ $currentRating ",
-                                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                                            color = Color.Black,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                }
-                                if (currentReleaseYear != null) {
-                                    Text(
-                                        text = currentReleaseYear,
-                                        color = Color.White.copy(alpha = 0.7f),
-                                        style = MaterialTheme.typography.titleMedium
-                                    )
-                                }
+                            val compactMetadata = listOfNotNull(
+                                currentReleaseYear,
+                                currentRating
+                                    ?.takeIf { it.isNotBlank() && it != "0.0" }
+                                    ?.let { "★ $it" },
+                                currentGenre?.takeIf { it.isNotBlank() }
+                            ).joinToString("  •  ")
+                            if (compactMetadata.isNotEmpty()) {
                                 Text(
-                                    text = currentGenre ?: "VOD",
-                                    color = MaterialTheme.colorScheme.primary,
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Medium)
+                                    text = compactMetadata,
+                                    modifier = Modifier.padding(top = 10.dp, bottom = 18.dp),
+                                    color = Color.White.copy(alpha = 0.68f),
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Medium),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
+                            } else {
+                                Spacer(modifier = Modifier.height(18.dp))
                             }
 
                             Text(
                                 text = if (viewModel.isDetailsLoading && currentPlot == null) "Laddar info..." else (currentPlot ?: "Ingen beskrivning tillgänglig."),
-                                style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 26.sp),
-                                color = Color.White.copy(alpha = 0.7f),
-                                maxLines = 5,
+                                style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 25.sp),
+                                color = Color.White.copy(alpha = 0.82f),
+                                maxLines = 6,
                                 overflow = TextOverflow.Ellipsis
                             )
-
-                            if (!currentDirector.isNullOrEmpty() || !currentCast.isNullOrEmpty()) {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                if (!currentDirector.isNullOrEmpty()) {
-                                    Text(
-                                        text = "Regissör: $currentDirector",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color.Gray
-                                    )
-                                }
-                                if (!currentCast.isNullOrEmpty()) {
-                                    Text(
-                                        text = "Skådespelare: $currentCast",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color.Gray,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
 
                             Spacer(modifier = Modifier.height(32.dp))
 
@@ -327,8 +299,8 @@ fun DetailsScreen(
                                         shape = RoundedCornerShape(12.dp),
                                         border = if (playBtnFocus) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (playBtnFocus) Color.White else MaterialTheme.colorScheme.primary,
-                                            contentColor = if (playBtnFocus) Color.Black else Color.White
+                                            containerColor = if (playBtnFocus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.14f),
+                                            contentColor = Color.White
                                         )
                                     ) {
                                         Icon(Icons.Default.PlayArrow, contentDescription = null)
@@ -354,8 +326,8 @@ fun DetailsScreen(
                                         shape = RoundedCornerShape(12.dp),
                                         border = if (playBtnFocus) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (playBtnFocus) Color.White else MaterialTheme.colorScheme.primary,
-                                            contentColor = if (playBtnFocus) Color.Black else Color.White
+                                            containerColor = if (playBtnFocus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.14f),
+                                            contentColor = Color.White
                                         )
                                     ) {
                                         Icon(Icons.Default.PlayArrow, contentDescription = null)

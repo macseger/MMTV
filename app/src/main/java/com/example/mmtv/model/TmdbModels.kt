@@ -31,6 +31,7 @@ data class TmdbGenre(
 data class TmdbMovieDetails(
     val overview: String?,
     val genres: List<TmdbGenre> = emptyList(),
+    @SerializedName("backdrop_path") val backdropPath: String?,
     @SerializedName("release_date") val releaseDate: String?,
     @SerializedName("vote_average") val voteAverage: Double?,
     @SerializedName("vote_count") val voteCount: Int?
@@ -39,6 +40,7 @@ data class TmdbMovieDetails(
 data class TmdbTvDetails(
     val overview: String?,
     val genres: List<TmdbGenre> = emptyList(),
+    @SerializedName("backdrop_path") val backdropPath: String?,
     @SerializedName("first_air_date") val firstAirDate: String?,
     @SerializedName("vote_average") val voteAverage: Double?,
     @SerializedName("vote_count") val voteCount: Int?

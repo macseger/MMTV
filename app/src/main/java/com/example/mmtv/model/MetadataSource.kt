@@ -6,6 +6,6 @@ enum class MetadataSource {
 
     companion object {
         fun fromStoredValue(value: String?): MetadataSource =
-            entries.firstOrNull { it.name == value } ?: PROVIDER
+            entries.firstOrNull { it.name == value } ?: TMDB
     }
 }

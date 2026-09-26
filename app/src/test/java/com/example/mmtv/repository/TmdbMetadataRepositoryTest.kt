@@ -1,7 +1,10 @@
 package com.example.mmtv.repository
 
 import com.example.mmtv.model.DetailMetadata
+import com.example.mmtv.model.TmdbMovieDetails
+import com.example.mmtv.model.TmdbTvDetails
 import com.example.mmtv.model.mergeDetailMetadata
+import com.google.gson.Gson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -121,5 +124,36 @@ class TmdbMetadataRepositoryTest {
         assertEquals("Drama", merged.genre)
         assertEquals("2020-05-06", merged.releaseDate)
         assertEquals("8.2", merged.rating)
+    }
+
+    @Test
+    fun movieDetails_parsesBackdropPath() {
+        val details = Gson().fromJson(
+            """{"backdrop_path":"/cinematic.jpg","genres":[]}""",
+            TmdbMovieDetails::class.java
+        )
+
+        assertEquals("/cinematic.jpg", details.backdropPath)
+    }
+
+    @Test
+    fun tvDetails_parsesBackdropPath() {
+        val details = Gson().fromJson(
+            """{"backdrop_path":"/series-cinematic.jpg","genres":[]}""",
+            TmdbTvDetails::class.java
+        )
+
+        assertEquals("/series-cinematic.jpg", details.backdropPath)
+    }
+
+    @Test
+    fun mergeDetailMetadata_exposesTmdbBackdropPath() {
+        val merged = mergeDetailMetadata(
+            tmdb = DetailMetadata(backdropPath = "/cinematic.jpg"),
+            xtream = DetailMetadata(),
+            mediaSource = DetailMetadata()
+        )
+
+        assertEquals("/cinematic.jpg", merged.backdropPath)
     }
 }

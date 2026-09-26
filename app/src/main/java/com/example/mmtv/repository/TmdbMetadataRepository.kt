@@ -208,7 +208,8 @@ class TmdbMetadataRepository(private val api: TmdbApi) {
             plot = details.overview.nonBlank(),
             genre = details.genres.mapNotNull { it.name.nonBlank() }.joinToString(", ").nonBlank(),
             releaseDate = details.releaseDate.nonBlank(),
-            rating = formatRating(details.voteAverage, details.voteCount)
+            rating = formatRating(details.voteAverage, details.voteCount),
+            backdropPath = details.backdropPath.nonBlank()
         ).also { log(request, normalizedTitle, "details_success") }
     }
 
@@ -228,7 +229,8 @@ class TmdbMetadataRepository(private val api: TmdbApi) {
             plot = details.overview.nonBlank(),
             genre = details.genres.mapNotNull { it.name.nonBlank() }.joinToString(", ").nonBlank(),
             releaseDate = details.firstAirDate.nonBlank(),
-            rating = formatRating(details.voteAverage, details.voteCount)
+            rating = formatRating(details.voteAverage, details.voteCount),
+            backdropPath = details.backdropPath.nonBlank()
         ).also { log(request, normalizedTitle, "details_success") }
     }
 

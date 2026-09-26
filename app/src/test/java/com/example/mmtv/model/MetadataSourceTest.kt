@@ -6,8 +6,8 @@ import org.junit.Test
 class MetadataSourceTest {
 
     @Test
-    fun missingPreference_defaultsToProvider() {
-        assertEquals(MetadataSource.PROVIDER, MetadataSource.fromStoredValue(null))
+    fun missingPreference_defaultsToTmdb() {
+        assertEquals(MetadataSource.TMDB, MetadataSource.fromStoredValue(null))
     }
 
     @Test
@@ -16,7 +16,12 @@ class MetadataSourceTest {
     }
 
     @Test
-    fun invalidPreference_fallsBackToProvider() {
-        assertEquals(MetadataSource.PROVIDER, MetadataSource.fromStoredValue("UNKNOWN"))
+    fun persistedProviderSelection_isRestored() {
+        assertEquals(MetadataSource.PROVIDER, MetadataSource.fromStoredValue("PROVIDER"))
+    }
+
+    @Test
+    fun invalidPreference_fallsBackToTmdb() {
+        assertEquals(MetadataSource.TMDB, MetadataSource.fromStoredValue("UNKNOWN"))
     }
 }

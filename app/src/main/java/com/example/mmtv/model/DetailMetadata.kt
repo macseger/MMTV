@@ -4,7 +4,8 @@ data class DetailMetadata(
     val plot: String? = null,
     val genre: String? = null,
     val releaseDate: String? = null,
-    val rating: String? = null
+    val rating: String? = null,
+    val backdropPath: String? = null
 )
 
 data class DetailMetadataKey(
@@ -25,7 +26,8 @@ fun mergeDetailMetadata(
     plot = firstNonBlank(tmdb?.plot, xtream.plot, mediaSource.plot),
     genre = firstNonBlank(tmdb?.genre, xtream.genre, mediaSource.genre),
     releaseDate = firstNonBlank(tmdb?.releaseDate, xtream.releaseDate, mediaSource.releaseDate),
-    rating = firstNonBlank(tmdb?.rating, xtream.rating, mediaSource.rating)
+    rating = firstNonBlank(tmdb?.rating, xtream.rating, mediaSource.rating),
+    backdropPath = firstNonBlank(tmdb?.backdropPath, xtream.backdropPath, mediaSource.backdropPath)
 )
 
 private fun firstNonBlank(vararg values: String?): String? =

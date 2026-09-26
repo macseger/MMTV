@@ -765,9 +765,12 @@ class MainActivity : AppCompatActivity() {
                                                 playMedia(navController, newMedia, sessionManager, sharedViewModel, sharedViewModel.currentPlaylist)
                                             },
                                             onCategorySelected = { index ->
-                                                if (sharedViewModel.lastLiveCategoryIndex != index) {
-                                                    sharedViewModel.lastLiveCategoryIndex = index
-                                                    sharedViewModel.currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(index)?.items ?: emptyList()
+                                                sharedViewModel.lastLiveCategoryIndex = index
+                                                val category = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(index)
+                                                sharedViewModel.currentPlaylist = category?.items.orEmpty()
+                                                if (category?.items?.isEmpty() == true) {
+                                                    sharedViewModel.loadItemsForCategory(MediaType.LIVE, category.categoryId)
+                                                } else {
                                                     sharedViewModel.prefetchEpgForCategory(index)
                                                 }
                                             },

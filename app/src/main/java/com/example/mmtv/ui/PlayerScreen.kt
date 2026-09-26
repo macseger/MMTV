@@ -214,7 +214,7 @@ fun PlayerScreen(
     var showSeekFeedback by remember { mutableStateOf(false) }
     var channelNumberBuffer by remember { mutableStateOf("") }
     var channelNumberJob by remember { mutableStateOf<Job?>(null) }
-    var channelNumberFeedback by remember { mutableStateOf(false) }
+    var allChannelsLoadJob by remember { mutableStateOf<Job?>(null) }
     var videoResizeMode by remember(url) { mutableStateOf(VideoResizeMode.FIT) }
     var vodControlsDismissed by remember(url) { mutableStateOf(false) }
     var isCurrentMediaSeekable by remember(url) { mutableStateOf(false) }
@@ -233,26 +233,25 @@ fun PlayerScreen(
     var seekJob by remember { mutableStateOf<Job?>(null) }
     var infoJob by remember { mutableStateOf<Job?>(null) }
 
-    val commitChannelNumber = {
+    suspend fun commitChannelNumber() {
+        allChannelsLoadJob?.join()
+        allChannelsLoadJob = null
+
+        val allCategories = viewModel.uiState.liveStreamsGrouped
+        val allChannelsIndex = allCategories.indexOfFirst { it.categoryId == "ALL_CHANNELS" }
+        val allChannels = allCategories.getOrNull(allChannelsIndex)?.items.orEmpty()
         val number = channelNumberBuffer.toIntOrNull()
-        val target = number?.takeIf { it > 0 }?.let(viewModel::getCachedLiveChannelByNumber)
-        val targetCategoryId = target?.categoryId
-        val targetPlaylist = targetCategoryId?.let(viewModel::getCachedLiveCategoryPlaylist).orEmpty()
-        if (target?.type == MediaType.LIVE && !targetCategoryId.isNullOrBlank() && targetPlaylist.isNotEmpty()) {
-            val targetCategoryIndex = categories.indexOfFirst { it.categoryId == targetCategoryId }
-            if (targetCategoryIndex >= 0) onCategorySelected(targetCategoryIndex)
-            viewModel.currentPlaylist = targetPlaylist
-            onMediaSelected(target)
-        } else {
-            channelNumberFeedback = true
-            scope.launch {
-                delay(900)
-                channelNumberFeedback = false
-            }
-        }
+        val target = number
+            ?.takeIf { it > 0 }
+            ?.let { allChannels.getOrNull(it - 1) }
+
         channelNumberBuffer = ""
-        channelNumberJob?.cancel()
         channelNumberJob = null
+
+        if (target?.type == MediaType.LIVE && allChannelsIndex >= 0) {
+            onCategorySelected(allChannelsIndex)
+            onMediaSelected(target)
+        }
     }
 
     DisposableEffect(Unit) {
@@ -991,17 +990,35 @@ fun PlayerScreen(
                     KeyEvent.ACTION_DOWN -> {
                         if (overlayState == OverlayState.QUICK_INFO) resetAutoHideTimer()
                         val isRepeat = nativeEvent.repeatCount > 0
-                        if (isRepeat) isLongPressSeeking = true
+                        if (isRepeat && (
+                                nativeEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT ||
+                                    nativeEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
+                            )
+                        ) {
+                            isLongPressSeeking = true
+                        }
 
                         when (nativeEvent.keyCode) {
                             in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 -> {
-                                if (media?.type == MediaType.LIVE && overlayState == OverlayState.NONE) {
-                                    val digit = (nativeEvent.keyCode - KeyEvent.KEYCODE_0).toString()
-                                    channelNumberBuffer += digit
-                                    channelNumberJob?.cancel()
-                                    channelNumberJob = scope.launch {
-                                        delay(1300)
-                                        commitChannelNumber()
+                                if (isActualLiveRoute && overlayState == OverlayState.NONE) {
+                                    if (!isRepeat) {
+                                        if (channelNumberBuffer.isEmpty()) {
+                                            val allChannels = viewModel.uiState.liveStreamsGrouped
+                                                .firstOrNull { it.categoryId == "ALL_CHANNELS" }
+                                            if (allChannels != null && allChannels.items.isEmpty()) {
+                                                allChannelsLoadJob = viewModel.loadItemsForCategory(
+                                                    MediaType.LIVE,
+                                                    allChannels.categoryId
+                                                )
+                                            }
+                                        }
+                                        val digit = (nativeEvent.keyCode - KeyEvent.KEYCODE_0).toString()
+                                        channelNumberBuffer += digit
+                                        channelNumberJob?.cancel()
+                                        channelNumberJob = scope.launch {
+                                            delay(1200)
+                                            commitChannelNumber()
+                                        }
                                     }
                                     true
                                 } else false
@@ -1090,6 +1107,9 @@ fun PlayerScreen(
                             KeyEvent.KEYCODE_DPAD_LEFT -> {
                                 if (overlayState == OverlayState.NONE) {
                                     if (isActualLiveRoute) {
+                                        categories.indexOfFirst { it.categoryId == "ALL_CHANNELS" }
+                                            .takeIf { it >= 0 }
+                                            ?.let(onCategorySelected)
                                         // SideOverlay positionerar och fokuserar den aktuella kanalen
                                         // efter att rätt rad faktiskt har komponerats.
                                         overlayState = OverlayState.CHANNELS
@@ -1136,10 +1156,11 @@ fun PlayerScreen(
                                 var overlayDecision = "OTHER"
                                 var centerAction = "none"
 
-                                val consumed = if (channelNumberBuffer.isNotEmpty() && media?.type == MediaType.LIVE && overlayState == OverlayState.NONE) {
+                                val consumed = if (channelNumberBuffer.isNotEmpty() && isActualLiveRoute && overlayState == OverlayState.NONE) {
                                     overlayDecision = "OTHER"
                                     centerAction = "commit_channel_number"
-                                    commitChannelNumber()
+                                    channelNumberJob?.cancel()
+                                    channelNumberJob = scope.launch { commitChannelNumber() }
                                     true
                                 } else if (showNextEpisodeButton && nextEpisode != null && overlayState == OverlayState.NONE) {
                                     overlayDecision = "OTHER"
@@ -1373,7 +1394,7 @@ fun PlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = channelNumberBuffer.isNotEmpty() || channelNumberFeedback,
+            visible = channelNumberBuffer.isNotEmpty(),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp)
@@ -1384,10 +1405,10 @@ fun PlayerScreen(
                 border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.25f))
             ) {
                 Text(
-                    text = if (channelNumberFeedback) "Kanal ej tillgänglig" else channelNumberBuffer,
+                    text = channelNumberBuffer,
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
                     color = Color.White,
-                    fontSize = if (channelNumberFeedback) 16.sp else 30.sp,
+                    fontSize = 30.sp,
                     fontWeight = FontWeight.Bold
                 )
             }

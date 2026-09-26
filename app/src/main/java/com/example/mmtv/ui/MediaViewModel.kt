@@ -277,6 +277,7 @@ class MediaViewModel(
 
     private var isFetching = false
     private var lastLoadedSeriesId: Int? = null
+    private var seriesDetailsRequestId = 0
 
     // Caches för Compose-reaktivitet utan suspending-overhead i UI-loopen
     val fullEpgData = mutableStateMapOf<String, List<EpgListing>>()
@@ -1589,19 +1590,24 @@ class MediaViewModel(
     }
 
     fun fetchSeriesDetails(seriesId: Int) {
-        if (lastLoadedSeriesId == seriesId) return
+        if (lastLoadedSeriesId == seriesId && selectedSeriesInfo != null) return
+        val requestId = ++seriesDetailsRequestId
         selectedSeriesInfo = null
         isDetailsLoading = true
         viewModelScope.launch {
             try {
                 val creds = sessionManager.getLogin() ?: return@launch
                 val info = _repository.api.getSeriesInfo(creds.second, creds.third, seriesId)
-                selectedSeriesInfo = info
-                lastLoadedSeriesId = seriesId
+                if (requestId == seriesDetailsRequestId) {
+                    selectedSeriesInfo = info
+                    lastLoadedSeriesId = seriesId
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             } finally {
-                isDetailsLoading = false
+                if (requestId == seriesDetailsRequestId) {
+                    isDetailsLoading = false
+                }
             }
         }
     }

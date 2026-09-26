@@ -1154,6 +1154,7 @@ fun PlayerScreen(
                                             overlayDecision = "OTHER"
                                         } else {
                                             quickInfoFocusTarget = QuickInfoFocusTarget.TV_TABLE
+                                            consumeOverlayOpeningCenterKey = true
                                             overlayState = OverlayState.QUICK_INFO
                                             overlayDecision = "QUICK_INFO"
                                         }

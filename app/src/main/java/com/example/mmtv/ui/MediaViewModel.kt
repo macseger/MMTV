@@ -7,6 +7,9 @@ import com.example.mmtv.api.SessionManager
 import com.example.mmtv.BuildConfig
 import com.example.mmtv.model.*
 import com.example.mmtv.repository.MediaRepository
+import com.example.mmtv.repository.TmdbEnrichmentCoordinator
+import com.example.mmtv.repository.TmdbLookupRequest
+import com.example.mmtv.repository.TmdbMetadataRepository
 import com.example.mmtv.util.StartupDiagnostics
 import com.example.mmtv.util.OverlayDiagnostics
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import java.io.IOException
 
 import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.database.MediaEntity
@@ -84,7 +88,8 @@ class MediaViewModel(
     private var _repository: MediaRepository, 
     private val sessionManager: SessionManager, 
     private val database: MediaDatabase,
-    private val context: android.content.Context
+    private val context: android.content.Context,
+    private val tmdbMetadataRepository: TmdbMetadataRepository?
 ) : ViewModel() {
 
     private companion object {
@@ -280,6 +285,9 @@ class MediaViewModel(
     private var seriesDetailsRequestId = 0
     private var movieDetailsRequestId = 0
     private var movieDetailsJob: Job? = null
+    private var activeTmdbDetailKey: DetailMetadataKey? = null
+    private var tmdbDetailsJob: Job? = null
+    private val tmdbEnrichmentCoordinator = TmdbEnrichmentCoordinator()
 
     // Caches för Compose-reaktivitet utan suspending-overhead i UI-loopen
     val fullEpgData = mutableStateMapOf<String, List<EpgListing>>()
@@ -309,6 +317,7 @@ class MediaViewModel(
 
     var selectedSeriesInfo by mutableStateOf<SeriesInfoResponse?>(null)
     var selectedMovieInfo by mutableStateOf<MovieInfoResponse?>(null)
+    private var keyedTmdbDetailMetadata by mutableStateOf<KeyedDetailMetadata?>(null)
     var isDetailsLoading by mutableStateOf(false)
 
     var searchQuery by mutableStateOf("")
@@ -1592,17 +1601,32 @@ class MediaViewModel(
     }
 
     fun fetchSeriesDetails(seriesId: Int) {
-        if (lastLoadedSeriesId == seriesId && selectedSeriesInfo != null) return
+        if (lastLoadedSeriesId == seriesId && selectedSeriesInfo != null) {
+            offerSeriesTmdbYear(seriesId, selectedSeriesInfo)
+            return
+        }
         val requestId = ++seriesDetailsRequestId
         selectedSeriesInfo = null
         isDetailsLoading = true
         viewModelScope.launch {
             try {
                 val creds = sessionManager.getLogin() ?: return@launch
-                val info = _repository.api.getSeriesInfo(creds.second, creds.third, seriesId)
+                val info = try {
+                    _repository.api.getSeriesInfo(creds.second, creds.third, seriesId)
+                } catch (e: IOException) {
+                    if (requestId != seriesDetailsRequestId) return@launch
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "SeriesDetails",
+                            "id=$seriesId request=$requestId outcome=retry_io category=${e.javaClass.simpleName}"
+                        )
+                    }
+                    _repository.api.getSeriesInfo(creds.second, creds.third, seriesId)
+                }
                 if (requestId == seriesDetailsRequestId) {
                     selectedSeriesInfo = info
                     lastLoadedSeriesId = seriesId
+                    offerSeriesTmdbYear(seriesId, info)
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -1642,6 +1666,7 @@ class MediaViewModel(
                 val info = _repository.api.getMovieInfo(creds.second, creds.third, movieId)
                 if (requestId == movieDetailsRequestId) {
                     selectedMovieInfo = info
+                    offerMovieTmdbYear(movieId, info)
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -1651,6 +1676,62 @@ class MediaViewModel(
                 if (requestId == movieDetailsRequestId) {
                     isDetailsLoading = false
                 }
+            }
+        }
+    }
+
+    fun beginTmdbDetailEnrichment(media: MediaSource) {
+        val key = DetailMetadataKey(media.type, media.id)
+        activeTmdbDetailKey = key
+        tmdbDetailsJob?.cancel()
+        keyedTmdbDetailMetadata = null
+        val catalogTitle = media.title?.takeIf { it.isNotBlank() } ?: return
+        launchTmdbLookup(tmdbEnrichmentCoordinator.begin(key, catalogTitle))
+    }
+
+    fun tmdbDetailMetadataFor(type: MediaType, mediaId: Int): DetailMetadata? {
+        val expectedKey = DetailMetadataKey(type, mediaId)
+        return keyedTmdbDetailMetadata?.takeIf { it.key == expectedKey }?.metadata
+    }
+
+    suspend fun resolveMediaForDetails(media: MediaSource): MediaSource {
+        if (media.type != MediaType.SERIES) return media
+        val canonicalMedia = withContext(Dispatchers.IO) {
+            mediaDao.getMediaById(media.id, MediaType.SERIES)?.toMediaSource()
+        }
+        return resolveCanonicalSeriesDetailsMedia(media, canonicalMedia)
+    }
+
+    private fun offerMovieTmdbYear(movieId: Int, info: MovieInfoResponse?) {
+        val request = tmdbEnrichmentCoordinator.offerRefinedYear(
+            DetailMetadataKey(MediaType.MOVIE, movieId),
+            info?.info?.releaseDate
+        )
+        if (request != null) launchTmdbLookup(request)
+    }
+
+    private fun offerSeriesTmdbYear(seriesId: Int, info: SeriesInfoResponse?) {
+        val request = tmdbEnrichmentCoordinator.offerRefinedYear(
+            DetailMetadataKey(MediaType.SERIES, seriesId),
+            info?.info?.releaseDate
+        )
+        if (request != null) launchTmdbLookup(request)
+    }
+
+    private fun launchTmdbLookup(request: TmdbLookupRequest) {
+        val repository = tmdbMetadataRepository ?: return
+        if (activeTmdbDetailKey != request.key || !tmdbEnrichmentCoordinator.isActive(request.key)) return
+
+        tmdbDetailsJob = viewModelScope.launch {
+            try {
+                val metadata = repository.getMetadata(request)
+                val completion = tmdbEnrichmentCoordinator.complete(request, metadata != null)
+                if (completion.shouldPublish && activeTmdbDetailKey == request.key && metadata != null) {
+                    keyedTmdbDetailMetadata = KeyedDetailMetadata(request.key, metadata)
+                }
+                completion.refinedRequest?.let(::launchTmdbLookup)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             }
         }
     }

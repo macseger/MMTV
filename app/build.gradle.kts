@@ -1,9 +1,21 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+
+val localProperties = Properties().apply {
+    val propertiesFile = rootProject.file("local.properties")
+    if (propertiesFile.isFile) {
+        propertiesFile.inputStream().use { load(it) }
+    }
+}
+val tmdbReadToken = localProperties.getProperty("TMDB_READ_TOKEN").orEmpty()
+fun String.asBuildConfigString(): String =
+    "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
 val appVersionName = "6.0"
 val releaseSigningEnvironment = mapOf(
@@ -26,6 +38,7 @@ android {
         targetSdk = 35
         versionCode = 20
         versionName = appVersionName
+        buildConfigField("String", "TMDB_READ_TOKEN", tmdbReadToken.asBuildConfigString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

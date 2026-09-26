@@ -34,11 +34,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.mmtv.api.ApiClient
 import com.example.mmtv.api.SessionManager
+import com.example.mmtv.api.TmdbClient
 import com.example.mmtv.database.MediaDatabase
 import com.example.mmtv.model.MediaType
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.EpgListing
 import com.example.mmtv.repository.MediaRepository
+import com.example.mmtv.repository.TmdbMetadataRepository
 import com.example.mmtv.repository.buildVerifiedCatchupUrl
 import com.example.mmtv.util.UpdateInstallResult
 import com.example.mmtv.util.UpdateManager
@@ -92,6 +94,9 @@ class MainActivity : AppCompatActivity() {
                     val context = LocalContext.current
                     val sessionManager = remember { SessionManager(context) }
                     val database = remember { MediaDatabase.getDatabase(context) }
+                    val tmdbMetadataRepository = remember {
+                        TmdbClient.create(BuildConfig.TMDB_READ_TOKEN)?.let(::TmdbMetadataRepository)
+                    }
                     val navController = rememberNavController()
                     
                     val loginInfo = sessionManager.getLogin()
@@ -106,7 +111,8 @@ class MainActivity : AppCompatActivity() {
                             ),
                             sessionManager = sessionManager,
                             database = database,
-                            context = context
+                            context = context,
+                            tmdbMetadataRepository = tmdbMetadataRepository
                         )
                     )
 
@@ -382,6 +388,11 @@ class MainActivity : AppCompatActivity() {
 
                                                     val currentPlaylist = sharedViewModel.uiState.liveStreamsGrouped.getOrNull(sharedViewModel.lastLiveCategoryIndex)?.items ?: emptyList()
                                                     playMedia(navController, media, sessionManager, sharedViewModel, currentPlaylist)
+                                                } else if (media.type == MediaType.SERIES) {
+                                                    lifecycleScope.launch {
+                                                        sharedViewModel.selectedMedia = sharedViewModel.resolveMediaForDetails(media)
+                                                        navController.navigate("details")
+                                                    }
                                                 } else {
                                                     sharedViewModel.selectedMedia = media
                                                     navController.navigate("details")
@@ -574,8 +585,18 @@ class MainActivity : AppCompatActivity() {
                                             },
                                             onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                             onMediaSelected = { media ->
-                                                sharedViewModel.selectedMedia = media
-                                                navController.navigate("details")
+                                                val fromHistory = series
+                                                    .getOrNull(sharedViewModel.lastSeriesCategoryIndex)
+                                                    ?.categoryId == "HISTORY"
+                                                if (fromHistory) {
+                                                    lifecycleScope.launch {
+                                                        sharedViewModel.selectedMedia = sharedViewModel.resolveMediaForDetails(media)
+                                                        navController.navigate("details")
+                                                    }
+                                                } else {
+                                                    sharedViewModel.selectedMedia = media
+                                                    navController.navigate("details")
+                                                }
                                             },
                                             onBackPressed = { navController.popBackStack() },
                                             topBarFocusRequester = topBarHomeFocusRequester

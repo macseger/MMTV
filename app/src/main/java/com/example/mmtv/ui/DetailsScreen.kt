@@ -36,8 +36,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
 import com.example.mmtv.api.SessionManager
 import com.example.mmtv.model.Episode
+import com.example.mmtv.model.DetailMetadata
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
+import com.example.mmtv.model.mergeDetailMetadata
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -63,6 +65,7 @@ fun DetailsScreen(
     val isSeries = media.type == MediaType.SERIES
     val seriesInfo = viewModel.selectedSeriesInfo
     val movieInfo = viewModel.selectedMovieInfo
+    val tmdbMetadata = viewModel.tmdbDetailMetadataFor(media.type, media.id)
     val lastWatchedEpId = remember(media.id) { sessionManager.getLastEpisodeId(media.id) }
 
     val continueData = remember(seriesInfo, lastWatchedEpId) {
@@ -102,9 +105,36 @@ fun DetailsScreen(
         } else null
     }
 
-    val currentPlot = if (isSeries) (seriesInfo?.info?.plot ?: media.plot) else (movieInfo?.info?.plot ?: media.plot)
-    val currentRating = if (isSeries) (seriesInfo?.info?.rating ?: media.rating) else (movieInfo?.info?.rating ?: media.rating)
-    val currentGenre = if (isSeries) (seriesInfo?.info?.genre ?: media.genre) else (movieInfo?.info?.genre ?: media.genre)
+    val xtreamMetadata = if (isSeries) {
+        DetailMetadata(
+            plot = seriesInfo?.info?.plot,
+            genre = seriesInfo?.info?.genre,
+            releaseDate = seriesInfo?.info?.releaseDate,
+            rating = seriesInfo?.info?.rating
+        )
+    } else {
+        DetailMetadata(
+            plot = movieInfo?.info?.plot,
+            genre = movieInfo?.info?.genre,
+            releaseDate = movieInfo?.info?.releaseDate,
+            rating = movieInfo?.info?.rating
+        )
+    }
+    val currentMetadata = mergeDetailMetadata(
+        tmdb = tmdbMetadata,
+        xtream = xtreamMetadata,
+        mediaSource = DetailMetadata(
+            plot = media.plot,
+            genre = media.genre,
+            rating = media.rating
+        )
+    )
+    val currentPlot = currentMetadata.plot
+    val currentRating = currentMetadata.rating
+    val currentGenre = currentMetadata.genre
+    val currentReleaseYear = currentMetadata.releaseDate
+        ?.take(4)
+        ?.takeIf { it.length == 4 && it.all(Char::isDigit) }
     val currentDirector = if (isSeries) (seriesInfo?.info?.director ?: media.director) else (movieInfo?.info?.director ?: media.director)
     val currentCast = if (isSeries) (seriesInfo?.info?.cast ?: media.cast) else (movieInfo?.info?.cast ?: media.cast)
 
@@ -113,7 +143,8 @@ fun DetailsScreen(
     // 2. Förbättrad säsongsindelning
     var selectedSeason by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(media.id) {
+    LaunchedEffect(media.type, media.id) {
+        viewModel.beginTmdbDetailEnrichment(media)
         if (isSeries) {
             // Nollställ vald säsong och hämta ny info
             selectedSeason = null
@@ -223,6 +254,13 @@ fun DetailsScreen(
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
                                     }
+                                }
+                                if (currentReleaseYear != null) {
+                                    Text(
+                                        text = currentReleaseYear,
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
                                 }
                                 Text(
                                     text = currentGenre ?: "VOD",

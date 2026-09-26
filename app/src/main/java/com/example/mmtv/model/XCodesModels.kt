@@ -26,6 +26,19 @@ private class XtreamArchiveValueAdapter : JsonDeserializer<Int?> {
     }
 }
 
+private class MovieInfoAdapter : JsonDeserializer<MovieInfo?> {
+    override fun deserialize(
+        json: JsonElement?,
+        typeOfT: Type?,
+        context: JsonDeserializationContext?
+    ): MovieInfo? {
+        if (json == null || json.isJsonNull) return null
+        if (json.isJsonArray && json.asJsonArray.size() == 0) return null
+        if (!json.isJsonObject) throw JsonParseException("Expected Movie info object or empty array")
+        return context?.deserialize(json, MovieInfo::class.java)
+    }
+}
+
 data class LoginResponse(
     @SerializedName("user_info") val userInfo: UserInfo?,
     @SerializedName("server_info") val serverInfo: ServerInfo?
@@ -93,7 +106,7 @@ data class Series(
 )
 
 data class MovieInfoResponse(
-    val info: MovieInfo?,
+    @JsonAdapter(MovieInfoAdapter::class) val info: MovieInfo?,
     @SerializedName("movie_data") val movieData: Movie?
 )
 

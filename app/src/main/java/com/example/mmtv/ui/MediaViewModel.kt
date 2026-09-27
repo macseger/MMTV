@@ -302,6 +302,8 @@ class MediaViewModel(
     private val preparedEpgCategoryIds = ConcurrentHashMap.newKeySet<String>()
     private val loadedFullEpgIds = ConcurrentHashMap.newKeySet<String>()
     private val categoryLoadJobs = mutableMapOf<MediaType, Job>()
+    var loadingCategory by mutableStateOf<Pair<MediaType, String?>?>(null)
+        private set
     
     // Cache för nuvarande program och ikoner
     private val currentEpgCache = mutableMapOf<String, EpgListing?>()
@@ -806,6 +808,7 @@ class MediaViewModel(
             }
         }
         fun restoredIndex(old: List<GroupedMedia>, index: Int, updated: List<GroupedMedia>, fallback: Int = 0): Int {
+            if (index < 0) return -1
             val id = old.getOrNull(index)?.categoryId
             return updated.indexOfFirst { id != null && it.categoryId == id }
                 .takeIf { it >= 0 } ?: fallback.coerceIn(0, updated.lastIndex.coerceAtLeast(0))
@@ -1063,8 +1066,37 @@ class MediaViewModel(
 
     fun loadItemsForCategory(type: MediaType, categoryId: String?): Job {
         categoryLoadJobs[type]?.cancel()
+        val loadingKey = type to categoryId
         return viewModelScope.launch {
-            loadCategoryItems(type, categoryId)
+            loadingCategory = loadingKey
+            try {
+                loadCategoryItems(type, categoryId)
+            } finally {
+                if (loadingCategory == loadingKey) loadingCategory = null
+            }
+        }.also { categoryLoadJobs[type] = it }
+    }
+
+    /** Loads the real VOD categories used by the UI's synthetic "all" filter. */
+    fun loadAllItemsForType(type: MediaType): Job {
+        categoryLoadJobs[type]?.cancel()
+        val loadingKey = type to "__ALL_VOD__"
+        return viewModelScope.launch {
+            loadingCategory = loadingKey
+            try {
+                val groups = when (type) {
+                    MediaType.MOVIE -> uiState.movieCategories
+                    MediaType.SERIES -> uiState.seriesCategories
+                    MediaType.LIVE -> emptyList()
+                }
+                groups
+                    .filter { it.categoryId != null && it.categoryId != "HISTORY" && it.categoryId != "FAVORITES" }
+                    .forEach { group ->
+                        loadCategoryItems(type, group.categoryId, prefetchEpg = false)
+                    }
+            } finally {
+                if (loadingCategory == loadingKey) loadingCategory = null
+            }
         }.also { categoryLoadJobs[type] = it }
     }
 

@@ -19,10 +19,16 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +39,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -67,13 +74,45 @@ fun MediaListScreen(
     backgroundColor: Color = Color.Black,
     onBackPressed: (() -> Unit)? = null,
     backNavigatesImmediately: Boolean = false,
-    topBarFocusRequester: FocusRequester? = null
+    topBarFocusRequester: FocusRequester? = null,
+    syntheticAllTitle: String? = null,
+    onSyntheticAllSelected: () -> Unit = {},
+    mediaType: MediaType? = null,
+    resetToAllToken: Int = 0
 ) {
-    var selectedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
-    var debouncedCategoryIndex by remember(initialCategoryIndex) { mutableIntStateOf(initialCategoryIndex) }
+    val hasSyntheticAllCategory = !isLive && syntheticAllTitle != null
+    val categoryIndexOffset = if (hasSyntheticAllCategory) 1 else 0
+    val displayGroupedList = remember(groupedList, syntheticAllTitle, isLive) {
+        if (hasSyntheticAllCategory) {
+            val allItems = groupedList
+                .asSequence()
+                .filter { it.categoryId != "HISTORY" && it.categoryId != "FAVORITES" }
+                .flatMap { it.items.asSequence() }
+                .distinctBy { it.id }
+                .toList()
+            listOf(
+                GroupedMedia(
+                    title = syntheticAllTitle!!,
+                    categoryId = "__ALL_VOD__",
+                    items = allItems
+                )
+            ) + groupedList
+        } else {
+            groupedList
+        }
+    }
+    val initialDisplayedCategoryIndex = if (hasSyntheticAllCategory && initialCategoryIndex < 0) {
+        0
+    } else {
+        initialCategoryIndex + categoryIndexOffset
+    }
+    var selectedCategoryIndex by remember(initialDisplayedCategoryIndex) { mutableIntStateOf(initialDisplayedCategoryIndex) }
+    var focusedCategoryIndex by remember(initialDisplayedCategoryIndex) { mutableIntStateOf(initialDisplayedCategoryIndex) }
+    var appliedResetToken by rememberSaveable { mutableIntStateOf(0) }
+    var debouncedCategoryIndex by remember(initialDisplayedCategoryIndex) { mutableIntStateOf(initialDisplayedCategoryIndex) }
     var lastGridCategoryIndex by remember { mutableIntStateOf(debouncedCategoryIndex) }
     
-    val selectedCategory = groupedList.getOrNull(debouncedCategoryIndex)
+    val selectedCategory = displayGroupedList.getOrNull(debouncedCategoryIndex)
     // Removed heuristic to avoid issues with empty lists
     
     var focusedMedia by remember { mutableStateOf<MediaSource?>(null) }
@@ -88,9 +127,25 @@ fun MediaListScreen(
     // Debounce category change to avoid jank when scrolling fast
     LaunchedEffect(selectedCategoryIndex) {
         if (selectedCategoryIndex != debouncedCategoryIndex) {
-            delay(200) // Debounce time
+            // VOD changes happen only after CENTER/ENTER, so persist the original
+            // category index immediately before the user can open a poster.
+            if (!isLive) {
+                debouncedCategoryIndex = selectedCategoryIndex
+                if (hasSyntheticAllCategory && selectedCategoryIndex == 0) {
+                    onSyntheticAllSelected()
+                } else {
+                    onCategoryChanged(selectedCategoryIndex - categoryIndexOffset)
+                }
+                return@LaunchedEffect
+            }
+
+            delay(200) // Keep the existing Live TV debounce behavior.
             debouncedCategoryIndex = selectedCategoryIndex
-            onCategoryChanged(selectedCategoryIndex)
+            if (hasSyntheticAllCategory && selectedCategoryIndex == 0) {
+                onSyntheticAllSelected()
+            } else {
+                onCategoryChanged(selectedCategoryIndex - categoryIndexOffset)
+            }
         }
     }
 
@@ -98,13 +153,18 @@ fun MediaListScreen(
         runCatching { this.requestFocus() }
     }
 
-    LaunchedEffect(initialCategoryIndex, initialMediaId) {
+    LaunchedEffect(initialCategoryIndex, initialMediaId, resetToAllToken) {
         delay(100)
-        selectedCategoryIndex = initialCategoryIndex
-        debouncedCategoryIndex = initialCategoryIndex
+        val restoreAll = hasSyntheticAllCategory && resetToAllToken > 0 && resetToAllToken != appliedResetToken
+        if (restoreAll) appliedResetToken = resetToAllToken
+        val targetCategoryIndex = if (restoreAll) 0 else initialDisplayedCategoryIndex
+        selectedCategoryIndex = targetCategoryIndex
+        focusedCategoryIndex = targetCategoryIndex
+        debouncedCategoryIndex = targetCategoryIndex
+        if (isLive) onCategoryChanged(0)
 
         if (isTvMode) {
-            if (initialMediaId != null) {
+            if (!restoreAll && initialMediaId != null) {
                 val index = selectedCategory?.items?.indexOfFirst { it.id == initialMediaId } ?: -1
                 if (index != -1) {
                     if (isLive) {
@@ -162,7 +222,7 @@ fun MediaListScreen(
             modifier = Modifier
                 .fillMaxHeight()
                 .width(240.dp)
-                .background(Color(0xFF121212))
+                .background(backgroundColor)
                 .onFocusChanged { isSidebarFocused = it.hasFocus }
                 .padding(vertical = 16.dp)
         ) {
@@ -170,23 +230,34 @@ fun MediaListScreen(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(groupedList.size, key = { index -> groupedList[index].categoryId ?: index }) { index ->
-                    val title = groupedList.getOrNull(index)?.title ?: "Kategori"
+                items(displayGroupedList.size, key = { index -> displayGroupedList[index].categoryId ?: index }) { index ->
+                    val category = displayGroupedList.getOrNull(index)
+                    val title = categoryDisplayTitle(category?.title, category?.categoryId, isLive)
+                    val icon = systemCategoryIcon(category?.categoryId, category?.title)
                     val requester = categoryFocusRequesters.getOrPut(index) { FocusRequester() }
                     
                     CategoryItem(
                         title = title,
+                        icon = icon,
                         isSelected = selectedCategoryIndex == index,
                         modifier = Modifier
                             .focusRequester(requester)
                             .onFocusChanged { 
                                 if (it.isFocused) {
-                                    selectedCategoryIndex = index
+                                    focusedCategoryIndex = index
+                                    if (isLive) selectedCategoryIndex = index
                                 }
                             }
                             .onKeyEvent {
-                                if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                    val firstChannelId = groupedList.getOrNull(index)?.items?.firstOrNull()?.id
+                                if (!isLive &&
+                                    (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                                        it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_ENTER) &&
+                                    it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN
+                                ) {
+                                    selectedCategoryIndex = index
+                                    true
+                                } else if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                    val firstChannelId = displayGroupedList.getOrNull(selectedCategoryIndex)?.items?.firstOrNull()?.id
                                     if (firstChannelId != null) {
                                         channelFocusRequesters[firstChannelId]?.safeFocus()
                                         true
@@ -195,6 +266,7 @@ fun MediaListScreen(
                             },
                         onClick = { 
                             selectedCategoryIndex = index
+                            focusedCategoryIndex = index
                         }
                     )
                 }
@@ -257,36 +329,55 @@ fun MediaListScreen(
         } else {
             // NETFLIX-STYLE VOD GRID
             Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
-                LazyVerticalGrid(
-                    state = gridState,
-                    columns = GridCells.Adaptive(minSize = 124.dp),
-                    contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
-                ) {
-                    val items = selectedCategory?.items ?: emptyList()
-                    items(items, key = { it.id }) { media ->
-                        val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
-                        
-                        MediaCard(
-                            media = media,
-                            viewModel = viewModel,
-                            modifier = Modifier
-                                .focusRequester(requester)
-                                .onFocusChanged { if (it.isFocused) focusedMedia = media }
-                                .onKeyEvent {
-                                    if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                        // Attempt to move focus left. If it fails, go to category sidebar.
-                                        val moved = focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
-                                        if (!moved) {
-                                            categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
-                                            true
-                                        } else true
-                                    } else false
-                                },
-                            onClick = { onMediaSelected(media) },
-                            onToggleFavorite = { mediaToShowMenu = media }
-                        )
+                val loadingKey = selectedCategory?.categoryId
+                val isCategoryLoading = mediaType != null && loadingKey != null &&
+                    viewModel.loadingCategory == (mediaType to loadingKey)
+                Box(modifier = Modifier.fillMaxSize()) {
+                    LazyVerticalGrid(
+                        state = gridState,
+                        columns = GridCells.Adaptive(minSize = 124.dp),
+                        contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        val items = selectedCategory?.items ?: emptyList()
+                        items(items, key = { it.id }) { media ->
+                            val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
+
+                            MediaCard(
+                                media = media,
+                                viewModel = viewModel,
+                                modifier = Modifier
+                                    .focusRequester(requester)
+                                    .onFocusChanged { if (it.isFocused) focusedMedia = media }
+                                    .onKeyEvent {
+                                        if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                            // Attempt to move focus left. If it fails, go to category sidebar.
+                                            val moved = focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
+                                            if (!moved) {
+                                                categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
+                                                true
+                                            } else true
+                                        } else false
+                                    },
+                                onClick = { onMediaSelected(media) },
+                                onToggleFavorite = { mediaToShowMenu = media }
+                            )
+                        }
+                    }
+                    if (isCategoryLoading && selectedCategory?.items.isNullOrEmpty()) {
+                        Column(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(28.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                strokeWidth = 2.dp
+                            )
+                            Text("Laddar…", color = Color.Gray, style = MaterialTheme.typography.bodyMedium)
+                        }
                     }
                 }
             }
@@ -390,8 +481,46 @@ fun LiveDetailPane(media: MediaSource, currentEpg: EpgListing?, nextEpg: EpgList
     }
 }
 
+private fun systemCategoryIcon(categoryId: String?, title: String?): ImageVector? {
+    return when (categoryId) {
+        "ALL_CHANNELS" -> Icons.Default.LiveTv
+        "HISTORY" -> Icons.Default.History
+        "FAVORITES" -> Icons.Default.StarBorder
+        "__ALL_VOD__" -> if (title?.contains("SERIER", ignoreCase = true) == true) {
+            Icons.Default.Tv
+        } else {
+            Icons.Default.Movie
+        }
+        else -> null
+    }
+}
+
+private fun categoryDisplayTitle(title: String?, categoryId: String?, isLive: Boolean): String {
+    val rawTitle = title ?: "Kategori"
+    val withoutSystemEmoji = if (categoryId in setOf("ALL_CHANNELS", "HISTORY", "FAVORITES")) {
+        rawTitle.replaceFirst(Regex("^\\s*(?:📺|🕒|⭐)\\s*"), "")
+    } else {
+        rawTitle
+    }
+    if (isLive) return withoutSystemEmoji
+
+    // Display-only cleanup; the original title and category ID remain unchanged.
+    return withoutSystemEmoji
+        .replaceFirst(
+            Regex("^\\s*(?:series|serier|movie|movies|film|filmer)\\s*:\\s*", RegexOption.IGNORE_CASE),
+            ""
+        )
+        .ifBlank { rawTitle }
+}
+
 @Composable
-fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun CategoryItem(
+    title: String,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    onClick: () -> Unit
+) {
     var hasFocus by remember { mutableStateOf(false) }
     val backgroundColor by animateColorAsState(
         targetValue = when {
@@ -415,16 +544,42 @@ fun CategoryItem(title: String, isSelected: Boolean, modifier: Modifier = Modifi
         color = backgroundColor,
         shape = RoundedCornerShape(8.dp)
     ) {
-        Text(
-            text = title,
-            modifier = Modifier.padding(16.dp, 12.dp),
-            style = MaterialTheme.typography.bodyLarge.copy(
-                fontWeight = if (isSelected || hasFocus) FontWeight.Bold else FontWeight.Normal
-            ),
-            color = if (isSelected) Color.Black else if (hasFocus) Color.White else Color.Gray,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        val contentColor = if (isSelected) Color.Black else if (hasFocus) Color.White else Color.Gray
+        if (icon == null) {
+            Text(
+                text = title,
+                modifier = Modifier.padding(16.dp, 12.dp),
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontWeight = if (isSelected || hasFocus) FontWeight.Bold else FontWeight.Normal
+                ),
+                color = contentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        } else {
+            Row(
+                modifier = Modifier.padding(16.dp, 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = title,
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = if (isSelected || hasFocus) FontWeight.Bold else FontWeight.Normal
+                    ),
+                    color = contentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }
 

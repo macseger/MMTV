@@ -118,6 +118,8 @@ class MainActivity : AppCompatActivity() {
 
                     var isProvisioning by remember { mutableStateOf(false) }
                     var provisioningStatus by remember { mutableStateOf("") }
+                    var sectionEntryToken by remember { mutableIntStateOf(0) }
+                    var explicitSectionRoute by remember { mutableStateOf<String?>(null) }
 
                     // Network loading and category selection are rendered inside the app.
                     // Never keep the splash visible while waiting for an empty channel list.
@@ -321,6 +323,15 @@ class MainActivity : AppCompatActivity() {
                                 if (showTopBar) {
                                     TopBar(
                                         onNavigate = { dest -> 
+                                            if (dest == "live" || dest == "movies" || dest == "series") {
+                                                explicitSectionRoute = dest
+                                                sectionEntryToken++
+                                                when (dest) {
+                                                    "live" -> sharedViewModel.lastLiveCategoryIndex = 0
+                                                    "movies" -> sharedViewModel.lastMovieCategoryIndex = -1
+                                                    "series" -> sharedViewModel.lastSeriesCategoryIndex = -1
+                                                }
+                                            }
                                             navController.navigate(dest) {
                                                 popUpTo("home") { saveState = true }
                                                 launchSingleTop = true
@@ -328,10 +339,10 @@ class MainActivity : AppCompatActivity() {
                                             }
                                         },
                                         onLiveTvClick = {
+                                            explicitSectionRoute = "live"
+                                            sectionEntryToken++
+                                            sharedViewModel.lastLiveCategoryIndex = 0
                                             val favIndex = sharedViewModel.uiState.liveCategories.indexOfFirst { it.categoryId == "FAVORITES" && it.items.isNotEmpty() }
-                                            if (favIndex >= 0) {
-                                                sharedViewModel.lastLiveCategoryIndex = favIndex
-                                            }
                                             navController.navigate("live") {
                                                 popUpTo("home") { saveState = true }
                                                 launchSingleTop = true
@@ -433,9 +444,10 @@ class MainActivity : AppCompatActivity() {
                                             groupedList = liveStreamsGrouped,
                                             viewModel = sharedViewModel,
                                             initialCategoryIndex = sharedViewModel.lastLiveCategoryIndex,
-                                            initialMediaId = sharedViewModel.selectedMedia?.id,
+                                            initialMediaId = sharedViewModel.selectedMedia?.takeIf { it.type == MediaType.LIVE }?.id,
                                             isLive = true,
                                             isTvMode = sharedViewModel.isTvMode,
+                                            resetToAllToken = if (explicitSectionRoute == "live") sectionEntryToken else 0,
                                             onCategoryChanged = { index ->
                                                 sharedViewModel.lastLiveCategoryIndex = index
                                                 val category = liveStreamsGrouped.getOrNull(index)
@@ -510,12 +522,17 @@ class MainActivity : AppCompatActivity() {
                                         MediaListScreen(
                                             groupedList = movies,
                                             viewModel = sharedViewModel,
-                                            initialCategoryIndex = initialIndex,
-                                            initialMediaId = sharedViewModel.selectedMedia
-                                                ?.takeIf { it.type == MediaType.MOVIE }
-                                                ?.id,
+                                            initialCategoryIndex = sharedViewModel.lastMovieCategoryIndex,
+                                            initialMediaId = sharedViewModel.selectedMedia?.takeIf { it.type == MediaType.MOVIE }?.id,
                                             isLive = false,
                                             isTvMode = sharedViewModel.isTvMode,
+                                            mediaType = MediaType.MOVIE,
+                                            resetToAllToken = if (explicitSectionRoute == "movies") sectionEntryToken else 0,
+                                            syntheticAllTitle = "ALLA FILMER",
+                                            onSyntheticAllSelected = {
+                                                sharedViewModel.lastMovieCategoryIndex = -1
+                                                sharedViewModel.loadAllItemsForType(MediaType.MOVIE)
+                                            },
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastMovieCategoryIndex = index 
                                                 val category = movies.getOrNull(index)
@@ -570,12 +587,17 @@ class MainActivity : AppCompatActivity() {
                                         MediaListScreen(
                                             groupedList = series,
                                             viewModel = sharedViewModel,
-                                            initialCategoryIndex = initialIndex,
-                                            initialMediaId = sharedViewModel.selectedMedia
-                                                ?.takeIf { it.type == MediaType.SERIES }
-                                                ?.id,
+                                            initialCategoryIndex = sharedViewModel.lastSeriesCategoryIndex,
+                                            initialMediaId = sharedViewModel.selectedMedia?.takeIf { it.type == MediaType.SERIES }?.id,
                                             isLive = false,
                                             isTvMode = sharedViewModel.isTvMode,
+                                            mediaType = MediaType.SERIES,
+                                            resetToAllToken = if (explicitSectionRoute == "series") sectionEntryToken else 0,
+                                            syntheticAllTitle = "ALLA SERIER",
+                                            onSyntheticAllSelected = {
+                                                sharedViewModel.lastSeriesCategoryIndex = -1
+                                                sharedViewModel.loadAllItemsForType(MediaType.SERIES)
+                                            },
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastSeriesCategoryIndex = index 
                                                 val category = series.getOrNull(index)

@@ -15,6 +15,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -190,9 +191,13 @@ fun LoginScreen(viewModel: MediaViewModel, onLogin: (String, String, String) -> 
         ) {
             Box(contentAlignment = Alignment.BottomCenter) {
                 Image(
-                    painter = painterResource(id = R.drawable.mmtv_icon),
+                    painter = painterResource(id = R.drawable.mmtv_logo_wide),
                     contentDescription = "MMTV Logo",
-                    modifier = Modifier.size(280.dp).alpha(0.8f)
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .width(360.dp)
+                        .aspectRatio(1983f / 793f)
+                        .alpha(0.8f)
                 )
                 
                 // Animerad "tidslinje" under loggan
@@ -262,9 +267,12 @@ fun ProvisioningOverlay(status: String) {
                     strokeWidth = 4.dp
                 )
                 Image(
-                    painter = painterResource(id = R.drawable.mmtv_icon),
+                    painter = painterResource(id = R.drawable.mmtv_logo_wide),
                     contentDescription = null,
-                    modifier = Modifier.size(60.dp)
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .width(220.dp)
+                        .aspectRatio(1983f / 793f)
                 )
             }
             

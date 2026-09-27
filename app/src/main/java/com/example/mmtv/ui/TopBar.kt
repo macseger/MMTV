@@ -1,6 +1,8 @@
 package com.example.mmtv.ui
 
 import com.example.mmtv.ui.theme.FocusBorderColor
+import com.example.mmtv.R
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
@@ -20,6 +22,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -62,14 +66,14 @@ fun TopBar(
                 horizontalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 // App Logo or Name
-                Text(
-                    text = "MMTV",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.primary,
-                        letterSpacing = 2.sp
-                    ),
-                    modifier = Modifier.padding(end = 16.dp)
+                Image(
+                    painter = painterResource(id = R.drawable.mmtv_logo_wide),
+                    contentDescription = "MMTV",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .width(110.dp)
+                        .height(36.dp)
+                        .padding(end = 16.dp)
                 )
 
                 TopBarItem("SÖK", Icons.Default.Search, focusedItem == "search") {

@@ -17,7 +17,7 @@ val tmdbReadToken = localProperties.getProperty("TMDB_READ_TOKEN").orEmpty()
 fun String.asBuildConfigString(): String =
     "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
 
-val appVersionName = "6.1"
+val appVersionName = "6.2"
 val releaseSigningEnvironment = mapOf(
     "MMTV_KEYSTORE_PATH" to System.getenv("MMTV_KEYSTORE_PATH"),
     "MMTV_KEYSTORE_PASSWORD" to System.getenv("MMTV_KEYSTORE_PASSWORD"),
@@ -36,7 +36,7 @@ android {
         applicationId = "com.example.mmtv"
         minSdk = 26
         targetSdk = 35
-        versionCode = 21
+        versionCode = 22
         versionName = appVersionName
         buildConfigField("String", "TMDB_READ_TOKEN", tmdbReadToken.asBuildConfigString())
 

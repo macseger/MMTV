@@ -28,12 +28,14 @@ interface TmdbApi {
     @GET("movie/{movie_id}")
     suspend fun getMovieDetails(
         @Path("movie_id") movieId: Int,
-        @Query("language") language: String = "sv-SE"
+        @Query("language") language: String = "sv-SE",
+        @Query("append_to_response") appendToResponse: String = "credits"
     ): TmdbMovieDetails
 
     @GET("tv/{series_id}")
     suspend fun getTvDetails(
         @Path("series_id") seriesId: Int,
-        @Query("language") language: String = "sv-SE"
+        @Query("language") language: String = "sv-SE",
+        @Query("append_to_response") appendToResponse: String = "aggregate_credits"
     ): TmdbTvDetails
 }

@@ -5,7 +5,9 @@ data class DetailMetadata(
     val genre: String? = null,
     val releaseDate: String? = null,
     val rating: String? = null,
-    val backdropPath: String? = null
+    val backdropPath: String? = null,
+    val director: String? = null,
+    val cast: String? = null
 )
 
 data class DetailMetadataKey(
@@ -27,7 +29,9 @@ fun mergeDetailMetadata(
     genre = firstNonBlank(tmdb?.genre, xtream.genre, mediaSource.genre),
     releaseDate = firstNonBlank(tmdb?.releaseDate, xtream.releaseDate, mediaSource.releaseDate),
     rating = firstNonBlank(tmdb?.rating, xtream.rating, mediaSource.rating),
-    backdropPath = firstNonBlank(tmdb?.backdropPath, xtream.backdropPath, mediaSource.backdropPath)
+    backdropPath = firstNonBlank(tmdb?.backdropPath, xtream.backdropPath, mediaSource.backdropPath),
+    director = firstNonBlank(tmdb?.director, xtream.director, mediaSource.director),
+    cast = firstNonBlank(tmdb?.cast, xtream.cast, mediaSource.cast)
 )
 
 private fun firstNonBlank(vararg values: String?): String? =

@@ -1,6 +1,8 @@
 package com.example.mmtv.repository
 
 import com.example.mmtv.model.DetailMetadata
+import com.example.mmtv.model.TmdbCastCredit
+import com.example.mmtv.model.TmdbCredits
 import com.example.mmtv.model.TmdbMovieDetails
 import com.example.mmtv.model.TmdbTvDetails
 import com.example.mmtv.model.mergeDetailMetadata
@@ -155,5 +157,77 @@ class TmdbMetadataRepositoryTest {
         )
 
         assertEquals("/cinematic.jpg", merged.backdropPath)
+    }
+
+    @Test
+    fun movieCredits_extractsDirectorAndMultipleDirectors() {
+        val details = Gson().fromJson(
+            """{"credits":{"cast":[],"crew":[{"id":1,"name":"Director One","job":"Director","department":"Directing"},{"id":2,"name":"Editor","job":"Editor","department":"Editing"},{"id":3,"name":"Director Two","job":"Director","department":"Directing"},{"id":1,"name":"Director One","job":"Director","department":"Directing"}]}}""",
+            TmdbMovieDetails::class.java
+        )
+
+        assertEquals("Director One • Director Two", movieDirectors(details.credits))
+    }
+
+    @Test
+    fun movieCredits_sortsDeduplicatesAndLimitsCastToFive() {
+        val credits = TmdbCredits(
+            cast = listOf(
+                TmdbCastCredit(6, "Sixth", order = 6),
+                TmdbCastCredit(2, "Second", order = 2),
+                TmdbCastCredit(1, "First", order = 1),
+                TmdbCastCredit(3, "Third", order = 3),
+                TmdbCastCredit(4, "Fourth", order = 4),
+                TmdbCastCredit(5, "Fifth", order = 5),
+                TmdbCastCredit(1, "First duplicate", order = 7)
+            )
+        )
+
+        assertEquals("First • Second • Third • Fourth • Fifth", topCast(credits))
+    }
+
+    @Test
+    fun tvAggregateCredits_parsesAndSelectsTopCast() {
+        val details = Gson().fromJson(
+            """{"aggregate_credits":{"cast":[{"id":2,"name":"Second","order":2},{"id":1,"name":"First","order":1}],"crew":[]}}""",
+            TmdbTvDetails::class.java
+        )
+
+        assertEquals("First • Second", topCast(details.aggregateCredits))
+    }
+
+    @Test
+    fun detailsWithoutCredits_remainValid() {
+        val movie = Gson().fromJson("""{"genres":[]}""", TmdbMovieDetails::class.java)
+        val series = Gson().fromJson("""{"genres":[]}""", TmdbTvDetails::class.java)
+
+        assertNull(movie.credits)
+        assertNull(series.aggregateCredits)
+        assertNull(movieDirectors(movie.credits))
+        assertNull(topCast(series.aggregateCredits))
+    }
+
+    @Test
+    fun mergeDetailMetadata_fallsBackToXtreamCreditsPerField() {
+        val merged = mergeDetailMetadata(
+            tmdb = DetailMetadata(director = " ", cast = null),
+            xtream = DetailMetadata(director = "Xtream Director", cast = "Xtream Cast"),
+            mediaSource = DetailMetadata(director = "Catalog Director", cast = "Catalog Cast")
+        )
+
+        assertEquals("Xtream Director", merged.director)
+        assertEquals("Xtream Cast", merged.cast)
+    }
+
+    @Test
+    fun mergeDetailMetadata_prefersTmdbCreditsWhenPresent() {
+        val merged = mergeDetailMetadata(
+            tmdb = DetailMetadata(director = "TMDB Director", cast = "TMDB Cast"),
+            xtream = DetailMetadata(director = "Xtream Director", cast = "Xtream Cast"),
+            mediaSource = DetailMetadata(director = "Catalog Director", cast = "Catalog Cast")
+        )
+
+        assertEquals("TMDB Director", merged.director)
+        assertEquals("TMDB Cast", merged.cast)
     }
 }

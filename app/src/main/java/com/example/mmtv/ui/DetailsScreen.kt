@@ -21,6 +21,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -28,6 +29,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,6 +45,22 @@ import com.example.mmtv.model.mergeDetailMetadata
 import kotlinx.coroutines.launch
 
 private const val TMDB_BACKDROP_BASE_URL = "https://image.tmdb.org/t/p/w1280"
+private const val SEASON_SELECTOR_ITEM_KEY = "details_season_selector"
+private val SEASON_SELECTOR_TARGET_OFFSET = 64.dp
+
+internal fun selectNavigableSeasonTarget(
+    renderedSeasonKeys: List<String>,
+    seasonsWithEpisodes: Set<String>,
+    selectedSeason: String?
+): String? = selectedSeason?.takeIf {
+    it in renderedSeasonKeys && it in seasonsWithEpisodes
+} ?: renderedSeasonKeys.firstOrNull { it in seasonsWithEpisodes }
+
+internal fun shouldShowEpisodesShortcut(
+    isSeries: Boolean,
+    isDetailsLoading: Boolean,
+    navigableSeasonTarget: String?
+): Boolean = isSeries && !isDetailsLoading && navigableSeasonTarget != null
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -53,6 +72,7 @@ fun DetailsScreen(
     viewModel: MediaViewModel
 ) {
     val context = LocalContext.current
+    val density = LocalDensity.current
     val sessionManager = remember { SessionManager(context) }
     val detailsListState = rememberLazyListState()
     var headerHasFocus by remember(media.id) { mutableStateOf(false) }
@@ -111,14 +131,18 @@ fun DetailsScreen(
             plot = seriesInfo?.info?.plot,
             genre = seriesInfo?.info?.genre,
             releaseDate = seriesInfo?.info?.releaseDate,
-            rating = seriesInfo?.info?.rating
+            rating = seriesInfo?.info?.rating,
+            director = seriesInfo?.info?.director,
+            cast = seriesInfo?.info?.cast
         )
     } else {
         DetailMetadata(
             plot = movieInfo?.info?.plot,
             genre = movieInfo?.info?.genre,
             releaseDate = movieInfo?.info?.releaseDate,
-            rating = movieInfo?.info?.rating
+            rating = movieInfo?.info?.rating,
+            director = movieInfo?.info?.director,
+            cast = movieInfo?.info?.cast
         )
     }
     val currentMetadata = mergeDetailMetadata(
@@ -127,12 +151,16 @@ fun DetailsScreen(
         mediaSource = DetailMetadata(
             plot = media.plot,
             genre = media.genre,
-            rating = media.rating
+            rating = media.rating,
+            director = media.director,
+            cast = media.cast
         )
     )
     val currentPlot = currentMetadata.plot
     val currentRating = currentMetadata.rating
     val currentGenre = currentMetadata.genre
+    val currentDirector = currentMetadata.director
+    val currentCast = currentMetadata.cast
     val currentReleaseYear = currentMetadata.releaseDate
         ?.take(4)
         ?.takeIf { it.length == 4 && it.all(Char::isDigit) }
@@ -144,6 +172,34 @@ fun DetailsScreen(
 
     // 2. Förbättrad säsongsindelning
     var selectedSeason by remember { mutableStateOf<String?>(null) }
+    val seasonList = remember(seriesInfo) {
+        if (seriesInfo?.seasons != null && seriesInfo.seasons.isNotEmpty()) {
+            seriesInfo.seasons
+                .sortedBy { it.seasonNumber }
+                .map { it.seasonNumber.toString() to (it.name ?: "Säsong ${it.seasonNumber}") }
+        } else {
+            seriesInfo?.episodes?.keys
+                ?.sortedBy { it.toIntOrNull() ?: 999 }
+                ?.map { it to "Säsong $it" }
+                .orEmpty()
+        }
+    }
+    val navigableSeasonTarget = selectNavigableSeasonTarget(
+        renderedSeasonKeys = seasonList.map { it.first },
+        seasonsWithEpisodes = seriesInfo?.episodes.orEmpty()
+            .filterValues { it.isNotEmpty() }
+            .keys,
+        selectedSeason = selectedSeason
+    )
+    val showEpisodesShortcut = shouldShowEpisodesShortcut(
+        isSeries = isSeries,
+        isDetailsLoading = viewModel.isDetailsLoading,
+        navigableSeasonTarget = navigableSeasonTarget
+    )
+    val seasonListState = key(media.id) { rememberLazyListState() }
+    val seasonFocusRequester = remember(media.id) { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(media.type, media.id) {
         viewModel.beginTmdbDetailEnrichment(media)
@@ -227,8 +283,13 @@ fun DetailsScreen(
                 item {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
                         Column(
-                            modifier = Modifier.fillMaxWidth(0.58f).widthIn(max = 760.dp)
+                            modifier = Modifier
+                                .fillMaxWidth(0.58f)
+                                .widthIn(max = 760.dp)
+                                .heightIn(min = 440.dp),
+                            verticalArrangement = Arrangement.SpaceBetween
                         ) {
+                            Column {
                             Text(
                                 text = media.title ?: "Okänd titel",
                                 style = MaterialTheme.typography.headlineLarge.copy(
@@ -265,15 +326,64 @@ fun DetailsScreen(
                                 text = if (viewModel.isDetailsLoading && currentPlot == null) "Laddar info..." else (currentPlot ?: "Ingen beskrivning tillgänglig."),
                                 style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 25.sp),
                                 color = Color.White.copy(alpha = 0.82f),
-                                maxLines = 6,
+                                maxLines = 5,
                                 overflow = TextOverflow.Ellipsis
                             )
 
+                            if (!currentDirector.isNullOrBlank() || !currentCast.isNullOrBlank()) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 22.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(32.dp)
+                                ) {
+                                    if (!currentDirector.isNullOrBlank()) {
+                                        Column(modifier = Modifier.weight(0.35f)) {
+                                            Text(
+                                                text = "REGI",
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    letterSpacing = 1.5.sp
+                                                ),
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                                            )
+                                            Text(
+                                                text = currentDirector,
+                                                modifier = Modifier.padding(top = 4.dp),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = Color.White.copy(alpha = 0.82f),
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                    if (!currentCast.isNullOrBlank()) {
+                                        Column(modifier = Modifier.weight(0.65f)) {
+                                            Text(
+                                                text = "MEDVERKAN",
+                                                style = MaterialTheme.typography.labelSmall.copy(
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    letterSpacing = 1.5.sp
+                                                ),
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.9f)
+                                            )
+                                            Text(
+                                                text = currentCast,
+                                                modifier = Modifier.padding(top = 4.dp),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = Color.White.copy(alpha = 0.82f),
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             Spacer(modifier = Modifier.height(32.dp))
+                            }
 
                             Row(
                                 modifier = Modifier.onFocusChanged { headerHasFocus = it.hasFocus },
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 // Request focus only once, after the play button has been composed.
                                 if (detailsLoadStarted && (!isSeries || (!viewModel.isDetailsLoading && continueData != null))) {
@@ -295,17 +405,27 @@ fun DetailsScreen(
                                                 onPlayMovie(media, false)
                                             }
                                         },
-                                        modifier = Modifier.height(52.dp).width(200.dp).focusRequester(playFocusRequester).onFocusChanged { playBtnFocus = it.isFocused },
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = if (playBtnFocus) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
+                                        modifier = Modifier.height(48.dp).focusRequester(playFocusRequester).onFocusChanged { playBtnFocus = it.isFocused },
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            if (playBtnFocus) 2.dp else 1.dp,
+                                            if (playBtnFocus) FocusBorderColor else Color.White.copy(alpha = 0.22f)
+                                        ),
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (playBtnFocus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.14f),
-                                            contentColor = Color.White
+                                            containerColor = if (playBtnFocus) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f),
+                                            contentColor = if (playBtnFocus) Color.White else Color.White.copy(alpha = 0.82f)
                                         )
                                     ) {
-                                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("SPELA FILM", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            "SPELA FILM",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 } else if (continueData != null) {
                                     val (ep, sNum, eNum) = continueData
@@ -322,17 +442,81 @@ fun DetailsScreen(
                                                 onPlayEpisode(ep, false)
                                             }
                                         },
-                                        modifier = Modifier.height(52.dp).focusRequester(playFocusRequester).onFocusChanged { playBtnFocus = it.isFocused },
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = if (playBtnFocus) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,
+                                        modifier = Modifier.height(48.dp).focusRequester(playFocusRequester).onFocusChanged { playBtnFocus = it.isFocused },
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            if (playBtnFocus) 2.dp else 1.dp,
+                                            if (playBtnFocus) FocusBorderColor else Color.White.copy(alpha = 0.22f)
+                                        ),
                                         colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (playBtnFocus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.14f),
-                                            contentColor = Color.White
+                                            containerColor = if (playBtnFocus) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f),
+                                            contentColor = if (playBtnFocus) Color.White else Color.White.copy(alpha = 0.82f)
                                         )
                                     ) {
-                                        Icon(Icons.Default.PlayArrow, contentDescription = null)
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(btnText, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            btnText,
+                                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                if (showEpisodesShortcut) {
+                                    var episodesBtnFocus by remember { mutableStateOf(false) }
+                                    OutlinedButton(
+                                        onClick = {
+                                            val targetSeason = navigableSeasonTarget
+                                            val targetIndex = seasonList.indexOfFirst { it.first == targetSeason }
+                                            if (targetIndex >= 0) {
+                                                if (selectedSeason != targetSeason) {
+                                                    selectedSeason = targetSeason
+                                                }
+                                                focusManager.moveFocus(FocusDirection.Down)
+                                                coroutineScope.launch {
+                                                    seasonListState.animateScrollToItem(targetIndex)
+                                                    withFrameNanos { }
+                                                    seasonFocusRequester.requestFocus()
+                                                    withFrameNanos { }
+                                                    val seasonItem = detailsListState.layoutInfo.visibleItemsInfo
+                                                        .firstOrNull { it.key == SEASON_SELECTOR_ITEM_KEY }
+                                                    if (seasonItem != null) {
+                                                        val targetOffset = with(density) {
+                                                            SEASON_SELECTOR_TARGET_OFFSET.roundToPx()
+                                                        }
+                                                        if (seasonItem.offset > targetOffset) {
+                                                            detailsListState.animateScrollToItem(
+                                                                index = seasonItem.index,
+                                                                scrollOffset = targetOffset
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.height(48.dp).onFocusChanged { episodesBtnFocus = it.isFocused },
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (episodesBtnFocus) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f),
+                                            contentColor = if (episodesBtnFocus) Color.White else Color.White.copy(alpha = 0.82f)
+                                        ),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            if (episodesBtnFocus) 2.dp else 1.dp,
+                                            if (episodesBtnFocus) FocusBorderColor else Color.White.copy(alpha = 0.22f)
+                                        )
+                                    ) {
+                                        Text(
+                                            "AVSNITT",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
                                     }
                                 }
 
@@ -340,15 +524,16 @@ fun DetailsScreen(
                                 var favBtnFocus by remember { mutableStateOf(false) }
                                 OutlinedButton(
                                     onClick = { onToggleFavorite(media) },
-                                    modifier = Modifier.height(52.dp).onFocusChanged { favBtnFocus = it.isFocused },
-                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.height(48.dp).onFocusChanged { favBtnFocus = it.isFocused },
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
                                     colors = ButtonDefaults.outlinedButtonColors(
-                                        containerColor = if (favBtnFocus) Color.White.copy(alpha = 0.1f) else Color.Transparent,
-                                        contentColor = if (favBtnFocus) Color.White else Color.Gray
+                                        containerColor = if (favBtnFocus) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.08f),
+                                        contentColor = if (favBtnFocus) Color.White else Color.White.copy(alpha = 0.82f)
                                     ),
                                     border = androidx.compose.foundation.BorderStroke(
-                                        if (favBtnFocus) 3.dp else 2.dp,
-                                        if (favBtnFocus) FocusBorderColor else Color.White.copy(alpha = 0.2f)
+                                        if (favBtnFocus) 2.dp else 1.dp,
+                                        if (favBtnFocus) FocusBorderColor else Color.White.copy(alpha = 0.22f)
                                     )
                                 ) {
                                     Icon(
@@ -357,10 +542,13 @@ fun DetailsScreen(
                                         tint = if (media.isFavorite) Color.Red else if (favBtnFocus) Color.White else Color.Gray,
                                         modifier = Modifier.size(20.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Text(
                                         if (media.isFavorite) "FAVORIT" else "LÄGG TILL",
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                                        style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold),
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -379,7 +567,7 @@ fun DetailsScreen(
                         }
                     } else if (seriesInfo?.episodes != null) {
                         // Säsongsväljare (LazyRow)
-                        item {
+                        item(key = SEASON_SELECTOR_ITEM_KEY) {
                             Text(
                                 text = "SÄSONGER",
                                 style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 2.sp),
@@ -387,26 +575,21 @@ fun DetailsScreen(
                                 modifier = Modifier.padding(bottom = 16.dp)
                             )
                             LazyRow(
+                                state = seasonListState,
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 contentPadding = PaddingValues(bottom = 8.dp)
                             ) {
-                                // Vi försöker använda 'seasons' listan för ordning och namn, annars 'episodes' nycklar
-                                val seasonList = if (seriesInfo.seasons != null && seriesInfo.seasons.isNotEmpty()) {
-                                    seriesInfo.seasons
-                                        .sortedBy { it.seasonNumber }
-                                        .map { it.seasonNumber.toString() to (it.name ?: "Säsong ${it.seasonNumber}") }
-                                } else {
-                                    seriesInfo.episodes.keys
-                                        .sortedBy { it.toIntOrNull() ?: 999 }
-                                        .map { it to "Säsong $it" }
-                                }
-
                                 items(seasonList, key = { it.first + it.second }) { (seasonKey, seasonName) ->
                                     SeasonTab(
                                         title = seasonName.uppercase(),
                                         isSelected = selectedSeason == seasonKey,
-                                        onClick = { selectedSeason = seasonKey }
+                                        onClick = { selectedSeason = seasonKey },
+                                        modifier = if (seasonKey == navigableSeasonTarget) {
+                                            Modifier.focusRequester(seasonFocusRequester)
+                                        } else {
+                                            Modifier
+                                        }
                                     )
                                 }
                             }
@@ -490,10 +673,10 @@ fun DetailsScreen(
 }
 
 @Composable
-fun SeasonTab(title: String, isSelected: Boolean, onClick: () -> Unit) {
+fun SeasonTab(title: String, isSelected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     var hasFocus by remember { mutableStateOf(false) }
     Surface(
-        modifier = Modifier
+        modifier = modifier
             .onFocusChanged { hasFocus = it.isFocused }
             .clickable { onClick() },
         border = if (hasFocus) androidx.compose.foundation.BorderStroke(3.dp, FocusBorderColor) else null,

@@ -5,6 +5,7 @@ import com.example.mmtv.BuildConfig
 import com.example.mmtv.api.TmdbApi
 import com.example.mmtv.model.DetailMetadata
 import com.example.mmtv.model.MediaType
+import com.example.mmtv.model.TmdbCredits
 import kotlinx.coroutines.CancellationException
 import retrofit2.HttpException
 import java.io.IOException
@@ -209,7 +210,9 @@ class TmdbMetadataRepository(private val api: TmdbApi) {
             genre = details.genres.mapNotNull { it.name.nonBlank() }.joinToString(", ").nonBlank(),
             releaseDate = details.releaseDate.nonBlank(),
             rating = formatRating(details.voteAverage, details.voteCount),
-            backdropPath = details.backdropPath.nonBlank()
+            backdropPath = details.backdropPath.nonBlank(),
+            director = movieDirectors(details.credits),
+            cast = topCast(details.credits)
         ).also { log(request, normalizedTitle, "details_success") }
     }
 
@@ -230,7 +233,8 @@ class TmdbMetadataRepository(private val api: TmdbApi) {
             genre = details.genres.mapNotNull { it.name.nonBlank() }.joinToString(", ").nonBlank(),
             releaseDate = details.firstAirDate.nonBlank(),
             rating = formatRating(details.voteAverage, details.voteCount),
-            backdropPath = details.backdropPath.nonBlank()
+            backdropPath = details.backdropPath.nonBlank(),
+            cast = topCast(details.aggregateCredits)
         ).also { log(request, normalizedTitle, "details_success") }
     }
 
@@ -264,3 +268,28 @@ class TmdbMetadataRepository(private val api: TmdbApi) {
 
     private fun String?.nonBlank(): String? = this?.trim()?.takeIf { it.isNotEmpty() }
 }
+
+internal fun movieDirectors(credits: TmdbCredits?): String? = credits
+    ?.crew
+    .orEmpty()
+    .asSequence()
+    .filter { it.job.equals("Director", ignoreCase = true) }
+    .mapNotNull { credit -> credit.name?.trim()?.takeIf(String::isNotEmpty)?.let { credit.id to it } }
+    .distinctBy { (id, name) -> id?.let { "id:$it" } ?: "name:${name.lowercase(Locale.ROOT)}" }
+    .map { it.second }
+    .toList()
+    .joinToString(" • ")
+    .takeIf(String::isNotEmpty)
+
+internal fun topCast(credits: TmdbCredits?, limit: Int = 5): String? = credits
+    ?.cast
+    .orEmpty()
+    .asSequence()
+    .sortedBy { it.order ?: Int.MAX_VALUE }
+    .mapNotNull { credit -> credit.name?.trim()?.takeIf(String::isNotEmpty)?.let { credit.id to it } }
+    .distinctBy { (id, name) -> id?.let { "id:$it" } ?: "name:${name.lowercase(Locale.ROOT)}" }
+    .take(limit)
+    .map { it.second }
+    .toList()
+    .joinToString(" • ")
+    .takeIf(String::isNotEmpty)

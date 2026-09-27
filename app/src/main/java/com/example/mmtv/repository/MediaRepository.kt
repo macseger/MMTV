@@ -36,6 +36,29 @@ data class RefreshResult(
     val isCompleteSuccess: Boolean get() = status == RefreshStatus.SUCCESS
 }
 
+internal fun registerExternalEpgTarget(
+    targetsByVariant: MutableMap<String, MutableList<MediaEntity>>,
+    variant: String,
+    channel: MediaEntity
+) {
+    if (variant.isEmpty()) return
+    val targets = targetsByVariant.getOrPut(variant) { mutableListOf() }
+    if (targets.none { it.id == channel.id && it.type == channel.type }) {
+        targets.add(channel)
+    }
+}
+
+internal fun resolveExternalEpgTargets(
+    xmlVariants: List<String>,
+    targetsByVariant: Map<String, List<MediaEntity>>
+): List<MediaEntity> {
+    val matchedTargets = xmlVariants.firstNotNullOfOrNull { targetsByVariant[it] }.orEmpty()
+    return matchedTargets.distinctBy { it.externalEpgTargetId() }
+}
+
+internal fun MediaEntity.externalEpgTargetId(): String =
+    epgId?.takeIf(String::isNotBlank) ?: "stream:$id"
+
 fun buildVerifiedCatchupUrl(host: String, user: String, pass: String, streamId: Int, startTimestamp: Long, durationMinutes: Long): String {
     val formatter = SimpleDateFormat("yyyy-MM-dd:HH-mm", Locale.US).apply { timeZone = TimeZone.getDefault() }
     val startText = formatter.format(java.util.Date(startTimestamp * 1000L))
@@ -950,25 +973,23 @@ class MediaRepository(
         if (targetChannels.isEmpty() || !file.exists()) return@withContext 0
 
         // Bygg variant-mappning för kanaler som saknar EPG
-        val variantToChannelMap = mutableMapOf<String, MediaEntity>()
+        val variantToChannelMap = mutableMapOf<String, MutableList<MediaEntity>>()
         for (channel in targetChannels) {
             val variants = getSearchVariants(channel.title)
             val epgId = channel.epgId?.takeIf(String::isNotBlank)
             if (epgId != null) {
                 val cleanEpgId = epgId.lowercase().substringBefore(".").replace(Regex("[^a-z0-9]"), "")
                 if (cleanEpgId.isNotEmpty()) {
-                    variantToChannelMap[cleanEpgId] = channel
-                    variantToChannelMap["${cleanEpgId}se"] = channel
+                    registerExternalEpgTarget(variantToChannelMap, cleanEpgId, channel)
+                    registerExternalEpgTarget(variantToChannelMap, "${cleanEpgId}se", channel)
                 }
             }
             for (variant in variants) {
-                if (variant.isNotEmpty() && !variantToChannelMap.containsKey(variant)) {
-                    variantToChannelMap[variant] = channel
-                }
+                registerExternalEpgTarget(variantToChannelMap, variant, channel)
             }
         }
 
-        val xmlChannelToMediaMap = mutableMapOf<String, MediaEntity>()
+        val xmlChannelToMediaMap = mutableMapOf<String, List<MediaEntity>>()
         val batch = mutableListOf<EpgEntity>()
         var importedProgrammes = 0
         val now = System.currentTimeMillis() / 1000
@@ -979,34 +1000,31 @@ class MediaRepository(
                 input,
                 onChannelParsed = { xmlId, displayName, icon ->
                     val xmlVariants = (getSearchVariants(displayName.orEmpty()) + getSearchVariants(xmlId)).distinct()
-                    var matchedChannel: MediaEntity? = null
-                    for (variant in xmlVariants) {
-                        matchedChannel = variantToChannelMap[variant]
-                        if (matchedChannel != null) break
-                    }
-                    if (matchedChannel != null) {
-                        xmlChannelToMediaMap[xmlId] = matchedChannel
+                    val matchedChannels = resolveExternalEpgTargets(xmlVariants, variantToChannelMap)
+                    if (matchedChannels.isNotEmpty()) {
+                        xmlChannelToMediaMap[xmlId] = matchedChannels
                     }
                 },
                 acceptChannel = { xmlId -> xmlId in xmlChannelToMediaMap },
                 onProgrammeParsed = { xmlId, it ->
-                    val media = xmlChannelToMediaMap[xmlId]
-                    if (media != null && (it.stopTimestamp ?: 0L) > now && (it.startTimestamp ?: 0L) < endLimit) {
-                        val targetEpgId = media.epgId?.takeIf(String::isNotBlank) ?: "stream:${media.id}"
-                        batch.add(EpgEntity(
-                            epgId = targetEpgId,
-                            channelName = media.title,
-                            title = decodeEpgText(it.title),
-                            description = decodeEpgText(it.description),
-                            startTimestamp = it.startTimestamp ?: 0L,
-                            stopTimestamp = it.stopTimestamp ?: 0L,
-                            icon = it.icon
-                        ))
-                        importedProgrammes++
+                    val matchedChannels = xmlChannelToMediaMap[xmlId].orEmpty()
+                    if (matchedChannels.isNotEmpty() && (it.stopTimestamp ?: 0L) > now && (it.startTimestamp ?: 0L) < endLimit) {
+                        for (media in matchedChannels) {
+                            batch.add(EpgEntity(
+                                epgId = media.externalEpgTargetId(),
+                                channelName = media.title,
+                                title = decodeEpgText(it.title),
+                                description = decodeEpgText(it.description),
+                                startTimestamp = it.startTimestamp ?: 0L,
+                                stopTimestamp = it.stopTimestamp ?: 0L,
+                                icon = it.icon
+                            ))
+                            importedProgrammes++
 
-                        if (batch.size >= 500) {
-                            mediaDao.insertEpg(ArrayList(batch))
-                            batch.clear()
+                            if (batch.size >= 500) {
+                                mediaDao.insertEpg(ArrayList(batch))
+                                batch.clear()
+                            }
                         }
                     }
                 }

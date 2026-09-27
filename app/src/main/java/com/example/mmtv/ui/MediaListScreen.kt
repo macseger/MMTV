@@ -279,13 +279,27 @@ fun MediaListScreen(
             Row(modifier = Modifier.fillMaxSize()) {
                 // Column 2: Channel List
                 Column(modifier = Modifier.width(420.dp).fillMaxHeight().background(Color(0xFF0A0A0A))) {
-                    Text(
-                        text = selectedCategory?.title ?: "",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier.padding(24.dp)
-                    )
+                    val headingIcon = systemCategoryIcon(selectedCategory?.categoryId, selectedCategory?.title)
+                    Row(
+                        modifier = Modifier.padding(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (headingIcon != null) {
+                            Icon(
+                                imageVector = headingIcon,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                        }
+                        Text(
+                            text = categoryDisplayTitle(selectedCategory?.title, selectedCategory?.categoryId, isLive),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Black
+                        )
+                    }
 
                     LazyColumn(
                         state = listState,

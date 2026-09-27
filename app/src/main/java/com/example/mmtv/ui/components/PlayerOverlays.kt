@@ -220,8 +220,30 @@ fun SubtitleOptionItem(label: String, isSelected: Boolean, modifier: Modifier = 
     }
 }
 
+private fun overlaySystemCategoryIcon(categoryId: String?): ImageVector? = when (categoryId) {
+    "ALL_CHANNELS" -> Icons.Default.LiveTv
+    "FAVORITES" -> Icons.Default.StarBorder
+    else -> null
+}
+
+private fun overlayCategoryDisplayTitle(title: String?, categoryId: String?): String {
+    val rawTitle = title ?: ""
+    return if (categoryId == "ALL_CHANNELS" || categoryId == "FAVORITES") {
+        rawTitle.replaceFirst(Regex("^\\s*(?:📺|⭐)\\s*"), "")
+    } else {
+        rawTitle
+    }
+}
+
 @Composable
-fun CategoryListItem(title: String, isSelected: Boolean, viewModel: MediaViewModel, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun CategoryListItem(
+    title: String,
+    isSelected: Boolean,
+    viewModel: MediaViewModel,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    onClick: () -> Unit
+) {
     var hasFocus by remember { mutableStateOf(false) }
     
     // Optimering: Instant feedback
@@ -258,15 +280,24 @@ fun CategoryListItem(title: String, isSelected: Boolean, viewModel: MediaViewMod
                     }
                     .background(viewModel.currentThemeColor)
             )
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (hasFocus || isSelected) Color.White else Color.LightGray,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+            }
             Text(
-                text = title, 
-                modifier = Modifier.padding(horizontal = 20.dp), 
+                text = title,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp),
                 style = MaterialTheme.typography.bodyLarge.copy(
                     fontWeight = if (isSelected || hasFocus) FontWeight.Bold else FontWeight.Normal,
                     letterSpacing = if (hasFocus) 0.5.sp else 0.sp
-                ), 
-                color = if (hasFocus) Color.White else if (isSelected) Color.White.copy(alpha = 0.9f) else Color.LightGray, 
-                maxLines = 1, 
+                ),
+                color = if (hasFocus) Color.White else if (isSelected) Color.White.copy(alpha = 0.9f) else Color.LightGray,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
@@ -1154,7 +1185,8 @@ fun SideOverlay(
                             // men lastLiveCategoryIndex är det "bekräftade" valet.
                             val isSelected = focusedCategoryIndex == index
                             CategoryListItem(
-                                title = category.title ?: "",
+                                title = overlayCategoryDisplayTitle(category.title, category.categoryId),
+                                icon = overlaySystemCategoryIcon(category.categoryId),
                                 isSelected = isSelected,
                                 viewModel = viewModel,
                                 modifier = Modifier
@@ -1191,14 +1223,29 @@ fun SideOverlay(
                     val currentCategoryTitle = remember(categories, viewModel.lastLiveCategoryIndex) {
                         categories.getOrNull(viewModel.lastLiveCategoryIndex)?.title ?: ""
                     }
-                    Text(
-                        text = currentCategoryTitle.uppercase(),
+                    val currentCategory = categories.getOrNull(viewModel.lastLiveCategoryIndex)
+                    val currentCategoryIcon = overlaySystemCategoryIcon(currentCategory?.categoryId)
+                    Row(
                         modifier = Modifier.padding(24.dp),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = viewModel.currentThemeColor,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = 2.sp
-                    )
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (currentCategoryIcon != null) {
+                            Icon(
+                                imageVector = currentCategoryIcon,
+                                contentDescription = null,
+                                tint = viewModel.currentThemeColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                        }
+                        Text(
+                            text = overlayCategoryDisplayTitle(currentCategoryTitle, currentCategory?.categoryId).uppercase(),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = viewModel.currentThemeColor,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 2.sp
+                        )
+                    }
 
                     ChannelListPane(
                         isVisible = isVisible,

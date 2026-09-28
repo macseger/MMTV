@@ -1106,15 +1106,6 @@ fun SideOverlay(
 
     // Positionera och fokusera först när rätt lista är synlig. Då försöker inte
     // både listan och en enskild rad flytta fokus samtidigt.
-    // Keep category focus local while the user moves through the list. Only a
-    // settled focus updates the player playlist and starts category/EPG work.
-    LaunchedEffect(isVisible, focusedCategoryIndex) {
-        if (isVisible && focusedCategoryIndex != viewModel.lastLiveCategoryIndex) {
-            delay(200)
-            measuredCategorySelected(focusedCategoryIndex)
-        }
-    }
-
     val selectedChannelId = viewModel.selectedMedia?.id
     val panelSlideProgress by animateFloatAsState(
         targetValue = if (isVisible) 0f else -1f,

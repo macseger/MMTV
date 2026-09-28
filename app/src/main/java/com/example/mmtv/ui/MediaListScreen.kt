@@ -155,13 +155,14 @@ fun MediaListScreen(
 
     LaunchedEffect(initialCategoryIndex, initialMediaId, resetToAllToken) {
         delay(100)
-        val restoreAll = hasSyntheticAllCategory && resetToAllToken > 0 && resetToAllToken != appliedResetToken
-        if (restoreAll) appliedResetToken = resetToAllToken
+        val resetRequested = resetToAllToken > 0 && resetToAllToken != appliedResetToken
+        val restoreAll = hasSyntheticAllCategory && resetRequested
+        if (resetRequested) appliedResetToken = resetToAllToken
         val targetCategoryIndex = if (restoreAll) 0 else initialDisplayedCategoryIndex
         selectedCategoryIndex = targetCategoryIndex
         focusedCategoryIndex = targetCategoryIndex
         debouncedCategoryIndex = targetCategoryIndex
-        if (isLive) onCategoryChanged(0)
+        if (isLive && resetRequested) onCategoryChanged(0)
 
         if (isTvMode) {
             if (!restoreAll && initialMediaId != null) {

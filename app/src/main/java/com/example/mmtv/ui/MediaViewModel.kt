@@ -84,6 +84,11 @@ data class FavoriteTimelineState(
     val errorMessage: String? = null
 )
 
+data class HomeLiveChannel(
+    val media: MediaSource,
+    val currentProgram: EpgListing? = null
+)
+
 class MediaViewModel(
     private var _repository: MediaRepository, 
     private val sessionManager: SessionManager, 
@@ -110,6 +115,7 @@ class MediaViewModel(
     private val cachedLiveChannelsByNumber = ConcurrentHashMap<Int, MediaSource>()
     private val cachedLiveCategoryPlaylists = ConcurrentHashMap<String, List<MediaSource>>()
     private var cachedLiveLookupJob: Job? = null
+    private var homeLiveChannelsJob: Job? = null
 
     var isInPipMode by mutableStateOf(false)
     var isTvMode by mutableStateOf(sessionManager.getTvMode())
@@ -318,6 +324,9 @@ class MediaViewModel(
     var selectedMedia by mutableStateOf<MediaSource?>(null)
     var playingEpisode by mutableStateOf<Episode?>(null)
     var currentPlaylist by mutableStateOf<List<MediaSource>>(emptyList())
+
+    var homeLiveChannels by mutableStateOf<List<HomeLiveChannel>>(emptyList())
+        private set
 
     var selectedSeriesInfo by mutableStateOf<SeriesInfoResponse?>(null)
     var selectedMovieInfo by mutableStateOf<MovieInfoResponse?>(null)
@@ -687,6 +696,45 @@ class MediaViewModel(
         favoriteDate = favoriteDate,
         addedDate = addedDate
         )
+    }
+
+    /** Builds the Home Live row from canonical Room rows and a single batched EPG read. */
+    fun loadHomeLiveChannels(history: List<MediaSource>) {
+        homeLiveChannelsJob?.cancel()
+        homeLiveChannelsJob = viewModelScope.launch(Dispatchers.IO) {
+            val selectedCategories = sessionManager.getSyncCategories(MediaType.LIVE)
+            val canonical = mediaDao.getMediaByType(MediaType.LIVE)
+                .asSequence()
+                .filter { it.id > 0 && it.categoryId in selectedCategories }
+                .map { it.id to it.toMediaSource() }
+                .toMap()
+
+            val orderedIds = buildList {
+                history.asSequence()
+                    .filter { it.type == MediaType.LIVE && it.id > 0 }
+                    .map { it.id }
+                    .distinct()
+                    .forEach { id -> if (canonical.containsKey(id)) add(id) }
+            }.take(5)
+
+            val media = orderedIds.mapNotNull { canonical[it] }
+            val epgIds = media.associate { item ->
+                item.id to (item.epgId?.takeIf { it.isNotBlank() } ?: "stream:${item.id}")
+            }
+            val epgById = _repository.getEpgForChannels(epgIds.values)
+            val now = System.currentTimeMillis() / 1000
+            val currentByMediaId = media.associate { item ->
+                item.id to epgById[epgIds.getValue(item.id)].orEmpty().find {
+                    (it.startTimestamp ?: 0L) <= now && (it.stopTimestamp ?: 0L) > now
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                channelToEpgMap.putAll(epgIds)
+                epgById.forEach { (epgId, listings) -> fullEpgData[epgId] = listings }
+                homeLiveChannels = media.map { HomeLiveChannel(it, currentByMediaId[it.id]) }
+            }
+        }
     }
 
     fun updateRepository(newRepository: MediaRepository) {

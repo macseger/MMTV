@@ -39,19 +39,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.example.mmtv.api.SessionManager
+import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
-import com.example.mmtv.player.MmtvPlayer
-import java.net.URLEncoder
-import java.nio.charset.StandardCharsets
 
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun HomeScreen(
     viewModel: MediaViewModel,
@@ -59,21 +51,22 @@ fun HomeScreen(
     onMediaSelected: (MediaSource) -> Unit,
     topBarFocusRequester: FocusRequester? = null
 ) {
-    val dbSearchResults by viewModel.dbSearchResults.collectAsState()
     val recentlyAdded by viewModel.recentlyAdded.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
     val uiState = viewModel.uiState
     val history = uiState.history
 
-    val favoriteTV = favorites.filter { it.type == MediaType.LIVE }
     val favoriteMovies = favorites.filter { it.type == MediaType.MOVIE }
     val favoriteSeries = favorites.filter { it.type == MediaType.SERIES }
 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val sessionManager = remember { SessionManager(context) }
+    var focusedLiveId by remember { mutableStateOf<Int?>(null) }
+    var presentedLiveId by remember { mutableStateOf<Int?>(null) }
+    val homeLiveChannels = viewModel.homeLiveChannels
+    var currentTime by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
 
     // 2. Senaste spelade TV-kanalen för mini-spelaren
+    /*
     val lastLiveMedia = remember(history) { 
         history.find { it.type == MediaType.LIVE } 
     }
@@ -152,6 +145,23 @@ fun HomeScreen(
         }
     }
 
+    */
+    LaunchedEffect(history, uiState.isLoading, uiState.liveCategories) {
+        viewModel.loadHomeLiveChannels(history)
+    }
+    LaunchedEffect(homeLiveChannels) {
+        val firstId = homeLiveChannels.firstOrNull()?.media?.id
+        if (presentedLiveId == null || homeLiveChannels.none { it.media.id == presentedLiveId }) {
+            presentedLiveId = firstId
+        }
+    }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            currentTime = System.currentTimeMillis() / 1000
+        }
+    }
+
     Box(modifier = Modifier
         .fillMaxSize()
         .background(Color.Black)
@@ -178,6 +188,39 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 24.dp, bottom = 48.dp)
             ) {
+                if (homeLiveChannels.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "SENAST TITTADE",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
+                        ) {
+                            items(homeLiveChannels, key = { it.media.id }) { item ->
+                                val current = viewModel.getCachedCurrentEpgForId(item.media.id, currentTime) ?: item.currentProgram
+                                HomeLiveCard(
+                                    channel = item.media,
+                                    currentProgram = current,
+                                    onFocused = {
+                                        focusedLiveId = it
+                                        presentedLiveId = it
+                                    },
+                                    onClick = { onMediaSelected(item.media) }
+                                )
+                            }
+                        }
+                        homeLiveChannels.firstOrNull { it.media.id == presentedLiveId }?.let { focused ->
+                            val program = viewModel.getCachedCurrentEpgForId(focused.media.id, currentTime) ?: focused.currentProgram
+                            if (program != null) HomeLiveFocusInfo(program)
+                        }
+                    }
+                }
+                /*
                 // Hero Section with MiniPlayer
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     var isHeroFocused by remember { mutableStateOf(false) }
@@ -281,6 +324,7 @@ fun HomeScreen(
                 }
 
                 // 1. Fortsätt titta (History)
+                */
                 val filteredHistory = history.filter { it.type != MediaType.LIVE }
                 if (filteredHistory.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
@@ -306,14 +350,7 @@ fun HomeScreen(
                 }
 
                 // 2. Favoriter TV
-                if (favoriteTV.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        // Sortering: De som lades till senast hamnar sist (kronologiskt)
-                        MediaRow("FAVORITER TV", favoriteTV, viewModel, isHorizontal = true) { onMediaSelected(it) }
-                    }
-                }
-
-                // 3. Nyligen tillagt
+                // 2. Nyligen tillagt
                 if (recentlyAdded.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         MediaRow("NYLIGEN TILLAGT", recentlyAdded, viewModel) { onMediaSelected(it) }
@@ -382,6 +419,118 @@ fun HomeScreen(
             }
         }
         */
+    }
+}
+
+@Composable
+private fun HomeLiveCard(
+    channel: MediaSource,
+    currentProgram: EpgListing?,
+    onFocused: (Int) -> Unit,
+    onClick: () -> Unit
+) {
+    var hasFocus by remember { mutableStateOf(false) }
+    val picon = channel.resolvedIcon?.takeIf { it.isNotBlank() }
+        ?: channel.icon?.takeIf { it.isNotBlank() }
+    var piconLoadFailed by remember(picon) { mutableStateOf(false) }
+    val progress = currentProgram?.let { program ->
+        val start = program.startTimestamp ?: 0L
+        val stop = program.stopTimestamp ?: 0L
+        if (stop > start) {
+            ((System.currentTimeMillis() / 1000 - start).toFloat() / (stop - start).toFloat())
+                .coerceIn(0f, 1f)
+        } else null
+    }
+
+    Column(
+        modifier = Modifier
+            .width(150.dp)
+            .onFocusChanged {
+                hasFocus = it.isFocused
+                if (it.isFocused) onFocused(channel.id)
+            }
+            .scale(if (hasFocus) 1.01f else 1f)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(1.7f)
+                .border(
+                    width = if (hasFocus) 2.dp else 1.dp,
+                    color = if (hasFocus) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    shape = RoundedCornerShape(8.dp)
+                ),
+            shape = RoundedCornerShape(8.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF17191C)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (picon != null && !piconLoadFailed) {
+                    AsyncImage(
+                        model = picon,
+                        contentDescription = channel.title,
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 10.dp),
+                        contentScale = ContentScale.Fit,
+                        onError = { piconLoadFailed = true }
+                    )
+                } else {
+                    Text(
+                        text = channel.title.orEmpty(),
+                        color = Color.White.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.labelMedium,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 10.dp)
+                    )
+                }
+                if (progress != null) {
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .padding(horizontal = 7.dp)
+                            .height(5.dp)
+                            .offset(y = (-4).dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = Color.Black.copy(alpha = 0.55f)
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(5.dp))
+        Text(
+            text = currentProgram?.title.orEmpty(),
+            style = MaterialTheme.typography.bodySmall.copy(
+                fontWeight = if (hasFocus) FontWeight.SemiBold else FontWeight.Normal
+            ),
+            color = if (hasFocus) Color.White else Color.Gray,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun HomeLiveFocusInfo(program: EpgListing) {
+    Column(modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) {
+        Text(program.title.orEmpty(), color = Color.White, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(modifier = Modifier.height(6.dp))
+        program.description?.takeIf { it.isNotBlank() }?.let {
+            Text(it, color = Color.Gray, style = MaterialTheme.typography.bodySmall, maxLines = 4, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 

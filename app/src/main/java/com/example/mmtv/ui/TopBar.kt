@@ -1,9 +1,7 @@
 package com.example.mmtv.ui
 
-import com.example.mmtv.ui.theme.FocusBorderColor
 import com.example.mmtv.R
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,7 +13,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -134,13 +131,15 @@ private fun TopBarItem(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val contentColor = if (isFocused) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.7f)
+    val contentColor = if (isFocused || isFocusedManually) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        Color.White.copy(alpha = 0.7f)
+    }
 
     Column(
         modifier = modifier
             .onFocusChanged { isFocused = it.isFocused }
-            .scale(if (isFocused) 1.1f else 1.0f)
-            .border(3.dp, if (isFocused) FocusBorderColor else Color.Transparent, RoundedCornerShape(10.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -169,9 +168,12 @@ private fun TopBarItem(
         Box(
             modifier = Modifier
                 .padding(top = 4.dp)
-                .width(20.dp)
-                .height(2.dp)
-                .background(if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent)
+                .width(34.dp)
+                .height(4.dp)
+                .background(
+                    if (isFocused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                    RoundedCornerShape(50)
+                )
         )
     }
 }

@@ -293,6 +293,7 @@ class MediaViewModel(
     private var movieDetailsJob: Job? = null
     private var activeTmdbDetailKey: DetailMetadataKey? = null
     private var tmdbDetailsJob: Job? = null
+    private var discoveryJob: Job? = null
     var metadataSource by mutableStateOf(sessionManager.getMetadataSource())
         private set
     private val tmdbEnrichmentCoordinator = TmdbEnrichmentCoordinator(metadataSource)
@@ -331,6 +332,10 @@ class MediaViewModel(
     var selectedSeriesInfo by mutableStateOf<SeriesInfoResponse?>(null)
     var selectedMovieInfo by mutableStateOf<MovieInfoResponse?>(null)
     private var keyedTmdbDetailMetadata by mutableStateOf<KeyedDetailMetadata?>(null)
+    var discoveryMovies by mutableStateOf<List<HomeDiscoveryItem>>(emptyList())
+        private set
+    var discoverySeries by mutableStateOf<List<HomeDiscoveryItem>>(emptyList())
+        private set
     var isDetailsLoading by mutableStateOf(false)
 
     var searchQuery by mutableStateOf("")
@@ -974,7 +979,7 @@ class MediaViewModel(
                     loadStartupItems()
                     contentAvailable = true
                     cachedOwnedCatalog = true
-                    if (!forceRefresh) {
+                    if (!forceRefresh && !sessionManager.isSyncSelectionPending()) {
                         // Cached returning users are ready once the Room-backed catalog and
                         // initial visible items are published. Network and maintenance work
                         // below remains owned by this ViewModel coroutine.
@@ -982,6 +987,7 @@ class MediaViewModel(
                         StartupDiagnostics.event("startup_ready_cached", "span=${diagnosticSpan.id}")
                         reportReady(true)
                         scheduleCachedLiveLookupRebuild()
+                        refreshHomeDiscovery()
                     }
                 }
 
@@ -1086,6 +1092,7 @@ class MediaViewModel(
                 } else "Innehållet är uppdaterat")
                 reportReady(true)
                 scheduleCachedLiveLookupRebuild()
+                refreshHomeDiscovery()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 diagnosticOutcome = "cancelled"
                 throw e
@@ -1773,6 +1780,47 @@ class MediaViewModel(
         keyedTmdbDetailMetadata = null
         val catalogTitle = media.title?.takeIf { it.isNotBlank() } ?: return
         tmdbEnrichmentCoordinator.begin(key, catalogTitle)?.let(::launchTmdbLookup)
+    }
+
+    /** Refreshes ranked TMDB discovery while returning only canonical local media. */
+    fun refreshHomeDiscovery() {
+        val discoveryRepository = tmdbMetadataRepository ?: run {
+            discoveryMovies = emptyList()
+            discoverySeries = emptyList()
+            return
+        }
+        discoveryJob?.cancel()
+        discoveryJob = viewModelScope.launch(Dispatchers.IO) {
+            val selected = sessionManager.getSyncCategories(MediaType.MOVIE)
+            val selectedSeries = sessionManager.getSyncCategories(MediaType.SERIES)
+            val localMovies = mediaDao.getMediaByType(MediaType.MOVIE)
+                .filter { it.categoryId in selected }
+                .map { it.toMediaSource() }
+            val localSeries = mediaDao.getMediaByType(MediaType.SERIES)
+                .filter { it.categoryId in selectedSeries }
+                .map { it.toMediaSource() }
+
+            val persistent = discoveryRepository.loadPersistentDiscovery(localMovies, localSeries)
+            withContext(Dispatchers.Main) {
+                discoveryMovies = persistent.movies
+                discoverySeries = persistent.series
+            }
+
+            val moviesFresh = discoveryRepository.isDiscoveryFresh(persistent.moviesCachedAt)
+            val seriesFresh = discoveryRepository.isDiscoveryFresh(persistent.seriesCachedAt)
+            if (!moviesFresh) {
+                val result = discoveryRepository.refreshMovies(localMovies)
+                if (result.status == com.example.mmtv.repository.DiscoveryRefreshStatus.SUCCESS) {
+                    withContext(Dispatchers.Main) { discoveryMovies = result.items }
+                }
+            }
+            if (!seriesFresh) {
+                val result = discoveryRepository.refreshSeries(localSeries)
+                if (result.status == com.example.mmtv.repository.DiscoveryRefreshStatus.SUCCESS) {
+                    withContext(Dispatchers.Main) { discoverySeries = result.items }
+                }
+            }
+        }
     }
 
     fun tmdbDetailMetadataFor(type: MediaType, mediaId: Int): DetailMetadata? {

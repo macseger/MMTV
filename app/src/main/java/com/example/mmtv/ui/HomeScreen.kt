@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.mmtv.model.EpgListing
+import com.example.mmtv.model.HomeDiscoveryItem
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
 
@@ -55,6 +56,8 @@ fun HomeScreen(
     val favorites by viewModel.favorites.collectAsState()
     val uiState = viewModel.uiState
     val history = uiState.history
+    val discoveryMovies = viewModel.discoveryMovies
+    val discoverySeries = viewModel.discoverySeries
 
     val favoriteMovies = favorites.filter { it.type == MediaType.MOVIE }
     val favoriteSeries = favorites.filter { it.type == MediaType.SERIES }
@@ -349,6 +352,27 @@ fun HomeScreen(
                     }
                 }
 
+                if (discoveryMovies.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        DiscoveryMediaRow(
+                            title = "TRENDAR – FILMER",
+                            items = discoveryMovies,
+                            viewModel = viewModel,
+                            onMediaClick = onMediaSelected
+                        )
+                    }
+                }
+                if (discoverySeries.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        DiscoveryMediaRow(
+                            title = "TRENDAR – SERIER",
+                            items = discoverySeries,
+                            viewModel = viewModel,
+                            onMediaClick = onMediaSelected
+                        )
+                    }
+                }
+
                 // 2. Favoriter TV
                 // 2. Nyligen tillagt
                 if (recentlyAdded.isNotEmpty()) {
@@ -530,6 +554,42 @@ private fun HomeLiveFocusInfo(program: EpgListing) {
         Spacer(modifier = Modifier.height(6.dp))
         program.description?.takeIf { it.isNotBlank() }?.let {
             Text(it, color = Color.Gray, style = MaterialTheme.typography.bodySmall, maxLines = 4, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun DiscoveryMediaRow(
+    title: String,
+    items: List<HomeDiscoveryItem>,
+    viewModel: MediaViewModel,
+    onMediaClick: (MediaSource) -> Unit
+) {
+    Column(modifier = Modifier.padding(top = 4.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color.Gray,
+            modifier = Modifier.padding(horizontal = 32.dp)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
+        ) {
+            items(items.take(10), key = { it.media.id }) { item ->
+                val posterUrl = item.posterUrl?.takeIf { it.isNotBlank() }
+                val presentationMedia = item.media.copy(
+                    title = item.title,
+                    icon = posterUrl ?: item.media.icon
+                )
+                MediaCard(
+                    media = presentationMedia,
+                    viewModel = viewModel,
+                    onClick = { onMediaClick(item.media) },
+                    onToggleFavorite = { viewModel.toggleFavorite(item.media) }
+                )
+            }
         }
     }
 }

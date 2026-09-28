@@ -95,7 +95,10 @@ class MainActivity : AppCompatActivity() {
                     val sessionManager = remember { SessionManager(context) }
                     val database = remember { MediaDatabase.getDatabase(context) }
                     val tmdbMetadataRepository = remember {
-                        TmdbClient.create(BuildConfig.TMDB_READ_TOKEN)?.let(::TmdbMetadataRepository)
+                        TmdbMetadataRepository(
+                            api = TmdbClient.create(BuildConfig.TMDB_READ_TOKEN),
+                            context = context.applicationContext
+                        )
                     }
                     val navController = rememberNavController()
                     

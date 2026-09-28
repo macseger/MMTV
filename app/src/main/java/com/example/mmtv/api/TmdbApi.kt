@@ -1,14 +1,28 @@
 package com.example.mmtv.api
 
 import com.example.mmtv.model.TmdbMovieDetails
+import com.example.mmtv.model.TmdbMovieDiscoveryResponse
 import com.example.mmtv.model.TmdbMovieSearchResponse
 import com.example.mmtv.model.TmdbTvDetails
+import com.example.mmtv.model.TmdbTvDiscoveryResponse
 import com.example.mmtv.model.TmdbTvSearchResponse
 import retrofit2.http.GET
 import retrofit2.http.Path
 import retrofit2.http.Query
 
 interface TmdbApi {
+    @GET("trending/movie/week")
+    suspend fun getTrendingMovies(
+        @Query("page") page: Int = 1,
+        @Query("language") language: String = "sv-SE"
+    ): TmdbMovieDiscoveryResponse
+
+    @GET("trending/tv/week")
+    suspend fun getTrendingTv(
+        @Query("page") page: Int = 1,
+        @Query("language") language: String = "sv-SE"
+    ): TmdbTvDiscoveryResponse
+
     @GET("search/movie")
     suspend fun searchMovies(
         @Query("query") query: String,

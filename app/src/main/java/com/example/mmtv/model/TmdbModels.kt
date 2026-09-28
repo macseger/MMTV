@@ -6,6 +6,21 @@ data class TmdbMovieSearchResponse(
     val results: List<TmdbMovieSearchResult> = emptyList()
 )
 
+data class TmdbMovieDiscoveryResponse(
+    val results: List<TmdbMovieDiscoveryResult> = emptyList()
+)
+
+data class TmdbMovieDiscoveryResult(
+    val id: Int,
+    val title: String?,
+    @SerializedName("original_title") val originalTitle: String?,
+    @SerializedName("release_date") val releaseDate: String?,
+    @SerializedName("poster_path") val posterPath: String?,
+    @SerializedName("backdrop_path") val backdropPath: String?,
+    val overview: String?,
+    @SerializedName("vote_average") val voteAverage: Double?
+)
+
 data class TmdbMovieSearchResult(
     val id: Int,
     val title: String?,
@@ -15,6 +30,21 @@ data class TmdbMovieSearchResult(
 
 data class TmdbTvSearchResponse(
     val results: List<TmdbTvSearchResult> = emptyList()
+)
+
+data class TmdbTvDiscoveryResponse(
+    val results: List<TmdbTvDiscoveryResult> = emptyList()
+)
+
+data class TmdbTvDiscoveryResult(
+    val id: Int,
+    val name: String?,
+    @SerializedName("original_name") val originalName: String?,
+    @SerializedName("first_air_date") val firstAirDate: String?,
+    @SerializedName("poster_path") val posterPath: String?,
+    @SerializedName("backdrop_path") val backdropPath: String?,
+    val overview: String?,
+    @SerializedName("vote_average") val voteAverage: Double?
 )
 
 data class TmdbTvSearchResult(

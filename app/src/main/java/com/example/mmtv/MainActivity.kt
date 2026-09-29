@@ -340,8 +340,14 @@ class MainActivity : AppCompatActivity() {
                                                 sectionEntryToken++
                                                 when (dest) {
                                                     "live" -> sharedViewModel.lastLiveCategoryIndex = 0
-                                                    "movies" -> sharedViewModel.lastMovieCategoryIndex = -1
-                                                    "series" -> sharedViewModel.lastSeriesCategoryIndex = -1
+                                                    "movies" -> {
+                                                        sharedViewModel.lastMovieCategoryIndex = -1
+                                                        sharedViewModel.lastMovieCategoryKey = VodCategoryKey.All
+                                                    }
+                                                    "series" -> {
+                                                        sharedViewModel.lastSeriesCategoryIndex = -1
+                                                        sharedViewModel.lastSeriesCategoryKey = VodCategoryKey.All
+                                                    }
                                                 }
                                             }
                                             navController.navigate(dest) {
@@ -552,11 +558,11 @@ class MainActivity : AppCompatActivity() {
                                             isLive = false,
                                             isTvMode = sharedViewModel.isTvMode,
                                             mediaType = MediaType.MOVIE,
+                                            initialVodCategoryKey = sharedViewModel.lastMovieCategoryKey,
                                             resetToAllToken = if (explicitSectionRoute == "movies") sectionEntryToken else 0,
                                             syntheticAllTitle = "ALLA FILMER",
-                                            onSyntheticAllSelected = {
-                                                sharedViewModel.lastMovieCategoryIndex = -1
-                                                sharedViewModel.loadAllItemsForType(MediaType.MOVIE)
+                                            onVodCategorySelected = { key ->
+                                                sharedViewModel.selectVodCategory(MediaType.MOVIE, key)
                                             },
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastMovieCategoryIndex = index 
@@ -617,11 +623,11 @@ class MainActivity : AppCompatActivity() {
                                             isLive = false,
                                             isTvMode = sharedViewModel.isTvMode,
                                             mediaType = MediaType.SERIES,
+                                            initialVodCategoryKey = sharedViewModel.lastSeriesCategoryKey,
                                             resetToAllToken = if (explicitSectionRoute == "series") sectionEntryToken else 0,
                                             syntheticAllTitle = "ALLA SERIER",
-                                            onSyntheticAllSelected = {
-                                                sharedViewModel.lastSeriesCategoryIndex = -1
-                                                sharedViewModel.loadAllItemsForType(MediaType.SERIES)
+                                            onVodCategorySelected = { key ->
+                                                sharedViewModel.selectVodCategory(MediaType.SERIES, key)
                                             },
                                             onCategoryChanged = { index -> 
                                                 sharedViewModel.lastSeriesCategoryIndex = index 
@@ -632,9 +638,7 @@ class MainActivity : AppCompatActivity() {
                                             },
                                             onToggleFavorite = { sharedViewModel.toggleFavorite(it) },
                                             onMediaSelected = { media ->
-                                                val fromHistory = series
-                                                    .getOrNull(sharedViewModel.lastSeriesCategoryIndex)
-                                                    ?.categoryId == "HISTORY"
+                                                val fromHistory = sharedViewModel.lastSeriesCategoryKey == VodCategoryKey.History
                                                 if (fromHistory) {
                                                     lifecycleScope.launch {
                                                         sharedViewModel.selectedMedia = sharedViewModel.resolveMediaForDetails(media)

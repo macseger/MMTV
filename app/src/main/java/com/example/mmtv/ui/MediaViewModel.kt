@@ -285,6 +285,10 @@ class MediaViewModel(
         lastPpvCategoryIndex = 0
         lastMovieCategoryIndex = 0
         lastSeriesCategoryIndex = 0
+        lastMovieCategoryKey = VodCategoryKey.All
+        lastSeriesCategoryKey = VodCategoryKey.All
+        vodMetadataIndexes.clear()
+        vodMetadataIndexFingerprints.clear()
         uiState = MediaUiState(history = sessionManager.getHistory().filter { it.categoryId in sessionManager.getSyncCategories(it.type) })
         refreshDataManually()
     }
@@ -315,6 +319,8 @@ class MediaViewModel(
     private val preparedEpgCategoryIds = ConcurrentHashMap.newKeySet<String>()
     private val loadedFullEpgIds = ConcurrentHashMap.newKeySet<String>()
     private val categoryLoadJobs = mutableMapOf<MediaType, Job>()
+    private val vodMetadataIndexes = mutableStateMapOf<MediaType, VodMetadataIndex>()
+    private val vodMetadataIndexFingerprints = mutableMapOf<MediaType, Int>()
     var loadingCategory by mutableStateOf<Pair<MediaType, String?>?>(null)
         private set
     
@@ -327,6 +333,8 @@ class MediaViewModel(
     var lastPpvCategoryIndex by mutableIntStateOf(0)
     var lastMovieCategoryIndex by mutableIntStateOf(0)
     var lastSeriesCategoryIndex by mutableIntStateOf(0)
+    var lastMovieCategoryKey by mutableStateOf<VodCategoryKey>(VodCategoryKey.All)
+    var lastSeriesCategoryKey by mutableStateOf<VodCategoryKey>(VodCategoryKey.All)
 
     var selectedMedia by mutableStateOf<MediaSource?>(null)
     var playingEpisode by mutableStateOf<Episode?>(null)
@@ -1184,7 +1192,11 @@ class MediaViewModel(
             }.filter {
                 it.categoryId != null && it.categoryId != "HISTORY" && it.categoryId != "FAVORITES"
             }
-            if (groups.isEmpty() || groups.all { it.items.isNotEmpty() }) return@launch
+            if (groups.isEmpty()) return@launch
+            if (groups.all { it.items.isNotEmpty() }) {
+                updateVodMetadataIndex(type, groups.flatMap { it.items })
+                return@launch
+            }
 
             loadingCategory = loadingKey
             try {
@@ -1216,10 +1228,58 @@ class MediaViewModel(
                     )
                     MediaType.LIVE -> uiState
                 }
+                updateVodMetadataIndex(type, itemsByCategory.values.flatten())
             } finally {
                 if (loadingCategory == loadingKey) loadingCategory = null
             }
         }.also { categoryLoadJobs[type] = it }
+    }
+
+    fun vodMetadataIndexFor(type: MediaType): VodMetadataIndex =
+        vodMetadataIndexes[type] ?: VodMetadataIndex.Empty
+
+    fun selectVodCategory(type: MediaType, key: VodCategoryKey) {
+        if (type == MediaType.LIVE) return
+        val groups = if (type == MediaType.MOVIE) uiState.movieCategories else uiState.seriesCategories
+        when (type) {
+            MediaType.MOVIE -> lastMovieCategoryKey = key
+            MediaType.SERIES -> lastSeriesCategoryKey = key
+            MediaType.LIVE -> Unit
+        }
+        when (key) {
+            VodCategoryKey.All -> {
+                if (type == MediaType.MOVIE) lastMovieCategoryIndex = -1 else lastSeriesCategoryIndex = -1
+                loadAllItemsForType(type)
+            }
+            VodCategoryKey.History -> {
+                val index = groups.indexOfFirst { it.categoryId == "HISTORY" }
+                if (type == MediaType.MOVIE) lastMovieCategoryIndex = index else lastSeriesCategoryIndex = index
+            }
+            VodCategoryKey.Favorites -> {
+                val index = groups.indexOfFirst { it.categoryId == "FAVORITES" }
+                if (type == MediaType.MOVIE) lastMovieCategoryIndex = index else lastSeriesCategoryIndex = index
+            }
+            is VodCategoryKey.Provider -> {
+                val index = groups.indexOfFirst { it.categoryId == key.categoryId }
+                if (index >= 0) {
+                    if (type == MediaType.MOVIE) lastMovieCategoryIndex = index else lastSeriesCategoryIndex = index
+                    if (groups[index].items.isEmpty()) loadItemsForCategory(type, key.categoryId)
+                }
+            }
+            VodCategoryKey.New, is VodCategoryKey.Genre -> Unit
+        }
+    }
+
+    private suspend fun updateVodMetadataIndex(type: MediaType, media: List<MediaSource>) {
+        if (type == MediaType.LIVE) return
+        val distinctMedia = media.distinctBy { it.id }
+        val fingerprint = distinctMedia.fold(1) { result, item ->
+            31 * result + (31 * item.id + item.genre.hashCode())
+        }
+        if (vodMetadataIndexFingerprints[type] == fingerprint) return
+        val index = withContext(Dispatchers.Default) { VodMetadataIndex.build(distinctMedia) }
+        vodMetadataIndexFingerprints[type] = fingerprint
+        vodMetadataIndexes[type] = index
     }
 
     private suspend fun loadCategoryItems(

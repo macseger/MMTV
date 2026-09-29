@@ -9,10 +9,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -76,7 +77,8 @@ fun MediaListScreen(
     backNavigatesImmediately: Boolean = false,
     topBarFocusRequester: FocusRequester? = null,
     syntheticAllTitle: String? = null,
-    onSyntheticAllSelected: () -> Unit = {},
+    initialVodCategoryKey: VodCategoryKey = VodCategoryKey.All,
+    onVodCategorySelected: (VodCategoryKey) -> Unit = {},
     mediaType: MediaType? = null,
     resetToAllToken: Int = 0
 ) {
@@ -102,6 +104,26 @@ fun MediaListScreen(
             groupedList
         }
     }
+    val allVodItems = remember(groupedList, syntheticAllTitle, isLive) {
+        if (!hasSyntheticAllCategory) emptyList() else groupedList
+            .asSequence()
+            .filter { it.categoryId != "HISTORY" && it.categoryId != "FAVORITES" }
+            .flatMap { it.items.asSequence() }
+            .distinctBy { it.id }
+            .sortedByDescending { it.addedDate }
+            .toList()
+    }
+    val vodMetadataIndex = mediaType?.takeIf { it != MediaType.LIVE }
+        ?.let(viewModel::vodMetadataIndexFor)
+        ?: VodMetadataIndex.Empty
+    val vodCategories = remember(groupedList, allVodItems, mediaType, vodMetadataIndex) {
+        mediaType?.takeIf { it != MediaType.LIVE }?.let { type ->
+            buildVodCategoryDefinitions(type, groupedList, allVodItems.map { it.id }, vodMetadataIndex)
+        }.orEmpty()
+    }
+    val vodItemsById = remember(groupedList, allVodItems) {
+        (allVodItems + groupedList.flatMap { it.items }).associateBy { it.id }
+    }
     val initialDisplayedCategoryIndex = if (hasSyntheticAllCategory && initialCategoryIndex < 0) {
         0
     } else {
@@ -109,50 +131,37 @@ fun MediaListScreen(
     }
     var selectedCategoryIndex by remember(initialDisplayedCategoryIndex) { mutableIntStateOf(initialDisplayedCategoryIndex) }
     var focusedCategoryIndex by remember(initialDisplayedCategoryIndex) { mutableIntStateOf(initialDisplayedCategoryIndex) }
+    var selectedVodCategoryKey by remember(initialVodCategoryKey) { mutableStateOf(initialVodCategoryKey) }
+    var focusedVodCategoryKey by remember(initialVodCategoryKey) { mutableStateOf(initialVodCategoryKey) }
+    var vodEntryInitialized by remember { mutableStateOf(false) }
+    var restoreInitialVodMedia by remember { mutableStateOf(true) }
     var appliedResetToken by rememberSaveable { mutableIntStateOf(0) }
     var debouncedCategoryIndex by remember(initialDisplayedCategoryIndex) { mutableIntStateOf(initialDisplayedCategoryIndex) }
     var lastGridCategoryIndex by remember { mutableIntStateOf(debouncedCategoryIndex) }
     
     val selectedCategory = displayGroupedList.getOrNull(debouncedCategoryIndex)
+    val selectedVodCategory = vodCategories.firstOrNull { it.key == selectedVodCategoryKey }
+        ?: vodCategories.firstOrNull()
+    val selectedVodItems = selectedVodCategory?.mediaIds.orEmpty().mapNotNull(vodItemsById::get)
     // Removed heuristic to avoid issues with empty lists
     
     var focusedMedia by remember { mutableStateOf<MediaSource?>(null) }
     var mediaToShowMenu by remember { mutableStateOf<MediaSource?>(null) }
 
     val listState = rememberLazyListState()
+    val vodCategoryListState = rememberLazyListState()
     val gridState = rememberLazyGridState()
     
     val categoryFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+    val vodCategoryFocusRequesters = remember { mutableMapOf<VodCategoryKey, FocusRequester>() }
     val channelFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
-
-    LaunchedEffect(hasSyntheticAllCategory, initialCategoryIndex, resetToAllToken) {
-        if (hasSyntheticAllCategory && (initialCategoryIndex < 0 || resetToAllToken > 0)) {
-            onSyntheticAllSelected()
-        }
-    }
 
     // Debounce category change to avoid jank when scrolling fast
     LaunchedEffect(selectedCategoryIndex) {
-        if (selectedCategoryIndex != debouncedCategoryIndex) {
-            // VOD changes happen only after CENTER/ENTER, so persist the original
-            // category index immediately before the user can open a poster.
-            if (!isLive) {
-                debouncedCategoryIndex = selectedCategoryIndex
-                if (hasSyntheticAllCategory && selectedCategoryIndex == 0) {
-                    onSyntheticAllSelected()
-                } else {
-                    onCategoryChanged(selectedCategoryIndex - categoryIndexOffset)
-                }
-                return@LaunchedEffect
-            }
-
+        if (isLive && selectedCategoryIndex != debouncedCategoryIndex) {
             delay(200) // Keep the existing Live TV debounce behavior.
             debouncedCategoryIndex = selectedCategoryIndex
-            if (hasSyntheticAllCategory && selectedCategoryIndex == 0) {
-                onSyntheticAllSelected()
-            } else {
-                onCategoryChanged(selectedCategoryIndex - categoryIndexOffset)
-            }
+            onCategoryChanged(selectedCategoryIndex - categoryIndexOffset)
         }
     }
 
@@ -160,26 +169,22 @@ fun MediaListScreen(
         runCatching { this.requestFocus() }
     }
 
-    LaunchedEffect(initialCategoryIndex, initialMediaId, resetToAllToken) {
+    LaunchedEffect(isLive, initialCategoryIndex, initialMediaId, resetToAllToken) {
+        if (!isLive) return@LaunchedEffect
         delay(100)
         val resetRequested = resetToAllToken > 0 && resetToAllToken != appliedResetToken
-        val restoreAll = hasSyntheticAllCategory && resetRequested
         if (resetRequested) appliedResetToken = resetToAllToken
-        val targetCategoryIndex = if (restoreAll) 0 else initialDisplayedCategoryIndex
+        val targetCategoryIndex = initialDisplayedCategoryIndex
         selectedCategoryIndex = targetCategoryIndex
         focusedCategoryIndex = targetCategoryIndex
         debouncedCategoryIndex = targetCategoryIndex
-        if (isLive && resetRequested) onCategoryChanged(0)
+        if (resetRequested) onCategoryChanged(0)
 
         if (isTvMode) {
-            if (!restoreAll && initialMediaId != null) {
+            if (!resetRequested && initialMediaId != null) {
                 val index = selectedCategory?.items?.indexOfFirst { it.id == initialMediaId } ?: -1
                 if (index != -1) {
-                    if (isLive) {
-                        listState.scrollToItem(index)
-                    } else if (gridState.layoutInfo.visibleItemsInfo.none { it.index == index }) {
-                        gridState.scrollToItem(index)
-                    }
+                    listState.scrollToItem(index)
                     delay(50)
                     channelFocusRequesters[initialMediaId]?.safeFocus()
                 } else {
@@ -191,16 +196,51 @@ fun MediaListScreen(
         }
     }
 
-    LaunchedEffect(debouncedCategoryIndex) {
-        if (isLive) listState.scrollToItem(0)
-        else if (lastGridCategoryIndex != debouncedCategoryIndex) {
-            gridState.scrollToItem(0)
-            lastGridCategoryIndex = debouncedCategoryIndex
+    LaunchedEffect(isLive, initialVodCategoryKey, initialMediaId, resetToAllToken) {
+        if (isLive || vodCategories.isEmpty()) return@LaunchedEffect
+        val resetRequested = resetToAllToken > 0 && resetToAllToken != appliedResetToken
+        if (vodEntryInitialized && !resetRequested) return@LaunchedEffect
+        vodEntryInitialized = true
+        restoreInitialVodMedia = !resetRequested
+        if (resetRequested) appliedResetToken = resetToAllToken
+        val requestedKey = if (resetRequested) VodCategoryKey.All else initialVodCategoryKey
+        val targetKey = restoreVodCategoryKey(requestedKey, vodCategories)
+        selectedVodCategoryKey = targetKey
+        focusedVodCategoryKey = targetKey
+        onVodCategorySelected(targetKey)
+        if (isTvMode && (resetRequested || initialMediaId == null)) {
+            withFrameNanos { }
+            vodCategoryFocusRequesters[targetKey]?.safeFocus()
         }
     }
 
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    LaunchedEffect(isLive, selectedVodCategoryKey, initialMediaId, selectedVodItems) {
+        if (isLive || !restoreInitialVodMedia || initialMediaId == null ||
+            selectedVodItems.none { it.id == initialMediaId }
+        ) {
+            return@LaunchedEffect
+        }
+        val index = selectedVodItems.indexOfFirst { it.id == initialMediaId }
+        if (index >= 0 && gridState.layoutInfo.visibleItemsInfo.none { it.index == index }) {
+            gridState.scrollToItem(index)
+        }
+        withFrameNanos { }
+        channelFocusRequesters[initialMediaId]?.safeFocus()
+    }
+
+    LaunchedEffect(debouncedCategoryIndex) {
+        if (isLive) listState.scrollToItem(0)
+    }
+
+    LaunchedEffect(selectedVodCategoryKey) {
+        if (!isLive && lastGridCategoryIndex != vodCategories.indexOfFirst { it.key == selectedVodCategoryKey }) {
+            gridState.scrollToItem(0)
+            lastGridCategoryIndex = vodCategories.indexOfFirst { it.key == selectedVodCategoryKey }
+        }
+    }
+
     var isSidebarFocused by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     Row(modifier = Modifier
         .fillMaxSize()
@@ -212,7 +252,8 @@ fun MediaListScreen(
                     onBackPressed()
                     true
                 } else if (!isSidebarFocused) {
-                    categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
+                    if (isLive) categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
+                    else vodCategoryFocusRequesters[selectedVodCategoryKey]?.safeFocus()
                     true
                 } else {
                     if (topBarFocusRequester != null) {
@@ -226,7 +267,7 @@ fun MediaListScreen(
         }
     ) {
         // COLUMN 1: CATEGORIES (TiviMate Sidebar Style)
-        Box(
+        if (isLive) Box(
             modifier = Modifier
                 .fillMaxHeight()
                 .width(240.dp)
@@ -351,8 +392,76 @@ fun MediaListScreen(
         } else {
             // NETFLIX-STYLE VOD GRID
             Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 16.dp)) {
-                val loadingKey = selectedCategory?.categoryId
-                val isCategoryLoading = mediaType != null && loadingKey != null &&
+                LazyRow(
+                    state = vodCategoryListState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { isSidebarFocused = it.hasFocus },
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 4.dp)
+                ) {
+                    items(vodCategories, key = { it.key.stableValue }) { category ->
+                        val requester = vodCategoryFocusRequesters.getOrPut(category.key) { FocusRequester() }
+                        VodCategoryTab(
+                            title = categoryDisplayTitle(
+                                category.title,
+                                when (val key = category.key) {
+                                    VodCategoryKey.All -> "__ALL_VOD__"
+                                    VodCategoryKey.History -> "HISTORY"
+                                    VodCategoryKey.Favorites -> "FAVORITES"
+                                    is VodCategoryKey.Provider -> key.categoryId
+                                    else -> null
+                                },
+                                false
+                            ),
+                            isSelected = selectedVodCategoryKey == category.key,
+                            modifier = Modifier
+                                .focusRequester(requester)
+                                .onFocusChanged {
+                                    if (it.isFocused) focusedVodCategoryKey = category.key
+                                }
+                                .onKeyEvent { event ->
+                                    if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) {
+                                        false
+                                    } else when (event.nativeKeyEvent.keyCode) {
+                                        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                                            selectedVodCategoryKey = focusedVodCategoryKey
+                                            onVodCategorySelected(focusedVodCategoryKey)
+                                            true
+                                        }
+                                        KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                            val firstMediaId = selectedVodItems.firstOrNull()?.id
+                                            if (firstMediaId == null) {
+                                                true
+                                            } else {
+                                                scope.launch {
+                                                    gridState.scrollToItem(0)
+                                                    withFrameNanos { }
+                                                    channelFocusRequesters[firstMediaId]?.safeFocus()
+                                                }
+                                                true
+                                            }
+                                        }
+                                        else -> false
+                                    }
+                                },
+                            onClick = {
+                                selectedVodCategoryKey = category.key
+                                focusedVodCategoryKey = category.key
+                                onVodCategorySelected(category.key)
+                            }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val loadingKey = when (val key = selectedVodCategoryKey) {
+                    VodCategoryKey.All -> "__ALL_VOD__"
+                    is VodCategoryKey.Provider -> key.categoryId
+                    else -> key.stableValue
+                }
+                val isCategoryLoading = mediaType != null &&
                     viewModel.loadingCategory == (mediaType to loadingKey)
                 Box(modifier = Modifier.fillMaxSize()) {
                     val hidePartialSyntheticAll = isCategoryLoading && loadingKey == "__ALL_VOD__"
@@ -363,8 +472,8 @@ fun MediaListScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
-                        val items = if (hidePartialSyntheticAll) emptyList() else selectedCategory?.items.orEmpty()
-                        items(items, key = { it.id }) { media ->
+                        val items = if (hidePartialSyntheticAll) emptyList() else selectedVodItems
+                        itemsIndexed(items, key = { _, media -> media.id }) { itemIndex, media ->
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
 
                             MediaCard(
@@ -373,14 +482,22 @@ fun MediaListScreen(
                                 modifier = Modifier
                                     .focusRequester(requester)
                                     .onFocusChanged { if (it.isFocused) focusedMedia = media }
-                                    .onKeyEvent {
-                                        if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                            // Attempt to move focus left. If it fails, go to category sidebar.
-                                            val moved = focusManager.moveFocus(androidx.compose.ui.focus.FocusDirection.Left)
-                                            if (!moved) {
-                                                categoryFocusRequesters[selectedCategoryIndex]?.safeFocus()
-                                                true
-                                            } else true
+                                    .onKeyEvent { event ->
+                                        if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP &&
+                                            gridState.layoutInfo.visibleItemsInfo
+                                                .firstOrNull { it.index == itemIndex }
+                                                ?.row == 0 &&
+                                            event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN
+                                        ) {
+                                            scope.launch {
+                                                val categoryIndex = vodCategories.indexOfFirst {
+                                                    it.key == selectedVodCategoryKey
+                                                }.coerceAtLeast(0)
+                                                vodCategoryListState.scrollToItem(categoryIndex)
+                                                withFrameNanos { }
+                                                vodCategoryFocusRequesters[selectedVodCategoryKey]?.safeFocus()
+                                            }
+                                            true
                                         } else false
                                     },
                                 onClick = { onMediaSelected(media) },
@@ -388,7 +505,7 @@ fun MediaListScreen(
                             )
                         }
                     }
-                    if (isCategoryLoading && (hidePartialSyntheticAll || selectedCategory?.items.isNullOrEmpty())) {
+                    if (isCategoryLoading && (hidePartialSyntheticAll || selectedVodItems.isEmpty())) {
                         Column(
                             modifier = Modifier.align(Alignment.Center),
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -603,6 +720,52 @@ fun CategoryItem(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun VodCategoryTab(
+    title: String,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    var hasFocus by remember { mutableStateOf(false) }
+    val contentColor = when {
+        isSelected -> Color.Black
+        hasFocus -> Color.White
+        else -> Color.Gray
+    }
+    Surface(
+        modifier = modifier
+            .onFocusChanged { hasFocus = it.isFocused }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        color = when {
+            isSelected -> MaterialTheme.colorScheme.primary
+            hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+            else -> Color(0xFF111111)
+        },
+        border = if (hasFocus) {
+            androidx.compose.foundation.BorderStroke(2.dp, FocusBorderColor)
+        } else {
+            androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
+        },
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Text(
+            text = title,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            color = contentColor,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = if (isSelected || hasFocus) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

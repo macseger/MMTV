@@ -46,10 +46,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.GroupedMedia
@@ -463,13 +465,35 @@ fun MediaListScreen(
                 }
                 val isCategoryLoading = mediaType != null &&
                     viewModel.loadingCategory == (mediaType to loadingKey)
-                Box(modifier = Modifier.fillMaxSize()) {
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     val hidePartialSyntheticAll = isCategoryLoading && loadingKey == "__ALL_VOD__"
+                    val vodPosterWidth = 152.dp
+                    val vodPosterTextHeight = 72.dp
+                    val vodGridMinCellWidth = 160.dp
+                    val vodGridHorizontalSpacing = 12.dp
+                    val vodGridHorizontalPadding = 8.dp
+                    val vodGridColumnCount = maxOf(
+                        1,
+                        (
+                            (maxWidth - vodGridHorizontalPadding * 2 + vodGridHorizontalSpacing) /
+                                (vodGridMinCellWidth + vodGridHorizontalSpacing)
+                            ).toInt()
+                    )
+                    val vodGridViewportHeight =
+                        16.dp + (vodPosterWidth / 0.67f) + vodPosterTextHeight + 14.dp
                     LazyVerticalGrid(
                         state = gridState,
-                        columns = GridCells.Adaptive(minSize = 124.dp),
-                        contentPadding = PaddingValues(top = 16.dp, bottom = 100.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(vodGridViewportHeight),
+                        columns = GridCells.Adaptive(minSize = vodGridMinCellWidth),
+                        contentPadding = PaddingValues(
+                            start = vodGridHorizontalPadding,
+                            top = 16.dp,
+                            end = vodGridHorizontalPadding,
+                            bottom = 100.dp
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(vodGridHorizontalSpacing),
                         verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
                         val items = if (hidePartialSyntheticAll) emptyList() else selectedVodItems
@@ -479,26 +503,62 @@ fun MediaListScreen(
                             MediaCard(
                                 media = media,
                                 viewModel = viewModel,
+                                cardWidth = vodPosterWidth,
+                                showVodRating = true,
+                                textAreaHeight = vodPosterTextHeight,
                                 modifier = Modifier
                                     .focusRequester(requester)
                                     .onFocusChanged { if (it.isFocused) focusedMedia = media }
                                     .onKeyEvent { event ->
-                                        if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP &&
-                                            gridState.layoutInfo.visibleItemsInfo
-                                                .firstOrNull { it.index == itemIndex }
-                                                ?.row == 0 &&
-                                            event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN
-                                        ) {
-                                            scope.launch {
-                                                val categoryIndex = vodCategories.indexOfFirst {
-                                                    it.key == selectedVodCategoryKey
-                                                }.coerceAtLeast(0)
-                                                vodCategoryListState.scrollToItem(categoryIndex)
-                                                withFrameNanos { }
-                                                vodCategoryFocusRequesters[selectedVodCategoryKey]?.safeFocus()
+                                        if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) {
+                                            false
+                                        } else when (event.nativeKeyEvent.keyCode) {
+                                            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                                val movingUp = event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP
+
+                                                if (movingUp && itemIndex < vodGridColumnCount) {
+                                                    scope.launch {
+                                                        val categoryIndex = vodCategories.indexOfFirst {
+                                                            it.key == selectedVodCategoryKey
+                                                        }.coerceAtLeast(0)
+                                                        vodCategoryListState.scrollToItem(categoryIndex)
+                                                        withFrameNanos { }
+                                                        vodCategoryFocusRequesters[selectedVodCategoryKey]?.safeFocus()
+                                                    }
+                                                } else {
+                                                    val targetIndex = if (movingUp) {
+                                                        itemIndex - vodGridColumnCount
+                                                    } else {
+                                                        val currentRowStart =
+                                                            (itemIndex / vodGridColumnCount) * vodGridColumnCount
+                                                        val nextRowStart = currentRowStart + vodGridColumnCount
+                                                        if (nextRowStart < selectedVodItems.size) {
+                                                            minOf(
+                                                                nextRowStart + (itemIndex % vodGridColumnCount),
+                                                                selectedVodItems.lastIndex
+                                                            )
+                                                        } else {
+                                                            itemIndex
+                                                        }
+                                                    }
+                                                    if (targetIndex != itemIndex && targetIndex >= 0) {
+                                                        val targetMediaId = selectedVodItems[targetIndex].id
+                                                        scope.launch {
+                                                            gridState.scrollToItem(targetIndex)
+                                                            snapshotFlow {
+                                                                gridState.layoutInfo.visibleItemsInfo.any {
+                                                                    it.index == targetIndex
+                                                                }
+                                                            }.first { it }
+                                                            withFrameNanos { }
+                                                            channelFocusRequesters[targetMediaId]?.safeFocus()
+                                                        }
+                                                    }
+                                                }
+                                                true
                                             }
-                                            true
-                                        } else false
+                                            else -> false
+                                        }
                                     },
                                 onClick = { onMediaSelected(media) },
                                 onToggleFavorite = { mediaToShowMenu = media }
@@ -732,39 +792,41 @@ private fun VodCategoryTab(
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     val contentColor = when {
-        isSelected -> Color.Black
+        isSelected -> MaterialTheme.colorScheme.primary
         hasFocus -> Color.White
-        else -> Color.Gray
+        else -> Color.White.copy(alpha = 0.7f)
     }
-    Surface(
+    val indicatorColor = when {
+        isSelected -> MaterialTheme.colorScheme.primary
+        hasFocus -> Color.White
+        else -> Color.Transparent
+    }
+    Column(
         modifier = modifier
             .onFocusChanged { hasFocus = it.isFocused }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onClick
-            ),
-        color = when {
-            isSelected -> MaterialTheme.colorScheme.primary
-            hasFocus -> MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
-            else -> Color(0xFF111111)
-        },
-        border = if (hasFocus) {
-            androidx.compose.foundation.BorderStroke(2.dp, FocusBorderColor)
-        } else {
-            androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f))
-        },
-        shape = RoundedCornerShape(10.dp)
+            )
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
             text = title,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             color = contentColor,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.labelLarge,
             fontWeight = if (isSelected || hasFocus) FontWeight.Bold else FontWeight.Medium,
             maxLines = 1,
             softWrap = false,
             overflow = TextOverflow.Ellipsis
+        )
+        Box(
+            modifier = Modifier
+                .padding(top = 4.dp)
+                .width(34.dp)
+                .height(4.dp)
+                .background(indicatorColor, RoundedCornerShape(50))
         )
     }
 }
@@ -866,17 +928,31 @@ fun MediaCard(
     media: MediaSource, 
     viewModel: MediaViewModel,
     modifier: Modifier = Modifier, 
+    cardWidth: Dp = 110.dp,
+    showVodRating: Boolean = false,
+    textAreaHeight: Dp? = null,
     onFocused: (() -> Unit)? = null,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit
 ) {
     var hasFocus by remember { mutableStateOf(false) }
+    val localRating = remember(media.rating) {
+        media.rating
+            ?.trim()
+            ?.replace(',', '.')
+            ?.toDoubleOrNull()
+            ?.takeIf { it > 0.0 && it <= 10.0 }
+            ?.let { value ->
+                if (value % 1.0 == 0.0) value.toInt().toString()
+                else String.format(Locale.US, "%.1f", value)
+            }
+    }
     
     val displayIcon = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
 
     Column(
         modifier = modifier
-            .width(110.dp)
+            .width(cardWidth)
             .onFocusChanged {
                 hasFocus = it.isFocused
                 if (it.isFocused) onFocused?.invoke()
@@ -933,23 +1009,45 @@ fun MediaCard(
         
         Column(
             modifier = Modifier
-                .padding(top = 8.dp)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .then(if (textAreaHeight != null) Modifier.height(textAreaHeight) else Modifier)
+                .padding(top = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 text = media.title ?: "",
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontWeight = if (hasFocus) FontWeight.Bold else FontWeight.Normal,
-                    fontSize = 11.sp
+                    fontSize = if (showVodRating) 16.sp else 11.sp,
+                    lineHeight = if (showVodRating) 19.sp else 14.sp
                 ),
                 color = if (hasFocus) Color.White else Color.Gray,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center
             )
+
+            if (showVodRating && localRating != null) {
+                Row(
+                    modifier = Modifier.padding(top = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Star,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = 0.58f),
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Text(
+                        text = localRating,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White.copy(alpha = 0.58f)
+                    )
+                }
+            }
             
-            if (hasFocus) {
+            if (hasFocus && !showVodRating) {
                 Row(
                     modifier = Modifier.padding(top = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,

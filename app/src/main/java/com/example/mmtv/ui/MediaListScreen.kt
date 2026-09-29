@@ -695,6 +695,7 @@ fun MediaCard(
     media: MediaSource, 
     viewModel: MediaViewModel,
     modifier: Modifier = Modifier, 
+    onFocused: (() -> Unit)? = null,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit
 ) {
@@ -705,7 +706,10 @@ fun MediaCard(
     Column(
         modifier = modifier
             .width(110.dp)
-            .onFocusChanged { hasFocus = it.isFocused }
+            .onFocusChanged {
+                hasFocus = it.isFocused
+                if (it.isFocused) onFocused?.invoke()
+            }
             .graphicsLayer {
                 // Hårdvaruaccelererad skalning
                 scaleX = if (hasFocus) 1.08f else 1.0f

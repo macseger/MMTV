@@ -9,16 +9,20 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,7 +35,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import android.view.KeyEvent
+import android.util.Log
 import kotlinx.coroutines.delay
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +50,9 @@ import com.example.mmtv.model.EpgListing
 import com.example.mmtv.model.HomeDiscoveryItem
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
+import kotlinx.coroutines.Job
+
+private const val HOME_FOCUS_LOG_TAG = "MMTV_HOME_FOCUS" // TEMP diagnostics
 
 @Composable
 fun HomeScreen(
@@ -58,14 +67,40 @@ fun HomeScreen(
     val history = uiState.history
     val discoveryMovies = viewModel.discoveryMovies
     val discoverySeries = viewModel.discoverySeries
+    val homeLiveChannels = viewModel.homeLiveChannels
 
     val favoriteMovies = favorites.filter { it.type == MediaType.MOVIE }
     val favoriteSeries = favorites.filter { it.type == MediaType.SERIES }
+    val filteredHistory = history.filter { it.type != MediaType.LIVE }
+
+    val homeRowKeys = buildList {
+        if (homeLiveChannels.isNotEmpty()) add("live")
+        if (filteredHistory.isNotEmpty()) add("continue")
+        if (discoveryMovies.isNotEmpty()) add("trending_movies")
+        if (discoverySeries.isNotEmpty()) add("trending_series")
+        if (recentlyAdded.isNotEmpty()) add("recently_added")
+        if (favoriteMovies.isNotEmpty()) add("favorite_movies")
+        if (favoriteSeries.isNotEmpty()) add("favorite_series")
+    }
+    val homeRowFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val homeRowListStates = remember { mutableMapOf<String, LazyListState>() }
+    var focusedHomeRowKey by remember { mutableStateOf<String?>(null) }
+    val homeGridState = rememberLazyGridState()
+    val homeFocusScope = rememberCoroutineScope()
+    var verticalFocusJob by remember { mutableStateOf<Job?>(null) }
+    fun homeRowFocusRequester(key: String): FocusRequester =
+        homeRowFocusRequesters.getOrPut(key) { FocusRequester() }
+    fun homeRowListState(key: String): LazyListState =
+        homeRowListStates.getOrPut(key) { LazyListState() }
+    val homeRowAnchors = remember(homeRowKeys) {
+        homeRowKeys.withIndex().associate { (index, key) -> key to index }
+    }
+    fun homeRowItemModifier(key: String, index: Int): Modifier =
+        if (index == 0) Modifier.focusRequester(homeRowFocusRequester(key)) else Modifier
 
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var focusedLiveId by remember { mutableStateOf<Int?>(null) }
     var presentedLiveId by remember { mutableStateOf<Int?>(null) }
-    val homeLiveChannels = viewModel.homeLiveChannels
     var currentTime by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
 
     // 2. Senaste spelade TV-kanalen för mini-spelaren
@@ -168,6 +203,60 @@ fun HomeScreen(
     Box(modifier = Modifier
         .fillMaxSize()
         .background(Color.Black)
+        .onPreviewKeyEvent { event ->
+            if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+            val direction = when (event.nativeKeyEvent.keyCode) {
+                KeyEvent.KEYCODE_DPAD_DOWN -> 1
+                KeyEvent.KEYCODE_DPAD_UP -> -1
+                else -> 0
+            }
+            if (direction == 0) return@onPreviewKeyEvent false
+            val currentIndex = homeRowKeys.indexOf(focusedHomeRowKey)
+            if (currentIndex < 0) return@onPreviewKeyEvent false
+            val targetKey = homeRowKeys.getOrNull(currentIndex + direction)
+            if (targetKey != null) {
+                val targetIndex = homeRowAnchors[targetKey] ?: return@onPreviewKeyEvent false
+                val directionLabel = if (direction > 0) "DOWN" else "UP"
+                fun gridDebugState(): String {
+                    val layout = homeGridState.layoutInfo
+                    val targetInfo = layout.visibleItemsInfo.firstOrNull { it.index == targetIndex }
+                    return "gridFirst=${homeGridState.firstVisibleItemIndex} " +
+                        "gridOffset=${homeGridState.firstVisibleItemScrollOffset} " +
+                        "targetOffset=${targetInfo?.offset} targetSize=${targetInfo?.size} " +
+                        "viewportStart=${layout.viewportStartOffset} " +
+                        "viewportEnd=${layout.viewportEndOffset}"
+                }
+                val targetRowState = homeRowListState(targetKey)
+                Log.d(
+                    HOME_FOCUS_LOG_TAG,
+                    "TEMP event=$directionLabel source=$focusedHomeRowKey sourceIndex=$currentIndex " +
+                        "sourceGridFirst=${homeGridState.firstVisibleItemIndex} " +
+                        "sourceGridOffset=${homeGridState.firstVisibleItemScrollOffset} " +
+                        "target=$targetKey targetIndex=$targetIndex " +
+                        "targetRowFirst=${targetRowState.firstVisibleItemIndex} " +
+                        "targetRowOffset=${targetRowState.firstVisibleItemScrollOffset}"
+                )
+                verticalFocusJob?.cancel()
+                verticalFocusJob = homeFocusScope.launch {
+                    Log.d(HOME_FOCUS_LOG_TAG, "TEMP before_grid_scroll event=$directionLabel target=$targetKey ${gridDebugState()}")
+                    homeGridState.scrollToItem(targetIndex)
+                    Log.d(HOME_FOCUS_LOG_TAG, "TEMP after_grid_scroll event=$directionLabel target=$targetKey ${gridDebugState()}")
+                    targetRowState.scrollToItem(0)
+                    Log.d(
+                        HOME_FOCUS_LOG_TAG,
+                        "TEMP after_row_scroll event=$directionLabel target=$targetKey " +
+                            "rowFirst=${targetRowState.firstVisibleItemIndex} " +
+                            "rowOffset=${targetRowState.firstVisibleItemScrollOffset}"
+                    )
+                    withFrameNanos { }
+                    Log.d(HOME_FOCUS_LOG_TAG, "TEMP before_focus event=$directionLabel target=$targetKey ${gridDebugState()}")
+                    runCatching { homeRowFocusRequester(targetKey).requestFocus() }
+                    withFrameNanos { }
+                    Log.d(HOME_FOCUS_LOG_TAG, "TEMP after_focus_next_frame event=$directionLabel target=$targetKey ${gridDebugState()}")
+                }
+                true
+            } else false
+        }
         .onKeyEvent { 
             if (it.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_BACK && it.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
                 if (topBarFocusRequester != null) {
@@ -186,6 +275,7 @@ fun HomeScreen(
         ) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(4),
+                state = homeGridState,
                 horizontalArrangement = Arrangement.spacedBy(24.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
                 modifier = Modifier.fillMaxWidth(),
@@ -202,16 +292,19 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         LazyRow(
                             horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            state = homeRowListState("live"),
                             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
                         ) {
-                            items(homeLiveChannels, key = { it.media.id }) { item ->
+                            itemsIndexed(homeLiveChannels, key = { _, item -> item.media.id }) { index, item ->
                                 val current = viewModel.getCachedCurrentEpgForId(item.media.id, currentTime) ?: item.currentProgram
                                 HomeLiveCard(
                                     channel = item.media,
                                     currentProgram = current,
+                                    modifier = homeRowItemModifier("live", index),
                                     onFocused = {
                                         focusedLiveId = it
                                         presentedLiveId = it
+                                        focusedHomeRowKey = "live"
                                     },
                                     onClick = { onMediaSelected(item.media) }
                                 )
@@ -328,7 +421,6 @@ fun HomeScreen(
 
                 // 1. Fortsätt titta (History)
                 */
-                val filteredHistory = history.filter { it.type != MediaType.LIVE }
                 if (filteredHistory.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column(modifier = Modifier.padding(top = 0.dp)) {
@@ -341,11 +433,18 @@ fun HomeScreen(
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             LazyRow(
+                                state = homeRowListState("continue"),
                                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                                 contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
                             ) {
-                                items(filteredHistory.take(15)) { item ->
-                                    HistoryCard(item, viewModel) { onMediaSelected(item) }
+                                itemsIndexed(filteredHistory.take(15)) { index, item ->
+                                    HistoryCard(
+                                        media = item,
+                                        viewModel = viewModel,
+                                        modifier = homeRowItemModifier("continue", index),
+                                        onFocused = { focusedHomeRowKey = "continue" },
+                                        onClick = { onMediaSelected(item) }
+                                    )
                                 }
                             }
                         }
@@ -358,6 +457,9 @@ fun HomeScreen(
                             title = "TRENDAR – FILMER",
                             items = discoveryMovies,
                             viewModel = viewModel,
+                            listState = homeRowListState("trending_movies"),
+                            focusRequester = homeRowFocusRequester("trending_movies"),
+                            onItemFocused = { focusedHomeRowKey = "trending_movies" },
                             onMediaClick = onMediaSelected
                         )
                     }
@@ -368,6 +470,9 @@ fun HomeScreen(
                             title = "TRENDAR – SERIER",
                             items = discoverySeries,
                             viewModel = viewModel,
+                            listState = homeRowListState("trending_series"),
+                            focusRequester = homeRowFocusRequester("trending_series"),
+                            onItemFocused = { focusedHomeRowKey = "trending_series" },
                             onMediaClick = onMediaSelected
                         )
                     }
@@ -377,23 +482,48 @@ fun HomeScreen(
                 // 2. Nyligen tillagt
                 if (recentlyAdded.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        MediaRow("NYLIGEN TILLAGT", recentlyAdded, viewModel) { onMediaSelected(it) }
+                        MediaRow(
+                            title = "NYLIGEN TILLAGT",
+                            items = recentlyAdded,
+                            viewModel = viewModel,
+                            listState = homeRowListState("recently_added"),
+                            focusRequester = homeRowFocusRequester("recently_added"),
+                            onItemFocused = { focusedHomeRowKey = "recently_added" },
+                            onMediaClick = { onMediaSelected(it) }
+                        )
                     }
                 }
 
                 // 4. Favoriter Film
                 if (favoriteMovies.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        MediaRow("FAVORITER FILM", favoriteMovies, viewModel) { onMediaSelected(it) }
+                        MediaRow(
+                            title = "FAVORITER FILM",
+                            items = favoriteMovies,
+                            viewModel = viewModel,
+                            listState = homeRowListState("favorite_movies"),
+                            focusRequester = homeRowFocusRequester("favorite_movies"),
+                            onItemFocused = { focusedHomeRowKey = "favorite_movies" },
+                            onMediaClick = { onMediaSelected(it) }
+                        )
                     }
                 }
 
                 // 5. Favoriter Serier
                 if (favoriteSeries.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        MediaRow("FAVORITER SERIER", favoriteSeries, viewModel) { onMediaSelected(it) }
+                        MediaRow(
+                            title = "FAVORITER SERIER",
+                            items = favoriteSeries,
+                            viewModel = viewModel,
+                            listState = homeRowListState("favorite_series"),
+                            focusRequester = homeRowFocusRequester("favorite_series"),
+                            onItemFocused = { focusedHomeRowKey = "favorite_series" },
+                            onMediaClick = { onMediaSelected(it) }
+                        )
                     }
                 }
+
             }
         }
 
@@ -450,6 +580,7 @@ fun HomeScreen(
 private fun HomeLiveCard(
     channel: MediaSource,
     currentProgram: EpgListing?,
+    modifier: Modifier = Modifier,
     onFocused: (Int) -> Unit,
     onClick: () -> Unit
 ) {
@@ -467,7 +598,7 @@ private fun HomeLiveCard(
     }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .width(150.dp)
             .onFocusChanged {
                 hasFocus = it.isFocused
@@ -568,6 +699,9 @@ private fun DiscoveryMediaRow(
     title: String,
     items: List<HomeDiscoveryItem>,
     viewModel: MediaViewModel,
+    listState: LazyListState,
+    focusRequester: FocusRequester? = null,
+    onItemFocused: (() -> Unit)? = null,
     onMediaClick: (MediaSource) -> Unit
 ) {
     Column(modifier = Modifier.padding(top = 4.dp)) {
@@ -579,10 +713,11 @@ private fun DiscoveryMediaRow(
         )
         Spacer(modifier = Modifier.height(4.dp))
         LazyRow(
+            state = listState,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
         ) {
-            items(items.take(10), key = { it.media.id }) { item ->
+            itemsIndexed(items.take(10), key = { _, item -> item.media.id }) { index, item ->
                 val posterUrl = item.posterUrl?.takeIf { it.isNotBlank() }
                 val presentationMedia = item.media.copy(
                     title = item.title,
@@ -591,6 +726,9 @@ private fun DiscoveryMediaRow(
                 MediaCard(
                     media = presentationMedia,
                     viewModel = viewModel,
+                    modifier = Modifier
+                        .then(if (index == 0 && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+                    onFocused = onItemFocused,
                     onClick = { onMediaClick(item.media) },
                     onToggleFavorite = { viewModel.toggleFavorite(item.media) }
                 )
@@ -604,21 +742,29 @@ fun MediaRow(
     title: String, 
     items: List<MediaSource>, 
     viewModel: MediaViewModel, 
+    listState: LazyListState,
     isHorizontal: Boolean = false,
+    focusRequester: FocusRequester? = null,
+    onItemFocused: (() -> Unit)? = null,
     onMediaClick: (MediaSource) -> Unit
 ) {
     Column(modifier = Modifier.padding(top = 4.dp)) {
         Text(title, style = MaterialTheme.typography.labelMedium, color = Color.Gray, modifier = Modifier.padding(horizontal = 32.dp))
         Spacer(modifier = Modifier.height(4.dp))
         LazyRow(
+            state = listState,
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
         ) {
-            items(items) { item ->
+            itemsIndexed(items) { index, item ->
+                val itemModifier = Modifier
+                    .then(if (index == 0 && focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 if (isHorizontal) {
                     HistoryCard(
                         media = item,
                         viewModel = viewModel,
+                        modifier = itemModifier,
+                        onFocused = onItemFocused,
                         onToggleFavorite = { viewModel.toggleFavorite(item) },
                         onClick = { onMediaClick(item) }
                     )
@@ -626,6 +772,8 @@ fun MediaRow(
                     MediaCard(
                         media = item,
                         viewModel = viewModel,
+                        modifier = itemModifier,
+                        onFocused = onItemFocused,
                         onClick = { onMediaClick(item) },
                         onToggleFavorite = { viewModel.toggleFavorite(item) }
                     )
@@ -671,6 +819,8 @@ fun SmallActionCard(title: String, icon: ImageVector, modifier: Modifier = Modif
 fun HistoryCard(
     media: MediaSource, 
     viewModel: MediaViewModel,
+    modifier: Modifier = Modifier,
+    onFocused: (() -> Unit)? = null,
     onToggleFavorite: (() -> Unit)? = null,
     onClick: () -> Unit
 ) {
@@ -681,9 +831,12 @@ fun HistoryCard(
     val displayIcon = viewModel.getIconForId(media.id, media.type, media.title) ?: media.icon
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .width(160.dp)
-            .onFocusChanged { hasFocus = it.isFocused }
+            .onFocusChanged {
+                hasFocus = it.isFocused
+                if (it.isFocused) onFocused?.invoke()
+            }
             .scale(if (hasFocus) 1.05f else 1.0f)
             .onKeyEvent { keyEvent ->
                 val isCenterKey = keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || 

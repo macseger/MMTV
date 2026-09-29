@@ -291,7 +291,7 @@ fun HomeScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
                             state = homeRowListState("live"),
                             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 4.dp)
                         ) {
@@ -599,7 +599,7 @@ private fun HomeLiveCard(
 
     Column(
         modifier = modifier
-            .width(150.dp)
+            .width(160.dp)
             .onFocusChanged {
                 hasFocus = it.isFocused
                 if (it.isFocused) onFocused(channel.id)

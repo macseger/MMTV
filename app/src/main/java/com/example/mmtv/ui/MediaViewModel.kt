@@ -720,7 +720,7 @@ class MediaViewModel(
                     .map { it.id }
                     .distinct()
                     .forEach { id -> if (canonical.containsKey(id)) add(id) }
-            }.take(5)
+            }.take(20)
 
             val media = orderedIds.mapNotNull { canonical[it] }
             val epgIds = media.associate { item ->

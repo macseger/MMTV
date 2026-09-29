@@ -89,6 +89,7 @@ fun MediaListScreen(
                 .filter { it.categoryId != "HISTORY" && it.categoryId != "FAVORITES" }
                 .flatMap { it.items.asSequence() }
                 .distinctBy { it.id }
+                .sortedByDescending { it.addedDate }
                 .toList()
             listOf(
                 GroupedMedia(
@@ -123,6 +124,12 @@ fun MediaListScreen(
     
     val categoryFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
     val channelFocusRequesters = remember { mutableMapOf<Int, FocusRequester>() }
+
+    LaunchedEffect(hasSyntheticAllCategory, initialCategoryIndex, resetToAllToken) {
+        if (hasSyntheticAllCategory && (initialCategoryIndex < 0 || resetToAllToken > 0)) {
+            onSyntheticAllSelected()
+        }
+    }
 
     // Debounce category change to avoid jank when scrolling fast
     LaunchedEffect(selectedCategoryIndex) {
@@ -348,6 +355,7 @@ fun MediaListScreen(
                 val isCategoryLoading = mediaType != null && loadingKey != null &&
                     viewModel.loadingCategory == (mediaType to loadingKey)
                 Box(modifier = Modifier.fillMaxSize()) {
+                    val hidePartialSyntheticAll = isCategoryLoading && loadingKey == "__ALL_VOD__"
                     LazyVerticalGrid(
                         state = gridState,
                         columns = GridCells.Adaptive(minSize = 124.dp),
@@ -355,7 +363,7 @@ fun MediaListScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalArrangement = Arrangement.spacedBy(20.dp)
                     ) {
-                        val items = selectedCategory?.items ?: emptyList()
+                        val items = if (hidePartialSyntheticAll) emptyList() else selectedCategory?.items.orEmpty()
                         items(items, key = { it.id }) { media ->
                             val requester = channelFocusRequesters.getOrPut(media.id) { FocusRequester() }
 
@@ -380,7 +388,7 @@ fun MediaListScreen(
                             )
                         }
                     }
-                    if (isCategoryLoading && selectedCategory?.items.isNullOrEmpty()) {
+                    if (isCategoryLoading && (hidePartialSyntheticAll || selectedCategory?.items.isNullOrEmpty())) {
                         Column(
                             modifier = Modifier.align(Alignment.Center),
                             horizontalAlignment = Alignment.CenterHorizontally,

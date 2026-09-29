@@ -1171,21 +1171,51 @@ class MediaViewModel(
 
     /** Loads the real VOD categories used by the UI's synthetic "all" filter. */
     fun loadAllItemsForType(type: MediaType): Job {
-        categoryLoadJobs[type]?.cancel()
         val loadingKey = type to "__ALL_VOD__"
+        categoryLoadJobs[type]
+            ?.takeIf { it.isActive && loadingCategory == loadingKey }
+            ?.let { return it }
+        categoryLoadJobs[type]?.cancel()
         return viewModelScope.launch {
+            val groups = when (type) {
+                MediaType.MOVIE -> uiState.movieCategories
+                MediaType.SERIES -> uiState.seriesCategories
+                MediaType.LIVE -> emptyList()
+            }.filter {
+                it.categoryId != null && it.categoryId != "HISTORY" && it.categoryId != "FAVORITES"
+            }
+            if (groups.isEmpty() || groups.all { it.items.isNotEmpty() }) return@launch
+
             loadingCategory = loadingKey
             try {
-                val groups = when (type) {
-                    MediaType.MOVIE -> uiState.movieCategories
-                    MediaType.SERIES -> uiState.seriesCategories
-                    MediaType.LIVE -> emptyList()
+                val categoryIds = groups.mapNotNull { it.categoryId }.toSet()
+                val itemsByCategory = withContext(Dispatchers.IO) {
+                    mediaDao.getMediaByType(type)
+                        .asSequence()
+                        .filter { it.categoryId in categoryIds }
+                        .map { it.toMediaSource() }
+                        .groupBy { it.categoryId }
+                        .mapValues { (_, items) -> items.sortedByDescending { it.addedDate } }
                 }
-                groups
-                    .filter { it.categoryId != null && it.categoryId != "HISTORY" && it.categoryId != "FAVORITES" }
-                    .forEach { group ->
-                        loadCategoryItems(type, group.categoryId, prefetchEpg = false)
-                    }
+                currentCoroutineContext().ensureActive()
+
+                uiState = when (type) {
+                    MediaType.MOVIE -> uiState.copy(
+                        movieCategories = uiState.movieCategories.map { group ->
+                            group.categoryId?.takeIf(categoryIds::contains)
+                                ?.let { group.copy(items = itemsByCategory[it].orEmpty()) }
+                                ?: group
+                        }
+                    )
+                    MediaType.SERIES -> uiState.copy(
+                        seriesCategories = uiState.seriesCategories.map { group ->
+                            group.categoryId?.takeIf(categoryIds::contains)
+                                ?.let { group.copy(items = itemsByCategory[it].orEmpty()) }
+                                ?: group
+                        }
+                    )
+                    MediaType.LIVE -> uiState
+                }
             } finally {
                 if (loadingCategory == loadingKey) loadingCategory = null
             }

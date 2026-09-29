@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,6 +52,7 @@ import com.example.mmtv.model.HomeDiscoveryItem
 import com.example.mmtv.model.MediaSource
 import com.example.mmtv.model.MediaType
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 
 private const val HOME_FOCUS_LOG_TAG = "MMTV_HOME_FOCUS" // TEMP diagnostics
 
@@ -59,6 +61,7 @@ fun HomeScreen(
     viewModel: MediaViewModel,
     onNavigate: (String) -> Unit,
     onMediaSelected: (MediaSource) -> Unit,
+    resetToTopToken: Int = 0,
     topBarFocusRequester: FocusRequester? = null
 ) {
     val recentlyAdded by viewModel.recentlyAdded.collectAsState()
@@ -88,6 +91,7 @@ fun HomeScreen(
     val homeGridState = rememberLazyGridState()
     val homeFocusScope = rememberCoroutineScope()
     var verticalFocusJob by remember { mutableStateOf<Job?>(null) }
+    var appliedResetToTopToken by rememberSaveable { mutableIntStateOf(0) }
     fun homeRowFocusRequester(key: String): FocusRequester =
         homeRowFocusRequesters.getOrPut(key) { FocusRequester() }
     fun homeRowListState(key: String): LazyListState =
@@ -192,6 +196,23 @@ fun HomeScreen(
         if (presentedLiveId == null || homeLiveChannels.none { it.media.id == presentedLiveId }) {
             presentedLiveId = firstId
         }
+    }
+    LaunchedEffect(resetToTopToken, homeRowKeys) {
+        if (resetToTopToken <= 0 || resetToTopToken == appliedResetToTopToken) {
+            return@LaunchedEffect
+        }
+        val firstRowKey = homeRowKeys.firstOrNull() ?: return@LaunchedEffect
+        val firstRowIndex = homeRowAnchors[firstRowKey] ?: return@LaunchedEffect
+        verticalFocusJob?.cancel()
+        homeGridState.scrollToItem(firstRowIndex)
+        homeRowListState(firstRowKey).scrollToItem(0)
+        snapshotFlow {
+            homeGridState.layoutInfo.visibleItemsInfo.any { it.index == firstRowIndex }
+        }.first { it }
+        withFrameNanos { }
+        focusedHomeRowKey = firstRowKey
+        homeRowFocusRequester(firstRowKey).requestFocus()
+        appliedResetToTopToken = resetToTopToken
     }
     LaunchedEffect(Unit) {
         while (true) {

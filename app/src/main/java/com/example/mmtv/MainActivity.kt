@@ -335,7 +335,7 @@ class MainActivity : AppCompatActivity() {
                                 if (showTopBar) {
                                     TopBar(
                                         onNavigate = { dest -> 
-                                            if (dest == "live" || dest == "movies" || dest == "series") {
+                                            if (dest == "home" || dest == "live" || dest == "movies" || dest == "series") {
                                                 explicitSectionRoute = dest
                                                 sectionEntryToken++
                                                 when (dest) {
@@ -422,6 +422,7 @@ class MainActivity : AppCompatActivity() {
                                         HomeScreen(
                                             viewModel = sharedViewModel,
                                             onNavigate = { dest -> navController.navigate(dest) },
+                                            resetToTopToken = if (explicitSectionRoute == "home") sectionEntryToken else 0,
                                             onMediaSelected = { media ->
                                                 sharedViewModel.addToHistory(media)
                                                 if (media.type == MediaType.LIVE) {

@@ -194,7 +194,7 @@ fun HomeScreen(
                 if (homeLiveChannels.isNotEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            "SENAST TITTADE",
+                            "SENASTE LIVE KANALER",
                             style = MaterialTheme.typography.labelMedium,
                             color = Color.Gray,
                             modifier = Modifier.padding(horizontal = 32.dp)
@@ -552,9 +552,14 @@ private fun HomeLiveFocusInfo(program: EpgListing) {
     Column(modifier = Modifier.padding(horizontal = 32.dp, vertical = 8.dp)) {
         Text(program.title.orEmpty(), color = Color.White, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
         Spacer(modifier = Modifier.height(6.dp))
-        program.description?.takeIf { it.isNotBlank() }?.let {
-            Text(it, color = Color.Gray, style = MaterialTheme.typography.bodySmall, maxLines = 4, overflow = TextOverflow.Ellipsis)
-        }
+        Text(
+            text = program.description.orEmpty(),
+            color = Color.Gray,
+            style = MaterialTheme.typography.bodySmall,
+            minLines = 3,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 

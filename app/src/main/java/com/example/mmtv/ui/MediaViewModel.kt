@@ -89,6 +89,12 @@ data class HomeLiveChannel(
     val currentProgram: EpgListing? = null
 )
 
+data class InitialLivePlaybackSelection(
+    val initialChannel: MediaSource,
+    val fallbackChannel: MediaSource?,
+    val allChannels: List<MediaSource>
+)
+
 class MediaViewModel(
     private var _repository: MediaRepository, 
     private val sessionManager: SessionManager, 
@@ -741,6 +747,37 @@ class MediaViewModel(
             }
         }
     }
+
+    /** Resolves the bounded TopBar Live start from canonical Room rows in provider order. */
+    suspend fun resolveInitialLivePlayback(history: List<MediaSource>): InitialLivePlaybackSelection? =
+        withContext(Dispatchers.IO) {
+            val selectedCategories = sessionManager.getSyncCategories(MediaType.LIVE)
+            val allChannels = mediaDao.getMediaByType(MediaType.LIVE)
+                .asSequence()
+                .filter { it.id > 0 && it.categoryId in selectedCategories }
+                .map { it.toMediaSource() }
+                .distinctBy { it.id }
+                .toList()
+            if (allChannels.isEmpty()) return@withContext null
+
+            val canonicalById = allChannels.associateBy { it.id }
+            val latestHistoryChannel = history.asSequence()
+                .filter { it.type == MediaType.LIVE && it.id > 0 }
+                .map { it.id }
+                .distinct()
+                .mapNotNull(canonicalById::get)
+                .firstOrNull()
+            val initialChannel = latestHistoryChannel ?: allChannels.first()
+            val initialIndex = allChannels.indexOfFirst { it.id == initialChannel.id }
+            val fallbackChannel = if (allChannels.size > 1 && initialIndex >= 0) {
+                allChannels[(initialIndex + 1) % allChannels.size]
+                    .takeIf { it.id != initialChannel.id }
+            } else {
+                null
+            }
+
+            InitialLivePlaybackSelection(initialChannel, fallbackChannel, allChannels)
+        }
 
     fun updateRepository(newRepository: MediaRepository) {
         this._repository = newRepository

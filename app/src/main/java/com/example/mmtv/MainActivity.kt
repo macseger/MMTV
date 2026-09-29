@@ -63,6 +63,13 @@ import androidx.work.*
 import com.example.mmtv.repository.DataSyncWorker
 import java.util.concurrent.TimeUnit
 
+private data class InitialLiveStartState(
+    val playlist: List<MediaSource>,
+    val fallbackChannel: MediaSource?,
+    val currentAttemptChannelId: Int,
+    val attemptCount: Int
+)
+
 class MainActivity : AppCompatActivity() {
 
     private lateinit var sharedViewModel: MediaViewModel
@@ -123,6 +130,8 @@ class MainActivity : AppCompatActivity() {
                     var provisioningStatus by remember { mutableStateOf("") }
                     var sectionEntryToken by remember { mutableIntStateOf(0) }
                     var explicitSectionRoute by remember { mutableStateOf<String?>(null) }
+                    var initialLiveStartToken by remember { mutableIntStateOf(0) }
+                    var initialLiveStartState by remember { mutableStateOf<InitialLiveStartState?>(null) }
 
                     // Network loading and category selection are rendered inside the app.
                     // Never keep the splash visible while waiting for an empty channel list.
@@ -342,14 +351,27 @@ class MainActivity : AppCompatActivity() {
                                             }
                                         },
                                         onLiveTvClick = {
-                                            explicitSectionRoute = "live"
-                                            sectionEntryToken++
-                                            sharedViewModel.lastLiveCategoryIndex = 0
-                                            val favIndex = sharedViewModel.uiState.liveCategories.indexOfFirst { it.categoryId == "FAVORITES" && it.items.isNotEmpty() }
-                                            navController.navigate("live") {
-                                                popUpTo("home") { saveState = true }
-                                                launchSingleTop = true
-                                                restoreState = true
+                                            val entryToken = ++initialLiveStartToken
+                                            lifecycleScope.launch {
+                                                val selection = sharedViewModel.resolveInitialLivePlayback(
+                                                    sharedViewModel.uiState.history
+                                                ) ?: return@launch
+                                                if (entryToken != initialLiveStartToken) return@launch
+
+                                                sharedViewModel.lastLiveCategoryIndex = 0
+                                                initialLiveStartState = InitialLiveStartState(
+                                                    playlist = selection.allChannels,
+                                                    fallbackChannel = selection.fallbackChannel,
+                                                    currentAttemptChannelId = selection.initialChannel.id,
+                                                    attemptCount = 1
+                                                )
+                                                playMedia(
+                                                    navController,
+                                                    selection.initialChannel,
+                                                    sessionManager,
+                                                    sharedViewModel,
+                                                    selection.allChannels
+                                                )
                                             }
                                         },
                                         searchQuery = sharedViewModel.searchQuery,
@@ -780,12 +802,19 @@ class MainActivity : AppCompatActivity() {
 
                                     composable("player/{url}") { backStackEntry ->
                                         val url = backStackEntry.arguments?.getString("url") ?: ""
+                                        val playerMedia = sharedViewModel.selectedMedia
+                                        val isInitialLiveAttempt = initialLiveStartState
+                                            ?.takeIf { state ->
+                                                playerMedia?.type == MediaType.LIVE &&
+                                                    state.currentAttemptChannelId == playerMedia.id
+                                            }
                                         PlayerScreen(
                                             url = url,
-                                            media = sharedViewModel.selectedMedia,
+                                            media = playerMedia,
                                             playlist = sharedViewModel.currentPlaylist,
                                             categories = sharedViewModel.uiState.liveStreamsGrouped,
                                             onMediaSelected = { newMedia ->
+                                                initialLiveStartState = null
                                                 sharedViewModel.addToHistory(newMedia)
                                                 playMedia(navController, newMedia, sessionManager, sharedViewModel, sharedViewModel.currentPlaylist)
                                             },
@@ -800,15 +829,18 @@ class MainActivity : AppCompatActivity() {
                                                 }
                                             },
                                             onBackPressed = {
+                                                initialLiveStartState = null
                                                 navController.popBackStack()
                                             },
                                             onBackgrounded = {
+                                                initialLiveStartState = null
                                                 navController.navigate("home") {
                                                     popUpTo("home") { inclusive = false }
                                                     launchSingleTop = true
                                                 }
                                             },
                                             onPlayNextEpisode = { ep ->
+                                                initialLiveStartState = null
                                                 sessionManager.getLogin()?.let { login ->
                                                     val (h, u, p) = login
                                                     val streamUrl = "${h}/series/${u}/${p}/${ep.id}.${ep.containerExtension ?: "mp4"}"
@@ -825,6 +857,7 @@ class MainActivity : AppCompatActivity() {
                                                 }
                                             },
                                             onArchiveSelected = { listing ->
+                                                initialLiveStartState = null
                                                 val selected = sharedViewModel.selectedMedia
                                                 val login = sessionManager.getLogin()
                                                 val start = listing.startTimestamp
@@ -843,6 +876,7 @@ class MainActivity : AppCompatActivity() {
                                                 }
                                             },
                                             onReturnToLive = {
+                                                initialLiveStartState = null
                                                 val selected = sharedViewModel.selectedMedia
                                                 val login = sessionManager.getLogin()
                                                 if (selected?.type == MediaType.LIVE && login != null) {
@@ -853,6 +887,37 @@ class MainActivity : AppCompatActivity() {
                                                     navController.navigate("player/$encodedUrl") {
                                                         popUpTo(navController.currentDestination?.route ?: "player/{url}") { inclusive = true }
                                                         launchSingleTop = true
+                                                    }
+                                                }
+                                            },
+                                            openLiveOverlayInitially = isInitialLiveAttempt != null,
+                                            onInitialLivePlaybackReady = { mediaId ->
+                                                if (initialLiveStartState?.currentAttemptChannelId == mediaId) {
+                                                    initialLiveStartState = null
+                                                }
+                                            },
+                                            onInitialLivePlaybackError = { mediaId ->
+                                                val state = initialLiveStartState
+                                                if (state != null &&
+                                                    state.currentAttemptChannelId == mediaId &&
+                                                    state.attemptCount == 1
+                                                ) {
+                                                    val fallback = state.fallbackChannel
+                                                    if (fallback != null && fallback.id != mediaId) {
+                                                        initialLiveStartState = state.copy(
+                                                            fallbackChannel = null,
+                                                            currentAttemptChannelId = fallback.id,
+                                                            attemptCount = 2
+                                                        )
+                                                        playMedia(
+                                                            navController,
+                                                            fallback,
+                                                            sessionManager,
+                                                            sharedViewModel,
+                                                            state.playlist
+                                                        )
+                                                    } else {
+                                                        initialLiveStartState = state.copy(attemptCount = 2)
                                                     }
                                                 }
                                             },

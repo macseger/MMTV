@@ -142,6 +142,9 @@ fun PlayerScreen(
     onPlayNextEpisode: (Episode) -> Unit = {},
     onArchiveSelected: (EpgListing) -> Unit = {},
     onReturnToLive: () -> Unit = {},
+    openLiveOverlayInitially: Boolean = false,
+    onInitialLivePlaybackReady: (Int) -> Unit = {},
+    onInitialLivePlaybackError: (Int) -> Unit = {},
     viewModel: MediaViewModel
 ) {
     val context = LocalContext.current
@@ -210,7 +213,12 @@ fun PlayerScreen(
     // --- STATES ---
     var isPlaying by remember { mutableStateOf(true) }
     var isBuffering by remember { mutableStateOf(false) }
-    var overlayState by remember { mutableStateOf(OverlayState.NONE) }
+    var overlayState by remember(url) {
+        mutableStateOf(
+            if (openLiveOverlayInitially && isLiveStream) OverlayState.CHANNELS
+            else OverlayState.NONE
+        )
+    }
     var showSeekFeedback by remember { mutableStateOf(false) }
     var channelNumberBuffer by remember { mutableStateOf("") }
     var channelNumberJob by remember { mutableStateOf<Job?>(null) }
@@ -742,7 +750,11 @@ fun PlayerScreen(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                if (isLiveStream || compatibilityRetryAttempted ||
+                if (isLiveStream) {
+                    media?.id?.let(onInitialLivePlaybackError)
+                    return
+                }
+                if (compatibilityRetryAttempted ||
                     error.errorCode != PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED
                 ) return
 
@@ -779,7 +791,7 @@ fun PlayerScreen(
                 audioFormat = exoPlayer.audioFormat
                 
                 if (playbackState == Player.STATE_READY) {
-                    // Ready
+                    if (isLiveStream) media?.id?.let(onInitialLivePlaybackReady)
                 }
 
                 if (playbackState == Player.STATE_ENDED) {
